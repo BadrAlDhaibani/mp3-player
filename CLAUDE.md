@@ -7,6 +7,17 @@ browse the `.mp3` files in it, play them — and warp the audio into **nightcore
 This file is the project's memory and **the single source of truth for status**.
 If a box below isn't ticked, it isn't done.
 
+> ## ▶ Resume here
+>
+> **Done:** Batch 0 (spike) · Batch 1 (core library & settings) ·
+> Batch 2 (audio engine, 174 tests green)
+> **Next:** **Batch 3 — ugly working player.** Launchers first, then
+> `controller.py` and a plain Qt window. First batch that imports Qt.
+>
+> Starting a fresh session? Read the decisions log and conventions below before
+> writing anything — they're the accumulated agreements, not suggestions.
+> Then confirm the batch with the user before starting it.
+
 ---
 
 ## v1 scope
@@ -40,6 +51,10 @@ here and write down why.
 | **Stream sample rate is negotiated, not fixed** | WASAPI shared mode only accepts the device's mix rate (48 kHz here, not 44.1). Costs nothing — the file's rate is folded into the resample ratio anyway. |
 | **Dev launcher runs live source; `.exe` only at v1** | PyInstaller with PySide6 is 80–150 MB and 30–60 s per build — rebuilding after every edit would dominate development. A shortcut pointing at `pythonw.exe` gives the same double-click feel with zero rebuild cost. |
 | **Two launchers: `run.bat` (console) + shortcut (no console)** | The console is worth having while debugging — tracebacks and prints go somewhere visible. The shortcut is for the real-app feel. Same live source behind both. |
+| **`Mixer` is split out of `AudioEngine`** | The callback body is where every subtle bug will live (fades, seek timing, end-of-track), and it needed to be testable block-by-block with no device, no threads and no real time. `AudioEngine` is left as a thin shell over PortAudio. Batch 2: 41 offline tests against `Mixer`, none needing a sound card. |
+| **End of track is polled, not pushed** | The roadmap said "end-of-track callback", but the conventions forbid calling anything from the audio thread. The callback sets a flag; `take_finished()` reports it once to the 30 Hz poll. No callable is exposed at all — a footgun nobody needs. |
+| **Seeks are serial-tagged, not consume-and-clear** | A slider drag posts a stream of seeks. If the audio thread cleared the request slot, a seek posted microseconds later could be dropped. The audio thread only ever *reads* the slot and records which serial it applied, so the last seek always wins. |
+| **Tracks fade out at their own end** | Files do not reliably end on silence. Running off the end and zero-filling is itself a step — the first thing Batch 2's tests caught. `resample` reports how many frames were real; the voice ramps the last 10 ms down to meet the silence. |
 | **Non-MP3 files are skipped, not listed** | ~8% of this library's `.mp3` files are actually MP4/AAC (YouTube downloads with the wrong extension). libsndfile can't decode AAC, and adding PyAV (~35 MB) isn't worth it for a novelty app. `scan_folder()` sniffs magic bytes and drops anything that isn't real MP3. Revisit post-v1 if the missing 8% becomes annoying. |
 
 ### Open questions
@@ -63,8 +78,8 @@ mp3player/
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
-      engine.py          # AudioEngine -- always-on stream, mixing, transport
-      dsp.py             # resampling, fades
+      dsp.py             # resample(), Fader, fade_out_at() -- pure numpy
+      engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics -- single source of truth
@@ -74,6 +89,7 @@ mp3player/
     widgets/             # wave.py, crossbar.py, item_column.py, transport.py
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
+tools/                   # dev harnesses -- runnable, kept, not shipped
 tests/                   # core only, no display needed
 ```
 
@@ -104,6 +120,12 @@ Batch 0: 440 Hz in → 572 Hz at 1.30x, 352 Hz at 0.80x, zero discontinuities.
 
 Known and accepted: speeding up without an anti-alias filter aliases content above
 ~17 kHz. Every nightcore edit on the internet does exactly this. Not fixing it in v1.
+
+**Every gain change goes through a `Fader`** — play, pause, seek, track change,
+volume drag. A gain that jumps puts a vertical edge in the waveform, and that edge
+is the click. A seek can't just move `pos`: the callback fades the music out
+first, jumps on the block where the gain reaches zero, then fades back in — about
+21 ms, inaudible as a delay, silent as a transition.
 
 ---
 
@@ -162,14 +184,21 @@ At the end of a batch, tick these boxes, report what's done and what's left, and
 Verified against the real library: `~/Music` 31 playable / 6 skipped,
 `~/Downloads` 199 playable / 14 skipped — matching the Batch 0 survey exactly.
 
-### Batch 2 — Core: audio engine
+### Batch 2 — Core: audio engine ✅
 
-- [ ] `decode.py` — `load_audio()` → `float32[n,2]` + sample rate, mono upmixed
-- [ ] `dsp.py` — resample block, fade helpers
-- [ ] `engine.py` — always-on stream, music voice, transport, live speed, volume,
-      end-of-track callback, device negotiation
-- [ ] `sfx.py` — synthesized blips + `play_sfx()` mixing into the same stream
-- [ ] Tests for `dsp` and `sfx`; manual harness for the engine
+- [x] `decode.py` — `load_audio()` → `float32[n,2]` + sample rate, mono upmixed,
+      surround folded, every failure a `DecodeError`
+- [x] `dsp.py` — `resample()`, `Fader`, `fade_out_at()`
+- [x] `engine.py` — always-on stream, music voice, transport, live speed, volume,
+      end-of-track (polled, not pushed), device negotiation
+- [x] `sfx.py` — synthesized blips + `play_sfx()` into a fixed voice pool on the
+      same stream
+- [x] Tests for `decode`, `dsp`, `sfx` **and `Mixer`** — 120 new, 174 total
+- [x] `tools/engine_harness.py` — keyboard-driven, no Qt
+
+Verified on hardware: WASAPI @ 48 kHz, 22 ms, zero underruns. A 44.1 kHz file
+plays at correct pitch and duration through the 48 kHz stream; speed reassigned
+mid-playback tracked 1.27x against a requested 1.30x over a half-second window.
 
 ### Batch 3 — Ugly working player
 
@@ -224,6 +253,11 @@ venv/Scripts/python.exe -m mp3player.app
 
 # tests
 venv/Scripts/python.exe -m pytest
+
+# the Batch 2 harness -- keyboard-driven audio engine, no Qt
+venv/Scripts/python.exe tools/engine_harness.py            # the saved folder
+venv/Scripts/python.exe tools/engine_harness.py "D:/Music"
+venv/Scripts/python.exe tools/engine_harness.py "song.mp3"
 
 # the Batch 0 spike -- 23s of normal -> nightcore -> daycore
 venv/Scripts/python.exe spike/nightcore_spike.py "path/to/song.mp3"

@@ -518,6 +518,12 @@ class AudioEngine:
     def pause(self) -> None:
         self.mixer.pause()
 
+    def clear(self) -> None:
+        """Drop the loaded track. Fades out first, so this is click-free."""
+        self.mixer.pause()
+        self._wait_for_silence()
+        self.mixer.clear_track()
+
     def toggle(self) -> None:
         self.mixer.toggle()
 

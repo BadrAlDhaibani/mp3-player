@@ -1,3 +1,10 @@
 venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# audio: never commit music or spike renders
+*.mp3
+*.wav
+*.m4a
+*.flac

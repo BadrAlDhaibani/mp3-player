@@ -40,6 +40,7 @@ CATEGORIES = (
 
 STATUS_MS = 6000  # how long a failure line stays up
 PAGE = 5  # items per PageUp/PageDown
+SPEED_STEP = 0.01  # one arrow press inside the speed slider
 
 
 class XmbStage(QWidget):
@@ -55,6 +56,7 @@ class XmbStage(QWidget):
         self.bar = Crossbar(self)
         self.column = ItemColumn(self)
         self._status = ""
+        self._dragging = False
 
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
@@ -80,11 +82,13 @@ class XmbStage(QWidget):
         painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setFont(theme.font(13))
         painter.setPen(theme.WARN)
+        # Aligned with the item column, not with the window edge: the gutter to
+        # the left belongs to the art placeholder, and the two used to overlap.
         painter.drawText(
             QRect(
-                theme.RIGHT_MARGIN,
+                theme.ITEM_X,
                 self.height() - theme.STATUS_MARGIN - 22,
-                self.width() - 2 * theme.RIGHT_MARGIN,
+                self.width() - theme.ITEM_X - theme.RIGHT_MARGIN,
                 22,
             ),
             Qt.AlignLeft | Qt.AlignVCenter,
@@ -97,6 +101,16 @@ class XmbStage(QWidget):
         if event.button() != Qt.LeftButton:
             return
         pos = event.position().toPoint()
+
+        # The slider track is tested first: a press there is a drag, not a
+        # request to re-open the row it happens to sit on.
+        track = self.column.track_rect(self.column.index)
+        if track is not None and track.adjusted(-8, -10, 8, 10).contains(pos):
+            self._dragging = True
+            self.column.slider_moved.emit(
+                self.column.fraction_at(self.column.index, pos.x())
+            )
+            return
 
         item = self.column.hit(pos)
         if item is not None:
@@ -112,6 +126,19 @@ class XmbStage(QWidget):
         category = self.bar.hit(pos)
         if category is not None:
             self.bar.set_index(category)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging:
+            # Live, like the slider it replaced: hearing the pitch move while
+            # you drag is the entire point (decisions log).
+            self.column.slider_moved.emit(
+                self.column.fraction_at(
+                    self.column.index, event.position().toPoint().x()
+                )
+            )
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._dragging = False
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
@@ -174,12 +201,12 @@ class MainWindow(ChromeWindow):
 
         self.stage.bar.index_changed.connect(self._on_category)
         self.stage.column.activated.connect(self._activate)
+        self.stage.column.slider_moved.connect(self._on_slider_dragged)
 
         self.transport.play_pressed.connect(controller.toggle)
         self.transport.next_pressed.connect(controller.next_track)
         self.transport.previous_pressed.connect(controller.previous_track)
         self.transport.seek_requested.connect(controller.seek)
-        self.transport.speed_requested.connect(controller.set_speed)
         self.transport.volume_requested.connect(controller.set_volume)
 
     # -- controller -> shell ----------------------------------------------
@@ -215,8 +242,14 @@ class MainWindow(ChromeWindow):
 
     def _on_speed(self, speed: float) -> None:
         self._speed = speed
-        self.transport.set_speed(speed)
+        # Nothing to push at the transport bar any more -- the slider that shows
+        # this lives in the Now Playing column, which `_refresh_column` repaints
+        # along with the subtitle that names it.
         self._refresh_column()
+
+    def _on_slider_dragged(self, fraction: float) -> None:
+        span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
+        self.controller.set_speed(settings_mod.MIN_SPEED + fraction * span)
 
     # -- categories and items ---------------------------------------------
 
@@ -226,6 +259,7 @@ class MainWindow(ChromeWindow):
         # index rather than against `bar.index`.
         self._selection[self._category] = self.stage.column.index
         self._category = index
+        self.stage.column.set_editing(False)  # never carry edit mode across
         self._refresh_column(restore=True)
 
     def _refresh_column(self, *, reset: bool = False, restore: bool = False) -> None:
@@ -265,13 +299,15 @@ class MainWindow(ChromeWindow):
         )
 
     def _now_playing_items(self) -> list[Item]:
-        return [
-            Item("Pause" if self._playing else "Play"),
-            Item("Next track"),
-            Item("Previous track"),
-            Item("Restart track"),
-            Item("Find in Music"),
-        ]
+        """One row: the Daycore/Nightcore slider.
+
+        Everything this column used to offer -- play, next, previous, restart --
+        the transport bar at the bottom already does, so it said the same thing
+        twice. What it didn't have was the effect, which is the reason the app
+        exists. Speed applies whether or not a track is loaded, so this row is
+        live even on an empty library.
+        """
+        return [Item("Speed", f"{self._speed:.2f}x", fraction=_speed_fraction(self._speed))]
 
     def _music_items(self) -> list[Item]:
         playing = self.controller.index
@@ -289,12 +325,11 @@ class MainWindow(ChromeWindow):
         counts = f"{len(self._library.tracks)} tracks"
         if self._library.skipped:
             counts += f"  ·  {len(self._library.skipped)} skipped"
+        # No speed presets here any more -- they're the two ends of the slider
+        # on Now Playing, which is a better home for them than a settings list.
         return [
             Item("Music folder", self._folder.name if self._folder else "not set"),
             Item("Rescan folder", counts),
-            Item("Nightcore", f"{settings_mod.NIGHTCORE_SPEED:.2f}x"),
-            Item("Normal", f"{settings_mod.DEFAULT_SPEED:.2f}x"),
-            Item("Daycore", f"{settings_mod.DAYCORE_SPEED:.2f}x"),
             Item("Full screen", "F11"),
             Item("Quit", ""),
         ]
@@ -311,16 +346,10 @@ class MainWindow(ChromeWindow):
             self._activate_settings(index)
 
     def _activate_now(self, index: int) -> None:
+        # The only row is the slider: opening it steps into it, so the arrow
+        # keys drive the speed instead of the crossbar until you step back out.
         if index == 0:
-            self.controller.toggle()
-        elif index == 1:
-            self.controller.next_track()
-        elif index == 2:
-            self.controller.previous_track()
-        elif index == 3:
-            self.controller.seek(0.0)
-        elif index == 4:
-            self.stage.bar.set_index(CAT_MUSIC)
+            self.stage.column.set_editing(True)
 
     def _activate_settings(self, index: int) -> None:
         if index == 0:
@@ -328,14 +357,8 @@ class MainWindow(ChromeWindow):
         elif index == 1:
             self.controller.rescan()
         elif index == 2:
-            self.controller.set_speed(settings_mod.NIGHTCORE_SPEED)
-        elif index == 3:
-            self.controller.set_speed(settings_mod.DEFAULT_SPEED)
-        elif index == 4:
-            self.controller.set_speed(settings_mod.DAYCORE_SPEED)
-        elif index == 5:
             self.toggle_fullscreen()
-        elif index == 6:
+        elif index == 3:
             self.close()
 
     def _choose_folder(self) -> None:
@@ -353,6 +376,28 @@ class MainWindow(ChromeWindow):
     def keyPressEvent(self, event) -> None:
         key = event.key()
         modifiers = event.modifiers()
+
+        # Stepped into the speed slider: the arrows belong to it, and Escape
+        # means "leave the row" before it can mean "leave fullscreen".
+        if self.stage.column.editing:
+            if key == Qt.Key_Left:
+                self.controller.set_speed(self._speed - SPEED_STEP)
+            elif key == Qt.Key_Right:
+                self.controller.set_speed(self._speed + SPEED_STEP)
+            elif key in (
+                Qt.Key_Return,
+                Qt.Key_Enter,
+                Qt.Key_Escape,
+                Qt.Key_Backspace,
+                Qt.Key_Up,
+                Qt.Key_Down,
+            ):
+                self.stage.column.set_editing(False)
+            elif key == Qt.Key_Space:
+                self.controller.toggle()  # harmless, and expected to always work
+            else:
+                super().keyPressEvent(event)
+            return
 
         if key in (Qt.Key_Left, Qt.Key_Right):
             forward = key == Qt.Key_Right
@@ -391,6 +436,13 @@ class MainWindow(ChromeWindow):
             return
 
         self._selection[self._category] = self.stage.column.index
+
+
+def _speed_fraction(speed: float) -> float:
+    span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
+    if span <= 0:
+        return 0.0
+    return min(1.0, max(0.0, (speed - settings_mod.MIN_SPEED) / span))
 
 
 def _speed_name(speed: float) -> str:

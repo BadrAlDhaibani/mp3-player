@@ -18,11 +18,15 @@ DEFAULT_VOLUME = 0.8
 DEFAULT_SPEED = 1.0
 
 MIN_VOLUME, MAX_VOLUME = 0.0, 1.0
-MIN_SPEED, MAX_SPEED = 0.5, 1.5
 
-# Presets the UI offers; the slider spans MIN_SPEED..MAX_SPEED between them.
 DAYCORE_SPEED = 0.80
 NIGHTCORE_SPEED = 1.30
+
+# The presets *are* the ends of the speed slider, which is the only reason its
+# two labels can be read literally: slam the handle right and you get nightcore.
+# Anything outside is clamped on load, so an older settings file that saved
+# 1.45x quietly comes back as 1.30x.
+MIN_SPEED, MAX_SPEED = DAYCORE_SPEED, NIGHTCORE_SPEED
 
 
 def config_dir() -> Path:

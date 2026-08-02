@@ -114,12 +114,17 @@ ITEM_FADE_SPAN = 9.0  # distance at which an item would fade out completely
 ITEM_FADE_FLOOR = 0.38  # ...except it never gets dimmer than this, so a short
 # action list doesn't read as half-disabled. Long track lists still fall away.
 
-# The art placeholder shrinks to whatever room is left above the crossbar row,
-# and is dropped entirely below the minimum -- a clipped square looks like a
-# bug, and at 720x480 there is genuinely no room for one.
-HEADER_ART = 132  # the "now playing" art placeholder, square, at full size
-HEADER_ART_MIN = 64  # below this it isn't worth drawing
-HEADER_GAP = 26  # art block -> first item
+# The art placeholder lives in the empty gutter left of the item column, below
+# the category label -- not above the items. Stacking it above the column meant
+# competing with them for vertical room, which the 720x480 minimum simply does
+# not have; out here its size is bounded by the gutter instead, so no window
+# size can take it away.
+ART_MAX = 180
+ART_MIN = 56  # below this, don't bother
+ART_TOP_GAP = 46  # category label baseline -> top of the art
+ART_BOTTOM_PAD = 20
+
+HEADER_GAP = 26  # title/subtitle block -> first item
 
 RIGHT_MARGIN = 40
 STATUS_MARGIN = 18
@@ -133,10 +138,21 @@ RESIZE_MARGIN = 6  # window border the frameless resize grips live in
 # not: at 720 the row wanted 773 px, so Qt overlapped the readouts onto the
 # sliders it could not shrink. Every control below is a *range*.
 BUTTON_W, BUTTON_H = 34, 28
-SPEED_SLIDER = (72, 140)  # min, max
 VOLUME_SLIDER = (62, 96)
-SPEED_VALUE_W = 46
 VOLUME_VALUE_W = 36
+
+# Both sliders in the app work in hundredths, so 0.80x..1.30x is 80..130. Lives
+# here rather than in `transport.py` because the speed slider is painted by
+# `item_column.py` now and the two must agree.
+SPEED_SCALE = 100
+
+# The painted speed row: DAYCORE | track | NIGHTCORE | readout.
+SLIDER_END_LABEL = 10  # pixel size of the two end captions
+SLIDER_LABEL_GAP = 14
+SLIDER_TRACK_H = 4
+SLIDER_HANDLE = 12
+SLIDER_TRACK_MIN = 60  # narrower than this and the row isn't worth painting
+SLIDER_VALUE_W = 68  # room for the readout *and* a gap after NIGHTCORE
 
 WINDOW_DEFAULT = (980, 640)
 WINDOW_MINIMUM = (720, 480)

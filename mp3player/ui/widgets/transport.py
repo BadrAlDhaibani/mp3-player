@@ -1,14 +1,14 @@
-"""The bottom bar: seek, transport buttons, speed and volume.
+"""The bottom bar: seek, transport buttons, volume.
 
-Speed lives here rather than behind the Settings category on purpose. The
-decisions log calls the live speed slider "the entire app" -- dragging it and
-hearing the pitch move is the thing this player exists to do, so it stays on
-screen no matter which category you're in. The Settings column offers the three
-presets; this is the continuous control.
+Speed is deliberately *not* here. It used to be, on the grounds that the live
+speed slider is the whole point of the app and should be on screen in every
+category -- but once Now Playing became the page for the effect, keeping a
+second slider down here meant two controls for one value, which is the same
+redundancy that got the transport actions removed from that column. Now Playing
+owns speed; this bar owns everything about the track.
 
-Seek commits on release, speed and volume are live. That split is also from the
-decisions log: a live seek would post a fade-jump-fade per pixel and sound like
-a skipping CD, while a live speed change is the whole point.
+Seek commits on release, volume is live. That split is from the decisions log:
+a live seek would post a fade-jump-fade per pixel and sound like a skipping CD.
 """
 
 from __future__ import annotations
@@ -25,11 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mp3player.core import settings as settings_mod
 from mp3player.ui import theme
 
-# Both continuous knobs go through integer sliders.
-SPEED_SCALE = 100  # 0.50x .. 1.50x  ->  50 .. 150
 SEEK_SCALE = 10  # tenths of a second: smooth enough at the 30 Hz poll
 
 PREVIOUS_GLYPH = "⏮"
@@ -47,7 +44,6 @@ class TransportBar(QWidget):
     """Everything you can do to the current track without leaving the crossbar."""
 
     seek_requested = Signal(float)  # seconds, on release
-    speed_requested = Signal(float)
     volume_requested = Signal(float)
     play_pressed = Signal()
     next_pressed = Signal()
@@ -83,14 +79,6 @@ class TransportBar(QWidget):
         # and the only thing allowed to shrink to nothing.
         self.title = _ElidingLabel("nothing loaded")
 
-        self.speed = _slider(*theme.SPEED_SLIDER)
-        self.speed.setRange(
-            int(settings_mod.MIN_SPEED * SPEED_SCALE),
-            int(settings_mod.MAX_SPEED * SPEED_SCALE),
-        )
-        self.speed_value = _label("1.00x", 12, theme.ACCENT)
-        self.speed_value.setFixedWidth(theme.SPEED_VALUE_W)
-
         self.volume = _slider(*theme.VOLUME_SLIDER)
         self.volume.setRange(0, 100)
         self.volume_value = _label("80%", 12, theme.TEXT_FAINT)
@@ -109,10 +97,6 @@ class TransportBar(QWidget):
         bottom.addWidget(self.next_button)
         bottom.addSpacing(10)
         bottom.addWidget(self.title, 1)
-        bottom.addWidget(_label("SPEED", 10, theme.TEXT_FAINT, spaced=True))
-        bottom.addWidget(self.speed)
-        bottom.addWidget(self.speed_value)
-        bottom.addSpacing(12)
         bottom.addWidget(_label("VOL", 10, theme.TEXT_FAINT, spaced=True))
         bottom.addWidget(self.volume)
         bottom.addWidget(self.volume_value)
@@ -133,9 +117,6 @@ class TransportBar(QWidget):
         self.seek.sliderMoved.connect(self._on_seek_preview)
         self.seek.sliderReleased.connect(self._on_seek_commit)
 
-        self.speed.valueChanged.connect(
-            lambda value: self.speed_requested.emit(value / SPEED_SCALE)
-        )
         self.volume.valueChanged.connect(
             lambda value: self.volume_requested.emit(value / 100)
         )
@@ -156,10 +137,6 @@ class TransportBar(QWidget):
         self.seek.setEnabled(duration > 0)
         self.seek.setRange(0, int(duration * SEEK_SCALE))
         self.seek.setValue(int(position * SEEK_SCALE))
-
-    def set_speed(self, speed: float) -> None:
-        self.speed_value.setText(f"{speed:.2f}x")
-        _silently(self.speed, int(round(speed * SPEED_SCALE)))
 
     def set_volume(self, volume: float) -> None:
         self.volume_value.setText(f"{volume * 100:.0f}%")

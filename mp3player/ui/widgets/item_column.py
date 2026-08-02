@@ -7,9 +7,13 @@ when the selection would leave the viewport, and XMB scrolls on every step.
 Items fade out with distance from the selection instead of being clipped, which
 is what stops a 200-track folder from looking like a spreadsheet.
 
-`Now Playing` adds a header block above item 0 -- art placeholder, title,
-subtitle. It scrolls with the column like everything else, so there is no
-special case anywhere but `_paint_header`.
+Two rows are not plain text. A row with a `fraction` paints a slider -- that's
+the Daycore/Nightcore control, and it's painted here rather than being a real
+QSlider for the same reason the column isn't a QListWidget: it has to sit on the
+crossbar row and scroll with everything else. `Now Playing` also carries a
+`Header`, whose title and subtitle sit above item 0 and whose art placeholder
+goes out in the gutter left of the column, where the window height can't
+squeeze it.
 """
 
 from __future__ import annotations
@@ -17,14 +21,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from mp3player.ui import theme
 
-HEADER_TEXT_BLOCK = 52  # title + subtitle under the art placeholder
+HEADER_TEXT_BLOCK = 52  # title + subtitle above the first item
 VALUE_PAD = 12  # right-hand readout inset, so it clears the plate's corner
 PLAYING_MARKER = "▶"
+
+DAYCORE_LABEL = "DAYCORE"
+NIGHTCORE_LABEL = "NIGHTCORE"
+EDIT_HINT = "←  →   adjust      ·      Enter   done"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +42,7 @@ class Item:
     label: str
     value: str = ""
     marker: bool = False  # this is the track that's loaded
+    fraction: float | None = None  # 0..1 -> paint a slider instead of a label
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +56,7 @@ class ItemColumn(QWidget):
 
     index_changed = Signal(int)
     activated = Signal(int)
+    slider_moved = Signal(float)  # 0..1, live -- emitted by the stage's drag
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -55,6 +65,7 @@ class ItemColumn(QWidget):
         self._header: Header | None = None
         self._index = 0
         self._empty_text = ""
+        self._editing = False
 
     # -- model -------------------------------------------------------------
 
@@ -78,6 +89,10 @@ class ItemColumn(QWidget):
         limit = max(0, len(self._items) - 1)
         self._index = min(self._index if index is None else int(index), limit)
         self._index = max(0, self._index)
+        # Whatever row was stepped into may not exist any more, or may not be a
+        # slider. Never leave the column holding the arrow keys for a row that
+        # has gone.
+        self._editing = self._editing and self.is_slider(self._index)
         self.update()
 
     @property
@@ -105,6 +120,20 @@ class ItemColumn(QWidget):
         if self._items:
             self.activated.emit(self._index)
 
+    @property
+    def editing(self) -> bool:
+        """True while the selected slider row has been stepped into."""
+        return self._editing
+
+    def set_editing(self, editing: bool) -> None:
+        editing = bool(editing) and self.is_slider(self._index)
+        if editing != self._editing:
+            self._editing = editing
+            self.update()
+
+    def is_slider(self, index: int) -> bool:
+        return 0 <= index < len(self._items) and self._items[index].fraction is not None
+
     # -- geometry ----------------------------------------------------------
 
     def row_y(self) -> int:
@@ -115,6 +144,47 @@ class ItemColumn(QWidget):
 
     def _text_width(self) -> int:
         return max(80, self.width() - theme.ITEM_X - theme.RIGHT_MARGIN)
+
+    def track_rect(self, index: int) -> QRect | None:
+        """The draggable part of a slider row, or None if it isn't one.
+
+        The stage hit-tests against this before its ordinary item hit-test, so
+        a press on the track starts a drag rather than re-opening the row.
+        """
+        if not self.is_slider(index):
+            return None
+
+        metrics = QFontMetrics(theme.font(theme.SLIDER_END_LABEL, letter_spacing=True))
+        left = (
+            theme.ITEM_X
+            + metrics.horizontalAdvance(DAYCORE_LABEL)
+            + theme.SLIDER_LABEL_GAP
+        )
+        right = (
+            theme.ITEM_X
+            + self._text_width()
+            - theme.SLIDER_VALUE_W
+            - metrics.horizontalAdvance(NIGHTCORE_LABEL)
+            - theme.SLIDER_LABEL_GAP
+        )
+        if right - left < theme.SLIDER_TRACK_MIN:
+            return None
+
+        y = self._item_y(index)
+        return QRect(left, y - theme.SLIDER_HANDLE // 2, right - left, theme.SLIDER_HANDLE)
+
+    def fraction_at(self, index: int, x: int) -> float:
+        """Where `x` falls along a slider row's track, clamped to 0..1.
+
+        Spans `width - 1` because both ends are *pixels*, not boundaries: the
+        rightmost pixel of the track has to mean 1.0, or clicking the visible
+        end of the bar lands at 0.999 and nightcore is unreachable by mouse.
+        `_paint_slider_row` places the handle on the same span.
+        """
+        track = self.track_rect(index)
+        if track is None or track.width() <= 1:
+            return 0.0
+        return min(1.0, max(0.0, (x - track.left()) / (track.width() - 1)))
 
     def hit(self, pos: QPoint) -> int | None:
         if not self._items or pos.x() < theme.ITEM_X - theme.ITEM_MARKER_GAP:
@@ -146,6 +216,7 @@ class ItemColumn(QWidget):
             return
 
         if self._header is not None:
+            self._paint_art(painter)
             self._paint_header(painter, self._header)
 
         for index, item in enumerate(self._items):
@@ -156,6 +227,11 @@ class ItemColumn(QWidget):
 
     def _paint_item(self, painter: QPainter, index: int, item: Item, y: int) -> None:
         active = index == self._index
+
+        if item.fraction is not None:
+            self._paint_slider_row(painter, index, item, y, active)
+            return
+
         distance = abs(index - self._index)
         alpha = max(theme.ITEM_FADE_FLOOR, 1.0 - distance / theme.ITEM_FADE_SPAN)
 
@@ -203,6 +279,109 @@ class ItemColumn(QWidget):
                 item.value,
             )
 
+    def _paint_slider_row(
+        self, painter: QPainter, index: int, item: Item, y: int, active: bool
+    ) -> None:
+        """DAYCORE | track | NIGHTCORE | readout.
+
+        The colours are lifted from the transport stylesheet on purpose -- there
+        are two sliders in this app and they should look like one control.
+        """
+        available = self._text_width()
+        box = QRect(
+            theme.ITEM_X, y - theme.ITEM_SPACING // 2, available, theme.ITEM_SPACING
+        )
+        track = self.track_rect(index)
+
+        if active:
+            # Stepped into, the plate gets an outline: the row is no longer just
+            # selected, it's taking the arrow keys, and that has to be visible.
+            painter.setPen(theme.ACCENT if self._editing else Qt.NoPen)
+            painter.setBrush(theme.ACCENT_SOFT)
+            painter.drawRoundedRect(
+                QRect(box.left() - 14, box.top() + 3, available + 14, box.height() - 6),
+                4,
+                4,
+            )
+            painter.setBrush(Qt.NoBrush)
+
+        if track is None:
+            # Too narrow for a track -- fall back to the readout alone rather
+            # than painting a slider nobody could aim at.
+            painter.setFont(theme.font(theme.ITEM_TEXT))
+            painter.setPen(theme.TEXT if active else theme.TEXT_DIM)
+            painter.drawText(box, Qt.AlignLeft | Qt.AlignVCenter, item.label)
+            painter.setPen(theme.ACCENT)
+            painter.drawText(
+                box.adjusted(0, 0, -VALUE_PAD, 0),
+                Qt.AlignRight | Qt.AlignVCenter,
+                item.value,
+            )
+            return
+
+        caption = theme.font(theme.SLIDER_END_LABEL, letter_spacing=True)
+        painter.setFont(caption)
+        painter.setPen(theme.TEXT_DIM if active else theme.TEXT_FAINT)
+        painter.drawText(
+            QRect(theme.ITEM_X, box.top(), track.left() - theme.ITEM_X, box.height()),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            DAYCORE_LABEL,
+        )
+        # Stops short of the readout's column. Running to `box.right()` let the
+        # two share pixels and "NIGHTCORE" ran straight into "1.15x".
+        night_left = track.right() + theme.SLIDER_LABEL_GAP
+        painter.drawText(
+            QRect(
+                night_left,
+                box.top(),
+                max(0, box.right() - theme.SLIDER_VALUE_W - night_left),
+                box.height(),
+            ),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            NIGHTCORE_LABEL,
+        )
+
+        fraction = min(1.0, max(0.0, item.fraction or 0.0))
+        handle_x = track.left() + int(round(fraction * (track.width() - 1)))
+        groove = QRect(
+            track.left(),
+            y - theme.SLIDER_TRACK_H // 2,
+            track.width(),
+            theme.SLIDER_TRACK_H,
+        )
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 34))
+        painter.drawRoundedRect(groove, 2, 2)
+        painter.setBrush(theme.ACCENT)
+        painter.drawRoundedRect(
+            QRect(groove.left(), groove.top(), handle_x - groove.left(), groove.height()),
+            2,
+            2,
+        )
+
+        painter.setBrush(theme.TEXT if active else theme.TEXT_DIM)
+        radius = theme.SLIDER_HANDLE // 2
+        painter.drawEllipse(QPoint(handle_x, y), radius, radius)
+        painter.setBrush(Qt.NoBrush)
+
+        painter.setFont(theme.font(theme.ITEM_TEXT))
+        painter.setPen(theme.ACCENT if active else theme.TEXT_FAINT)
+        painter.drawText(
+            box.adjusted(0, 0, -VALUE_PAD, 0),
+            Qt.AlignRight | Qt.AlignVCenter,
+            item.value,
+        )
+
+        if active and self._editing:
+            painter.setFont(theme.font(11, letter_spacing=True))
+            painter.setPen(theme.faded(theme.TEXT_FAINT, 0.9))
+            painter.drawText(
+                QRect(theme.ITEM_X, box.bottom() + 2, available, 18),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                EDIT_HINT,
+            )
+
         if item.marker:
             painter.setFont(theme.font(11, family=theme.GLYPH_FAMILY))
             painter.setPen(theme.faded(theme.ACCENT, max(alpha, 0.55)))
@@ -217,35 +396,42 @@ class ItemColumn(QWidget):
                 PLAYING_MARKER,
             )
 
-    def _paint_header(self, painter: QPainter, header: Header) -> None:
-        """Art, title, subtitle -- sized to the room above the crossbar row.
+    def _paint_art(self, painter: QPainter) -> None:
+        """The art placeholder, in the gutter left of the column.
 
-        How much room there is depends on the window height and on how far the
-        column has scrolled, so the art can't be a constant. It shrinks to fit
-        and disappears below `HEADER_ART_MIN`: at the 720x480 minimum there is
-        genuinely no space for a square, and a clipped one reads as a bug.
+        Sized by the gutter rather than by whatever vertical room the items left
+        over, which is what makes it survive the 720x480 minimum. It's a square,
+        so the narrower of the two dimensions wins.
         """
+        row = self.row_y()
+        top = row + theme.CATEGORY_LABEL_GAP + theme.ART_TOP_GAP
+        size = min(
+            theme.ART_MAX,
+            theme.ITEM_X - 2 * theme.RIGHT_MARGIN,
+            self.height() - theme.ART_BOTTOM_PAD - top,
+        )
+        if size < theme.ART_MIN:
+            return
+
+        art = QRect(theme.ITEM_X // 2 - size // 2, top, size, size)
+        painter.setPen(theme.PANEL_EDGE)
+        painter.setBrush(theme.PANEL)
+        painter.drawRoundedRect(art, 6, 6)
+        painter.setBrush(Qt.NoBrush)
+
+        # No ID3 art in v1 (see the scope list) -- a note glyph stands in, and
+        # the block is the right shape for a cover when tags land.
+        painter.setFont(theme.font(max(24, size * 2 // 5), family=theme.GLYPH_FAMILY))
+        painter.setPen(theme.faded(theme.TEXT_FAINT, 0.7))
+        painter.drawText(art, Qt.AlignCenter, "♪")
+
+    def _paint_header(self, painter: QPainter, header: Header) -> None:
+        """Title and subtitle, sitting above item 0 and scrolling with it."""
         bottom = self._item_y(0) - theme.ITEM_SPACING // 2 - theme.HEADER_GAP
         if bottom <= 0:
             return  # scrolled off the top entirely
 
-        room = bottom - HEADER_TEXT_BLOCK
-        size = min(theme.HEADER_ART, room)
         text_top = bottom - HEADER_TEXT_BLOCK
-
-        if size >= theme.HEADER_ART_MIN:
-            art = QRect(theme.ITEM_X, text_top - size, size, size)
-            painter.setPen(theme.PANEL_EDGE)
-            painter.setBrush(theme.PANEL)
-            painter.drawRoundedRect(art, 6, 6)
-            painter.setBrush(Qt.NoBrush)
-
-            # No ID3 art in v1 (see the scope list) -- a note glyph stands in,
-            # and the block is the right shape for a cover when tags land.
-            painter.setFont(theme.font(max(24, size * 2 // 5), family=theme.GLYPH_FAMILY))
-            painter.setPen(theme.faded(theme.TEXT_FAINT, 0.7))
-            painter.drawText(art, Qt.AlignCenter, "♪")
-
         available = self._text_width()
         painter.setFont(theme.font(21))
         painter.setPen(theme.TEXT)

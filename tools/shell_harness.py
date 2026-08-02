@@ -50,18 +50,20 @@ def press(window: MainWindow, code: Qt.Key, mods=Qt.NoModifier) -> None:
     window.keyPressEvent(QKeyEvent(QEvent.KeyPress, code, mods))
 
 
-def click(stage, x: int, y: int) -> None:
+def _mouse(kind, x: int, y: int, button=Qt.LeftButton) -> QMouseEvent:
     point = QPointF(x, y)
-    stage.mousePressEvent(
-        QMouseEvent(
-            QEvent.MouseButtonPress,
-            point,
-            point,
-            Qt.LeftButton,
-            Qt.LeftButton,
-            Qt.NoModifier,
-        )
-    )
+    return QMouseEvent(kind, point, point, button, button, Qt.NoModifier)
+
+
+def click(stage, x: int, y: int) -> None:
+    stage.mousePressEvent(_mouse(QEvent.MouseButtonPress, x, y))
+
+
+def drag(stage, x: int, y: int) -> None:
+    """Press, move and release on the same spot -- enough to drive a slider."""
+    stage.mousePressEvent(_mouse(QEvent.MouseButtonPress, x, y))
+    stage.mouseMoveEvent(_mouse(QEvent.MouseMove, x, y))
+    stage.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x, y, Qt.NoButton))
 
 
 def main() -> int:
@@ -89,7 +91,8 @@ def main() -> int:
 
     print("\n-- structure")
     check("starts on Now Playing", bar.index == CAT_NOW)
-    check("now-playing column built", column.count == 5)
+    check("now playing is one slider row", column.count == 1 and column.is_slider(0))
+    check("transport has no speed control", not hasattr(transport, "speed"))
     check("paints", not window.grab().isNull())
 
     print("\n-- crossbar nav")
@@ -97,7 +100,7 @@ def main() -> int:
     check("right -> Music", bar.index == CAT_MUSIC)
     press(window, Qt.Key_Right)
     check("right -> Settings", bar.index == CAT_SETTINGS)
-    check("settings column built", column.count == 7)
+    check("settings column built, no presets", column.count == 4)
     press(window, Qt.Key_Right)
     check("clamps at the last category", bar.index == CAT_SETTINGS)
     press(window, Qt.Key_Backspace)
@@ -157,18 +160,84 @@ def main() -> int:
     click(stage, theme.FOCUS_X + theme.CATEGORY_SPACING, row)
     check("click on a category switches to it", bar.index == CAT_SETTINGS)
 
-    print("\n-- settings actions")
+    print("\n-- settings")
     press(window, Qt.Key_Home)
-    for _ in range(2):
-        press(window, Qt.Key_Down)
-    press(window, Qt.Key_Return)  # Nightcore
-    check("nightcore preset", abs(engine.speed - settings_mod.NIGHTCORE_SPEED) < 1e-6)
-    check("transport shows it", transport.speed_value.text() == "1.30x")
-    for _ in range(2):
-        press(window, Qt.Key_Down)
-    press(window, Qt.Key_Return)  # Daycore
-    check("daycore preset", abs(engine.speed - settings_mod.DAYCORE_SPEED) < 1e-6)
     check("folder row names the folder", column._items[0].value == controller.folder.name)
+    check("no speed rows left here", not any(i.label == "Nightcore" for i in column._items))
+
+    print("\n-- the speed slider")
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    check("not editing until asked", not column.editing)
+
+    # Left/Right are category nav until the row is stepped into.
+    press(window, Qt.Key_Right)
+    check("right still changes category", bar.index == CAT_MUSIC)
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+
+    # Start from the middle. Reading the saved speed instead would make these
+    # checks pass or fail depending on where the user last left the slider.
+    controller.set_speed(1.05)
+    app.processEvents()
+
+    press(window, Qt.Key_Return)
+    check("enter steps into the slider", column.editing)
+    before = engine.speed
+    press(window, Qt.Key_Left)
+    check("left slows it", engine.speed < before, f"{before:.3f} -> {engine.speed:.3f}")
+    check("...and does NOT change category", bar.index == CAT_NOW)
+    press(window, Qt.Key_Right)
+    press(window, Qt.Key_Right)
+    check("right speeds it up", engine.speed > before)
+
+    for _ in range(200):  # walk it off the end
+        press(window, Qt.Key_Right)
+    check(
+        "clamps at nightcore",
+        abs(engine.speed - settings_mod.NIGHTCORE_SPEED) < 1e-6,
+        f"{engine.speed:.3f}",
+    )
+    for _ in range(200):
+        press(window, Qt.Key_Left)
+    check(
+        "clamps at daycore",
+        abs(engine.speed - settings_mod.DAYCORE_SPEED) < 1e-6,
+        f"{engine.speed:.3f}",
+    )
+
+    press(window, Qt.Key_Escape)
+    check("escape steps back out", not column.editing)
+    check("...without leaving fullscreen", not window.isFullScreen())
+    press(window, Qt.Key_Right)
+    check("arrows are category nav again", bar.index == CAT_MUSIC)
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    check("leaving the category clears edit mode", not column.editing)
+
+    print("\n-- dragging the slider")
+    track = column.track_rect(0)
+    check("the slider row has a track", track is not None)
+    drag(stage, track.right(), track.center().y())
+    check(
+        "dragging to the right end is nightcore",
+        abs(engine.speed - settings_mod.NIGHTCORE_SPEED) < 1e-6,
+        f"{engine.speed:.3f}",
+    )
+    drag(stage, track.left(), track.center().y())
+    check(
+        "dragging to the left end is daycore",
+        abs(engine.speed - settings_mod.DAYCORE_SPEED) < 1e-6,
+        f"{engine.speed:.3f}",
+    )
+    drag(stage, track.center().x(), track.center().y())
+    midpoint = (settings_mod.MIN_SPEED + settings_mod.MAX_SPEED) / 2
+    check(
+        "dragging to the middle lands between them",
+        abs(engine.speed - midpoint) < 0.02,
+        f"{engine.speed:.3f} vs {midpoint:.3f}",
+    )
+    check("a press on the track does not re-open the row", not column.editing)
 
     print("\n-- transport")
     before = controller.index
@@ -179,14 +248,19 @@ def main() -> int:
     check("seek posted to the mixer", engine.mixer._seek_request is not None)
     transport.volume_requested.emit(0.42)
     check("volume applied", abs(engine.volume - 0.42) < 1e-6)
-    transport.speed_requested.emit(1.10)
-    check("speed applied live", abs(engine.speed - 1.10) < 1e-6)
     transport.play_pressed.emit()
     check("play/pause toggles", not engine.is_playing)
 
     print("\n-- now playing reflects the engine")
     bar.set_index(CAT_NOW)
-    check("first row reads Play when paused", column._items[0].label == "Play")
+    controller.set_speed(1.10)
+    app.processEvents()
+    check("the row reads the speed", column._items[0].value == "1.10x")
+    check(
+        "the handle sits proportionally along the track",
+        abs(column._items[0].fraction - 0.6) < 0.01,
+        f"fraction={column._items[0].fraction:.3f}",
+    )
     check("header names the track", column._header.title == controller.current.title)
     check("header names the speed", "1.10x" in column._header.subtitle)
     check("paints with a header", not window.grab().isNull())
@@ -227,10 +301,6 @@ def main() -> int:
         f"needs {transport.layout().itemAt(1).minimumSize().width()}, has {inner}",
     )
     check(
-        "the speed readout clears its slider",
-        transport.speed_value.x() > transport.speed.geometry().right(),
-    )
-    check(
         "the volume readout clears its slider",
         transport.volume_value.x() > transport.volume.geometry().right(),
     )
@@ -241,22 +311,28 @@ def main() -> int:
     )
     check("the title shrank rather than overflowed", transport.title.width() > 0)
 
+    check("the speed row still has a usable track", column.track_rect(0) is not None)
     check("paints at the minimum size", not window.grab().isNull())
 
-    # The art square shrinks to the room above the crossbar row and is dropped
-    # rather than clipped. At 720x480 there is no room; at 980x640 there is.
-    def art_room() -> int:
-        return column._item_y(0) - theme.ITEM_SPACING // 2 - theme.HEADER_GAP - 52
+    # The art lives in the gutter now, sized by it rather than by whatever
+    # vertical room the items left over -- so unlike the old header art, no
+    # supported window size can take it away.
+    def art_size() -> int:
+        top = column.row_y() + theme.CATEGORY_LABEL_GAP + theme.ART_TOP_GAP
+        return min(
+            theme.ART_MAX,
+            theme.ITEM_X - 2 * theme.RIGHT_MARGIN,
+            column.height() - theme.ART_BOTTOM_PAD - top,
+        )
 
-    check("no art at the minimum size", art_room() < theme.HEADER_ART_MIN, f"room={art_room()}")
-    window.resize(980, 640)
-    app.processEvents()
-    room = art_room()
-    check(
-        "art at the default size, unclipped",
-        theme.HEADER_ART_MIN <= min(theme.HEADER_ART, room) and room > 0,
-        f"room={room}",
-    )
+    for width, height in ((720, 480), (980, 640), (1600, 900)):
+        window.resize(width, height)
+        app.processEvents()
+        check(
+            f"art shows at {width}x{height}",
+            art_size() >= theme.ART_MIN,
+            f"size={art_size()}",
+        )
 
     print("\n-- empty library")
     folder = controller.folder

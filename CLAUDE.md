@@ -65,7 +65,11 @@ here and write down why.
 | **Seek commits on release; speed is live** | Dragging the *speed* slider and hearing the pitch move is the entire app. A live seek would post a fade-jump-fade per pixel and sound like a skipping CD, so it waits for release. |
 | **Auto-advance wraps the list** | Running off the last track loops to the first. Matches the Batch 2 harness, and "stop dead at the end" is a worse default than repeat-all. Not a shuffle/repeat *feature* — that's still post-v1. |
 | **Categories: Now Playing · Music · Settings** | Chosen with the user in Batch 4. Column-per-context, closest to real XMB. |
-| **Speed and volume live in the transport bar, not behind Settings** | The decisions log calls the live speed slider "the entire app"; burying it one category down contradicts that. Settings offers the three *presets*; the bar keeps the continuous control on screen in every category. |
+| ~~Speed and volume live in the transport bar~~ → **volume only** | *Revised after Batch 4's first real run.* The original reasoning — the live speed slider is the whole app, so keep it on screen everywhere — was sound while Now Playing was a list of transport actions. Once Now Playing became the page for the effect, a second speed slider in the bottom bar was two controls for one value: exactly the redundancy that got `Play / Next / Previous / Restart` deleted from that column. Now Playing owns speed; the bar owns the track. |
+| **Now Playing is the speed page** | Its old rows all duplicated the transport bar. What it lacked was the one thing the app is *for*. Art, the current track, and one slider. |
+| **The speed range is the two presets: 0.80x–1.30x** | So the slider's end labels can be read literally — slam the handle right and you get nightcore, no explanation needed. `MIN_SPEED`/`MAX_SPEED` are now *defined as* `DAYCORE_SPEED`/`NIGHTCORE_SPEED`. Costs the extremes; 1.50x is chipmunks and 0.50x is a dirge, so little was lost. `tools/engine_harness.py` keeps its own wider 0.5–1.5 bounds — it probes the engine, not the product. |
+| **Slider rows are stepped into: Enter, then arrows, then Enter/Esc** | Left/Right are category navigation and can't be spent on a value. This is what real XMB does with slider items, and the row outlines itself while it holds the arrow keys so the mode is visible. |
+| **The art placeholder lives in the gutter, not above the items** | Stacked above the column it competed with them for vertical room, and at 720x480 there wasn't any — it clipped, then had to be dropped. Out in the empty space left of the column its size is bounded by the *gutter*, so no supported window size can take it away. |
 | **The window is a plain `QWidget`, not a `QMainWindow`** | The only thing wanted from `QMainWindow` was a central widget, and its layout ignores the contents margins that give the frameless resize grips somewhere to live. |
 | **Move/resize via `startSystemMove` / `startSystemResize`** | The compositor owns the drag, so Aero Snap and edge snapping still work and there's no lag. Ten lines instead of a mouse-delta loop. |
 | **The item column is painted, not a `QListWidget`** | XMB scrolls on *every* step because the selection is nailed to the crossbar row. A list view only scrolls when the selection would leave the viewport — the opposite behaviour. |
@@ -260,7 +264,7 @@ Qt, and Qt isn't tested (CLAUDE.md: `tests/` is core only, no display needed).
 - [x] `theme.py` — palette, fonts, metrics, the transport stylesheet
 - [x] `chrome.py` — frameless window, `startSystemMove`/`startSystemResize`, F11
 - [x] `crossbar.py` + `item_column.py` — three categories, keyboard *and* mouse nav
-- [x] Transport strip restyled into the bottom bar (seek, transport, speed, volume)
+- [x] Transport strip restyled into the bottom bar (seek, transport, volume)
 - [x] Swap the ugly window out; identical controller underneath
 - [x] `tools/shell_harness.py` — offscreen, drives real key and mouse events
 
@@ -274,12 +278,22 @@ crossbar row; choosing something else slides the *content* past those points.
 Both are computed as an offset from the active index, so Batch 5 animates two
 floats rather than restructuring anything.
 
-Verified offscreen (`tools/shell_harness.py`, real WASAPI stream): 54/54 —
+Verified offscreen (`tools/shell_harness.py`, real WASAPI stream): 79/79 —
 crossbar and item nav, per-category cursor memory, hit-testing, mouse
-select-then-open, settings presets, transport, empty library, fullscreen,
-resize grips, and a clean paint at 720x480 / 980x640 / 1600x900. Then run for
-real with a mapped window: launches, navigates, exits 0, settings flushed.
+select-then-open, the speed slider (step-in, arrow clamping at both presets,
+Escape leaving the row without leaving fullscreen, drag-to-end), transport,
+empty library, fullscreen, resize grips, and a clean paint at 720x480 /
+980x640 / 1600x900. Then run for real with a mapped window: launches,
+navigates, exits 0, settings flushed.
 Tests still 174 green (`tests/` is core-only by convention).
+
+**Reworked after the first real run.** Now Playing's column was
+`Play / Next / Previous / Restart / Find in Music` — every one of which the
+transport bar already did — while the speed presets sat in Settings, which is
+the wrong home for the point of the app. Now Playing is now art, the current
+track, and one Daycore→Nightcore slider; the transport bar dropped its speed
+control; Settings dropped its three presets. See the decisions log: one row in
+it had to be revised rather than added to.
 
 Then three more from running it for real at 721x479, near the minimum:
 the transport row's fixed widths needed 773 px against 629 available, so Qt

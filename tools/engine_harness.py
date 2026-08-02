@@ -31,6 +31,9 @@ from mp3player.core.models import Track  # noqa: E402
 SEEK_STEP = 5.0
 SPEED_STEP = 0.05
 VOLUME_STEP = 0.05
+
+# The app clamps speed to its two presets (0.80..1.30); this harness does not.
+PROBE_MIN_SPEED, PROBE_MAX_SPEED = 0.5, 1.5
 POLL_S = 0.03
 
 HELP = """
@@ -166,9 +169,10 @@ class Harness:
             self.say(HELP)
 
     def set_speed(self, value: float) -> None:
-        self.engine.speed = min(
-            max(value, settings_mod.MIN_SPEED), settings_mod.MAX_SPEED
-        )
+        # Deliberately wider than the app's 0.80..1.30. This is a probe for the
+        # engine, not the product: resampling should still be pushable past
+        # what the UI chooses to offer.
+        self.engine.speed = min(max(value, PROBE_MIN_SPEED), PROBE_MAX_SPEED)
 
     # -- loop ------------------------------------------------------------
 

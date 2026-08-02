@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from mp3player.core.audio import sfx
-from mp3player.core.audio.engine import Mixer
+from mp3player.core.audio.engine import Mixer, StreamWatch
 
 SR = 48000
 BLOCK = 512
@@ -416,3 +416,128 @@ def test_an_odd_block_size_is_handled() -> None:
     mixer.set_track(*level_track(), autoplay=True)
     assert peak(pump(mixer, 3, frames=333)) > 0.0
     assert peak(pump(mixer, 1, frames=4096)) > 0.0
+
+
+# -- the device going away -----------------------------------------------
+#
+# `StreamWatch` is the other half of `AudioEngine` that can be tested without a
+# sound card: the stream is always on, so a block counter that stops moving is
+# what an unplugged device looks like from the UI thread. Its clock is
+# injectable for the same reason `Sounds.clock` is -- a test that sleeps out a
+# half-second stall is a test that depends on the scheduler.
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def test_a_stream_that_keeps_rendering_is_never_stalled() -> None:
+    clock = FakeClock()
+    watch = StreamWatch(stall_s=0.5, clock=clock)
+    watch.reset(0)
+    blocks = 0
+    for _ in range(200):
+        blocks += 1
+        clock.advance(0.01)
+        assert not watch.stalled(blocks)
+
+
+def test_a_counter_that_stops_moving_stalls_after_the_timeout() -> None:
+    clock = FakeClock()
+    watch = StreamWatch(stall_s=0.5, clock=clock)
+    watch.reset(7)
+
+    clock.advance(0.49)
+    assert not watch.stalled(7)
+    clock.advance(0.02)
+    assert watch.stalled(7)
+
+
+def test_the_clock_decides_not_how_often_it_is_asked() -> None:
+    """Polled at 30 Hz or once, the answer must be the same."""
+    clock = FakeClock()
+    watch = StreamWatch(stall_s=0.5, clock=clock)
+    watch.reset(3)
+    for _ in range(15):
+        clock.advance(0.02)
+        assert not watch.stalled(3)  # 0.30 s of polling, still fine
+    clock.advance(0.3)
+    assert watch.stalled(3)
+
+
+def test_one_late_block_clears_the_stall() -> None:
+    """A device that comes back on its own is not a device that went away."""
+    clock = FakeClock()
+    watch = StreamWatch(stall_s=0.5, clock=clock)
+    watch.reset(0)
+    clock.advance(0.6)
+    assert watch.stalled(0)
+    assert not watch.stalled(1)  # it rendered; the timer starts over
+    clock.advance(0.4)
+    assert not watch.stalled(1)
+
+
+def test_detach_track_hands_back_what_was_playing() -> None:
+    """What `reopen` needs to rebuild onto a new stream, in the file's own
+    timeline -- so a device running at another rate changes nothing about it."""
+    mixer = Mixer(SR, volume=1.0)
+    samples, rate = level_track(seconds=10.0, rate=44100)
+    mixer.set_track(samples, rate, autoplay=True)
+    settle(mixer)
+    pump(mixer, 40)
+
+    state = mixer.detach_track()
+    assert state is not None
+    out_samples, out_rate, position, playing = state
+    assert out_samples is samples
+    assert out_rate == 44100
+    assert playing is True
+    assert position > 0.0
+    # Taken out, not copied out.
+    assert not mixer.has_track
+    assert peak(pump(mixer, 2)) == 0.0
+
+
+def test_detach_track_reports_a_paused_track_as_paused() -> None:
+    mixer = Mixer(SR, volume=1.0)
+    mixer.set_track(*level_track(), autoplay=True)
+    settle(mixer)
+    mixer.pause()
+    settle(mixer)
+    state = mixer.detach_track()
+    assert state is not None and state[3] is False
+
+
+def test_detach_track_with_nothing_loaded_is_none() -> None:
+    assert Mixer(SR).detach_track() is None
+
+
+def test_a_detached_track_can_be_put_back_click_free() -> None:
+    """The reconnect path, offline: take the track out, rebuild the mixer at
+    another rate, put it back where it was. No step at the joint."""
+    mixer = Mixer(44100, volume=1.0)
+    mixer.set_track(*level_track(seconds=10.0, level=1.0, rate=44100), autoplay=True)
+    settle(mixer)
+    pump(mixer, 40)
+
+    samples, rate, position, playing = mixer.detach_track()
+
+    blocks = 12
+    rebuilt = Mixer(48000, volume=1.0)
+    rebuilt.set_track(samples, rate, autoplay=playing)
+    rebuilt.seek(position)
+    block = pump(rebuilt, blocks)
+
+    assert peak(block) > 0.5  # it really did come back
+    # Where it left off, plus only what it has played since -- not back at the
+    # top of the song, which is what a naive reload would give you.
+    played = blocks * BLOCK / 48000
+    assert abs(rebuilt.position - (position + played)) < 0.02
+    assert float(np.abs(np.diff(block, axis=0)).max()) < 0.2  # no edge

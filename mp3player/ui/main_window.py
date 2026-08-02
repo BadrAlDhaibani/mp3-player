@@ -21,7 +21,7 @@ from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 
-from mp3player.core import settings as settings_mod
+from mp3player.core import library, settings as settings_mod
 from mp3player.core.library import ScanResult
 from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
@@ -45,6 +45,40 @@ CATEGORIES = (
 STATUS_MS = 6000  # how long a failure line stays up
 PAGE = 5  # items per PageUp/PageDown
 SPEED_STEP = 0.01  # one Up/Down press on the Now Playing page
+
+# Where every "there is no music" sentence points. One destination, spelled the
+# same way each time: the row it names is the row the first run opens on.
+_SETTINGS_ROW = "Settings ▸ Music folder"
+
+DEVICE_LOST_TEXT = "Audio device lost  --  reconnecting"
+FIRST_RUN_TEXT = "Press Enter to choose a music folder"
+
+
+def empty_reason(error: str | None, folder: Path | None) -> str:
+    """Why there is nothing to play. The state, not the cure.
+
+    `core/library` reports which of these it was as a bare token, and this is
+    where it becomes words -- once, so the empty column and the status line
+    cannot drift into two spellings of the same thing.
+
+    Kept short because of where it goes: the empty column draws it at the item
+    size, and at 720 px the version that carried "-- Settings ▸ Music folder"
+    along with it ran off the right edge mid-word. `empty_advice` is the one
+    that says where to go, in the smaller type that has room for it.
+    """
+    name = folder.name if folder is not None else ""
+    if error == library.NO_FOLDER or folder is None:
+        return "No folder yet"
+    if error == library.MISSING:
+        return f"{name} is gone"
+    if error == library.UNREADABLE:
+        return f"Can't read {name}"
+    return f"No playable MP3s in {name}"
+
+
+def empty_advice(error: str | None, folder: Path | None) -> str:
+    """The same reason, plus the one row that fixes any of them."""
+    return f"{empty_reason(error, folder)}  --  {_SETTINGS_ROW}"
 
 
 class XmbStage(QWidget):
@@ -72,7 +106,9 @@ class XmbStage(QWidget):
         self.bar = Crossbar(self)
         self.column = ItemColumn(self)
         self.page = NowPlayingPage(self)
-        self._status = ""
+        self._status = ""  # what is painted: the transient over the sticky
+        self._transient = ""
+        self._sticky = ""
         self._dragging = False
         self._showing_page: bool | None = None
 
@@ -111,10 +147,33 @@ class XmbStage(QWidget):
             child.setGeometry(self.rect())
         super().resizeEvent(event)
 
-    def set_status(self, text: str) -> None:
-        self._status = text
-        if text:
-            self._status_timer.start()
+    def set_status(self, text: str, *, sticky: bool = False) -> None:
+        """Put `text` on the status line. "" clears it.
+
+        Two layers, because there are two kinds of thing to say. An *event* --
+        a track that wouldn't decode -- is transient and times out. A
+        *condition* -- the output device is gone, no folder has been chosen --
+        stays true until something changes it, and a line that expires while
+        what it describes is still the case is worse than no line at all.
+
+        A transient message covers a sticky one and then uncovers it, so an
+        error during a device outage doesn't quietly end up as the last word.
+        The reverse does not hold: a condition that has *just* become true is
+        newer news than whatever transient is still on screen, and leaving the
+        device-lost line queued behind a four-second-old "3 files skipped" is
+        the one ordering that reads as the app not having noticed.
+        """
+        if sticky:
+            self._sticky = text
+            if text:
+                self._status_timer.stop()
+                self._transient = ""
+        else:
+            self._status_timer.stop()
+            if text:
+                self._status_timer.start()
+            self._transient = text
+        self._status = self._transient or self._sticky
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -226,6 +285,11 @@ class MainWindow(ChromeWindow):
         self._playing = False
         self._speed = settings_mod.DEFAULT_SPEED
         self._duration = 0.0
+        self._device_lost = False
+        # The first `library_changed` is the one that can decide this is a first
+        # run. Every later one is the user changing folders, and landing them
+        # back on Settings for that would be the app taking the wheel.
+        self._first_library = True
 
         self._build()
         self._connect()
@@ -270,6 +334,7 @@ class MainWindow(ChromeWindow):
         # a failure is the app answering back, and it is worth hearing whether
         # or not you were looking at the status line when it appeared.
         controller.failed.connect(lambda _message: self.sounds.error())
+        controller.device_changed.connect(self._on_device)
 
         self.stage.bar.index_changed.connect(self._on_category)
         self.stage.column.activated.connect(self._activate)
@@ -285,6 +350,7 @@ class MainWindow(ChromeWindow):
     # -- controller -> shell ----------------------------------------------
 
     def _on_library(self, result: ScanResult) -> None:
+        first, self._first_library = self._first_library, False
         self._library = result
         self._selection[CAT_MUSIC] = 0
         if result.skipped:
@@ -293,11 +359,63 @@ class MainWindow(ChromeWindow):
             self.stage.set_status(
                 f"{len(result.skipped)} file(s) skipped -- not really MP3"
             )
+        # A folder that has gone or turned unreadable is something *wrong*, and
+        # worth a noise. An empty one, or one never chosen, is not -- blipping
+        # an error at someone who has just opened the app for the first time
+        # says they did something, and they didn't.
+        if result.error in (library.MISSING, library.UNREADABLE):
+            self.sounds.error()
+        self._refresh_sticky()
         self._refresh_column(reset=True)
+        if first and result.error == library.NO_FOLDER:
+            self._begin_first_run()
 
     def _on_folder(self, folder: Path | None) -> None:
         self._folder = folder
+        self._refresh_sticky()
         self._refresh_column()
+
+    def _on_device(self, working: bool) -> None:
+        self._device_lost = not working
+        if not working:
+            # Wired to the signal rather than to an input for the same reason
+            # `failed` is: nobody pressed anything, the app is answering back.
+            # It very likely makes no sound -- there is no device -- but the
+            # case where Windows moved us to a *different* one is exactly when
+            # it would, and that is the case worth hearing.
+            self.sounds.error()
+        self._refresh_sticky()
+
+    def _refresh_sticky(self) -> None:
+        """Re-derive the status line's standing message.
+
+        Two conditions can hold at once -- no folder and no device -- so they
+        are ranked rather than raced. The device wins: a folder you can't play
+        through is the smaller of the two problems.
+        """
+        if self._device_lost:
+            self.stage.set_status(DEVICE_LOST_TEXT, sticky=True)
+        elif self._library.error is not None:
+            self.stage.set_status(
+                empty_advice(self._library.error, self._folder), sticky=True
+            )
+        else:
+            self.stage.set_status("", sticky=True)
+
+    def _begin_first_run(self) -> None:
+        """Nothing has ever been chosen: open on Settings, on the folder row.
+
+        Chosen with the user over throwing a native folder dialog at someone who
+        has not seen the app yet. It stays inside the XMB and costs one press --
+        and the row it lands on is the one every "no music" line names.
+
+        Settled rather than slid: this is where the app *started*, not somewhere
+        it navigated to, and the entrance animation is already playing over it.
+        No blip either -- nobody pressed anything.
+        """
+        self.stage.bar.set_index(CAT_SETTINGS)
+        self.stage.bar.settle()
+        self.stage.set_status(FIRST_RUN_TEXT)
 
     def _on_track(self, index: int) -> None:
         track = self.controller.current
@@ -428,7 +546,7 @@ class MainWindow(ChromeWindow):
             second = (
                 "Choose one in Music"
                 if self._library.tracks
-                else "No folder yet  --  Settings ▸ Music folder"
+                else empty_reason(self._library.error, self._folder)
             )
         else:
             # The warped length is the one number only this app can tell you,
@@ -459,9 +577,24 @@ class MainWindow(ChromeWindow):
         ]
 
     def _music_empty_text(self) -> str:
+        return empty_reason(self._library.error, self._folder)
+
+    def _folder_summary(self) -> str:
+        """What the Music folder row says on its right.
+
+        A folder that has gone says so here rather than showing its name as
+        though it were fine. One word, not the name and then the word: at 720 px
+        "no-such-folder  (missing)" pushed the row's own label into an ellipsis,
+        and a row whose value elides its label has them the wrong way round.
+        The status line underneath is where the name goes.
+        """
         if self._folder is None:
-            return "No folder yet  --  Settings ▸ Music folder"
-        return f"No playable MP3s in {self._folder.name}"
+            return "not set"
+        if self._library.error == library.MISSING:
+            return "missing"
+        if self._library.error == library.UNREADABLE:
+            return "unreadable"
+        return self._folder.name
 
     def _settings_items(self) -> list[Item]:
         counts = f"{len(self._library.tracks)} tracks"
@@ -470,7 +603,7 @@ class MainWindow(ChromeWindow):
         # No speed presets here any more -- they're the two ends of the slider
         # on Now Playing, which is a better home for them than a settings list.
         return [
-            Item("Music folder", self._folder.name if self._folder else "not set"),
+            Item("Music folder", self._folder_summary()),
             Item("Rescan folder", counts),
             Item("Full screen", "F11"),
             Item("Quit", ""),
@@ -501,7 +634,13 @@ class MainWindow(ChromeWindow):
             self.close()
 
     def _choose_folder(self) -> None:
-        start = self.controller.folder or Path.home()
+        # Opening the picker *at* a folder that has been deleted is how you get
+        # an empty dialog rooted nowhere. The reason someone is on this row is
+        # often that the old folder is gone, so that is the likely case, not the
+        # unlikely one.
+        start = self.controller.folder
+        if start is None or not start.is_dir():
+            start = Path.home()
         chosen = QFileDialog.getExistingDirectory(self, "Music folder", str(start))
         if chosen:
             self.controller.open_folder(Path(chosen))

@@ -48,9 +48,71 @@ VOLUME_FADE_MS = 25.0
 # swapping the samples array under it. Bounded so a dead stream can't hang us.
 _SWAP_TIMEOUT_S = 0.05
 
+# How long the callback may go quiet before we call the stream dead. At blocksize
+# 512 and 48 kHz a block is 10.7 ms, so this is about forty missed ones -- far
+# outside anything a busy machine produces, and still a fifth of a second.
+STALL_S = 0.5
+
 
 class AudioDeviceError(RuntimeError):
     """No usable output device, or the stream refused to open."""
+
+
+class StreamWatch:
+    """Has the audio callback stopped being called?
+
+    The stream is always on: it renders a block every ~10 ms whether or not
+    anything is playing. So a counter that stops moving *is* a dead stream, and
+    that is what unplugging the output device looks like from this side --
+    PortAudio does not reliably mark such a stream inactive, and it could not
+    tell us from the audio thread anyway, because nothing is ever pushed from
+    there (see the threading rules above).
+
+    The clock is injectable for the same reason `Sounds.clock` is: a test that
+    sleeps through a half-second stall is a test that depends on the scheduler.
+    """
+
+    __slots__ = ("stall_s", "clock", "_blocks", "_since")
+
+    def __init__(self, stall_s: float = STALL_S, clock=time.monotonic) -> None:
+        self.stall_s = float(stall_s)
+        self.clock = clock
+        self._blocks = -1
+        self._since = 0.0
+
+    def reset(self, blocks: int) -> None:
+        """Start (or restart) watching from `blocks`, now."""
+        self._blocks = int(blocks)
+        self._since = self.clock()
+
+    def stalled(self, blocks: int) -> bool:
+        """True once `blocks` has sat still for longer than `stall_s`.
+
+        Safe to call at any rate -- it is the *clock* that decides, not how
+        often it is asked.
+        """
+        if blocks != self._blocks:
+            self.reset(blocks)
+            return False
+        return self.clock() - self._since >= self.stall_s
+
+
+def refresh_devices() -> None:
+    """Make PortAudio re-enumerate its devices.
+
+    It builds the device list when it initialises and never revisits it, so a
+    device plugged in after launch -- including the one the user just plugged
+    back in -- does not exist as far as `query_devices` is concerned. Tearing
+    PortAudio down and back up is the only way to see it.
+
+    Must be called with no stream open. Best-effort: if it fails we are no worse
+    off than before, and the reopen that follows will fail with a real message.
+    """
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +376,21 @@ class Mixer:
         self._music = None
         self._finished = False
 
+    def detach_track(self) -> tuple[np.ndarray, int, float, bool] | None:
+        """Take the loaded track out, as `(samples, file_rate, position, playing)`.
+
+        For rebuilding onto another stream after the device went away. Reads the
+        position *before* clearing, because the point is to come back where you
+        left rather than at the top of the song. Everything here is the file's
+        own timeline, so it survives a device that runs at a different rate.
+        """
+        voice = self._music
+        if voice is None:
+            return None
+        state = (voice.samples, voice.file_rate, voice.position, self._playing)
+        self.clear_track()
+        return state
+
     def play(self) -> None:
         if self._music is None:
             return
@@ -448,6 +525,10 @@ class AudioEngine:
         self.mixer = Mixer(self.device.sample_rate, volume=volume, speed=speed)
         self._stream: sd.OutputStream | None = None
         self.xruns = 0  # counted, never printed -- the callback stays silent
+        # Written by the audio thread, read by the UI's poll. A plain int
+        # increment, which is atomic under the GIL and allocates nothing.
+        self.blocks = 0
+        self._watch = StreamWatch()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -469,12 +550,64 @@ class AudioEngine:
         except Exception as exc:
             raise AudioDeviceError(f"could not open {self.device}: {exc}") from exc
         self._stream = stream
+        self._watch.reset(self.blocks)
 
     def close(self) -> None:
         stream, self._stream = self._stream, None
         if stream is not None:
-            stream.stop()
-            stream.close()
+            # A stream whose device has been pulled will raise on the way out.
+            # We are closing it either way; there is nothing left to salvage.
+            try:
+                stream.stop()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    # -- the device going away --------------------------------------------
+
+    @property
+    def stalled(self) -> bool:
+        """True when the stream is open but has stopped producing blocks.
+
+        Polled by the UI at 30 Hz alongside everything else. A stream that was
+        never started is not stalled -- it is closed, which is a different thing
+        and not this property's business.
+        """
+        if self._stream is None:
+            return False
+        return self._watch.stalled(self.blocks)
+
+    def reopen(self) -> None:
+        """Re-pick the device and open a new stream, keeping what was playing.
+
+        Raises `AudioDeviceError` if there is still nothing to play through --
+        which is the normal answer while the headphones are out, so callers are
+        expected to retry rather than treat it as fatal.
+
+        The mixer survives untouched whenever the new device runs at the old
+        one's rate, which is the overwhelmingly common case (the same headphones
+        going back into the same socket). A genuinely different rate means a new
+        mixer, because the SFX bank and every fade are synthesized against it.
+        """
+        track = self.mixer.detach_track()
+        volume, speed = self.mixer.volume, self.mixer.speed
+
+        self.close()
+        refresh_devices()
+        self.device = pick_output_device()
+
+        if self.device.sample_rate != self.mixer.sample_rate:
+            self.mixer = Mixer(self.device.sample_rate, volume=volume, speed=speed)
+
+        self.start()
+
+        if track is not None:
+            samples, file_rate, position, playing = track
+            self.mixer.set_track(samples, file_rate, autoplay=playing)
+            self.mixer.seek(position)
 
     def __enter__(self) -> AudioEngine:
         self.start()
@@ -498,6 +631,10 @@ class AudioEngine:
     def _callback(self, outdata, frames, _time_info, status) -> None:
         if status:
             self.xruns += 1
+        # The heartbeat `stalled` watches. First thing, so a mixer that somehow
+        # threw still counts as the device being alive -- this number answers
+        # "is the sound card still asking?" and nothing else.
+        self.blocks += 1
         self.mixer.render(outdata)
 
     # -- tracks ------------------------------------------------------------

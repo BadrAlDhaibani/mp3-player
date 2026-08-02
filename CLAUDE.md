@@ -13,22 +13,28 @@ If a box below isn't ticked, it isn't done.
 > Batch 2 (audio engine) · Batch 3 (ugly working player) ·
 > Batch 4 (XMB shell structure) ·
 > Batch 5 (motion & atmosphere) ·
-> Batch 6 (sound & feel — **all but the ear pass**; 186 tests, 123 harness checks)
+> Batch 6 (sound & feel — **all but the ear pass**) ·
+> Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run)
 >
-> **Next:** **finish Batch 6's one open box, then Batch 7.** Everything is
-> wired and every silence is deliberate, but *"tune the synthesized sounds by
-> ear"* is not something this side of the screen can tick. Run
-> `tools/sfx_harness.py`, listen — especially `m` (a held arrow key) and `p`
-> (blips over music) — and say what to change. The numbers are all in one
-> place: `_PEAKS` in `core/audio/sfx.py` for the mix, `_MIN_GAP_MS` in
-> `ui/sounds.py` for how often.
+> **v1 is shipped.** Everything on the roadmap is ticked except one box that
+> can't be ticked from this side of the screen: *"tune the synthesized sounds by
+> ear"*. Shipping without it was decided with the user — the instrument exists
+> and the numbers are unverified, not wrong. Run `tools/sfx_harness.py`, listen
+> — especially `m` (a held arrow key) and `p` (blips over music) — and say what
+> to change. It's `_PEAKS` in `core/audio/sfx.py` for the mix and `_MIN_GAP_MS`
+> in `ui/sounds.py` for how often; neither needs a code change to try.
+>
+> **Next** is whatever comes off the post-v1 list in the v1 scope section — ID3
+> tags and art, a visualizer, shuffle/repeat, export, subfolders. None of it is
+> started. Confirm with the user before beginning any of it.
 >
 > Before writing any of it, read the note in the conventions about
 > `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
 > Batch 4 was found by rendering a PNG and looking at it; none by an assertion —
-> in Batch 5 the glow took two goes to stop looking like a border, and in Batch 6
+> in Batch 5 the glow took two goes to stop looking like a border, in Batch 6
 > the easing durations were halved on the evidence of a filmstrip after feel had
-> called them fine twice.
+> called them fine twice, and in Batch 7 the "folder is gone" line passed every
+> assertion while running off the right edge mid-word at 720 px.
 >
 > Starting a fresh session? Read the decisions log and conventions below before
 > writing anything — they're the accumulated agreements, not suggestions.
@@ -113,6 +119,14 @@ here and write down why.
 | **The SFX pool takes a free voice before it steals one** | Round-robin alone cut a voice that was still sounding while seven slots sat idle — and the victim was always the *longest* sound, that being the one still playing when the pointer comes round. Half a second of held arrow key chopped the 1.1 s startup swell in half. Stealing is still what happens when the pool is genuinely full, so the newest keypress is always the one you hear. |
 | **Animation durations are set from a filmstrip, not from feel** | Batch 5 set 190/220 ms by feel. A strip of one row step, rendered every 27 ms, was still travelling at 54 ms and pixel-identical from 81 ms to 190. 140/160 ms is the same curve with most of that drift removed — the character is unchanged, only the dead time. Note what this *doesn't* fix: the invisible fraction belongs to the curve, so roughly the last half of any ease-out is imperceptible at any duration. Flattening it is the other lever, and the arrival is where it would pay most; left alone as a preference rather than something the evidence settles. |
 | **The curve must be an ease-*out*, whatever else it is** | `Tween.to()` restarts from wherever the value has got to, and an ease-in restarts it at zero velocity. Any `InOut*` curve therefore stutters once per key repeat while an arrow is held — the exact problem restarting-from-current exists to solve. This is a constraint on the choice, not a preference within it. |
+| **Why a folder is empty is data; what to say about it is UI** | Three empties want three screens — nothing chosen yet, chosen and now gone, and a perfectly good folder with no music in it — and only the last of them means "no playable MP3s". `scan_folder` reports `NO_FOLDER`/`MISSING`/`UNREADABLE` as bare tokens and `ui/main_window.empty_reason` is the single place they become words, so the empty column and the status line can't drift into two spellings. `MISSING` vs `UNREADABLE` splits on `is_dir()`: there is no such folder, or there is one and we're not allowed in. |
+| **The device going away is polled, like everything else** | The stream is always on, so it renders a block every ~10 ms whether or not anything is playing — which makes a block counter that stops moving *the* signal that the device was unplugged. PortAudio doesn't reliably mark such a stream inactive, and it couldn't tell us from the audio thread anyway. `StreamWatch` is the same shape as every other clock in this project: injectable, so no test sleeps through half a second to find out. |
+| **Losing the device is a condition; a bad track is an event** | So the status line has two layers. A transient message times out and covers a standing one, then uncovers it. A *new* standing message clears the transient outright — leaving "audio device lost" queued behind a four-second-old "3 files skipped" is the one ordering that reads as the app not having noticed. |
+| **The app reconnects rather than needing a restart** | Headphones come out and go back in, or Windows moves the default device — on a desktop that is routine, and going permanently silent until relaunch is not a v1 an app ships with. `AudioEngine.reopen()` re-enumerates PortAudio (it caches its device list at init and never revisits it) and puts the track back at the position it left, on a 2 s retry. The mixer survives untouched unless the new device runs at a different rate, which is when it has to be rebuilt — the SFX bank and every fade are synthesized against that number. |
+| **Recovery is silent; loss blips once** | Loss is the app answering back, which is the same reason `failed` makes a noise. Recovery is not: you didn't press anything, and hearing the music return *is* the feedback. The blip fires once, not once per retry. |
+| **First run opens on Settings, not on a file dialog** | Chosen with the user. Throwing a native folder picker at someone who has not yet seen the app puts a Windows dialog in front of the thing they launched, and cancelling it drops them exactly where doing nothing would have. Landing on Settings ▸ Music folder stays inside the XMB, costs one press, and lands on the row that every "no music" line already names. Settled rather than slid — this is where the app *started*, not somewhere it navigated to — and silent, because nobody pressed anything. |
+| **Settings are read as `utf-8-sig`, written without a BOM** | Notepad and PowerShell's `Out-File -Encoding utf8` both prepend a byte-order mark. Read as plain `utf-8` that BOM reaches `json.loads` as a stray character, the whole file counts as corrupt, and every setting silently reverts — which the user experiences as the app forgetting their music folder for no reason. Found by hand-editing the file while testing the packaged exe, which is the only reason it was ever seen. |
+| **The `.exe` is a folder, not one file** | `--onefile` unpacks ~120 MB of Qt to a temp directory on *every* launch: several seconds of nothing before the window exists. This app opens its audio stream and sounds a startup swell in the first frame — an app selling a console boot cannot spend four seconds arriving. Shipped as `dist/XMB Player/` plus a zip. |
 
 ### Open questions
 
@@ -131,12 +145,13 @@ mp3player/
   core/                  # zero Qt imports -- enforceable seam
     models.py            # Track dataclass
     formats.py           # magic-byte sniffing; no numpy, no decoding
-    library.py           # scan_folder(path) -> ScanResult(tracks, skipped)
+    library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
       dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
       engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
+                         #   + StreamWatch: has the callback stopped being called?
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
@@ -153,8 +168,9 @@ mp3player/
       wave.py            # the wave: ribbons in a band on the crossbar row
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
-tools/                   # dev harnesses -- runnable, kept, not shipped
+tools/                   # dev harnesses + the build -- runnable, kept, not shipped
 tests/                   # core only, no display needed
+README.md                # for someone who has never seen the project
 ```
 
 ### How the audio works
@@ -277,7 +293,27 @@ don't invent a second way to do a thing we've already solved.
   double the number that was doing anything.
 - **Make the throttle's clock injectable.** `Sounds.clock` is swappable for
   the same reason the animations have `settle()` — a test that sleeps through
-  a rate limit is a test that depends on the scheduler.
+  a rate limit is a test that depends on the scheduler. `StreamWatch.clock` is
+  the same idea a layer down.
+- **Report *why*, not the sentence.** `core/` hands up a token
+  (`MISSING`, `UNREADABLE`); `ui/` owns the words. The moment the same
+  condition needs wording in two places — an empty column and a status line —
+  a sentence built in `core/` becomes a sentence built twice.
+- **Faking a verdict beats faking the world.** The device-loss harness swaps
+  out `StreamWatch`, not the stream — so everything downstream is the real code
+  path, *and* the reconnect that follows can be a genuine reopen of a genuine
+  device rather than another stand-in. When it counts as stalled is tested
+  offline, where it belongs.
+- **The offscreen harness can't tell you a line is too long, and the item
+  font is bigger than the status font.** The same sentence fits in one and runs
+  off the edge in the other. Anything that appears in both gets a short form and
+  a long form, and both get looked at in a render.
+- **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
+  `settings.json` from `run.bat` lands in
+  `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
+  while the packaged `.exe` writes the real `AppData/Roaming/XMBPlayer/`. They
+  are two different files. The exe showing a first-run screen while the source
+  build remembers your folder is this, not a bug.
 
 ---
 
@@ -475,7 +511,10 @@ plate, is a glow.
 - [x] Hook `move` / `confirm` / `back` / `error` / `startup` to navigation
 - [ ] **Tune the synthesized sounds by ear** — the instrument exists
       (`tools/sfx_harness.py`); the ear does not live on this side of the
-      screen. Not tickable from here.
+      screen. Not tickable from here. **v1 shipped without it, deliberately and
+      with the user's say-so** — the levels in `_PEAKS` and the rate limits in
+      `_MIN_GAP_MS` are unverified rather than known wrong, and changing either
+      needs no code.
 - [x] Click-free fades on every transition
 - [x] Easing curve tuning
 
@@ -521,14 +560,64 @@ Verified: 186 tests green (12 new, all core-only as the convention requires),
 what *doesn't* make a noise, and a real mapped-window run through nav, play,
 category switching and the speed slider — exit 0, zero underruns.
 
-### Batch 7 — Ship v1
+### Batch 7 — Ship v1 ✅
 
-- [ ] Error handling: empty folder, deleted folder, corrupt mp3, no audio device
-- [ ] First-run experience when no folder has been chosen yet
-- [ ] `README.md` with run instructions
-- [ ] PyInstaller build → standalone `.exe` (distribution only; dev still runs live source)
-- [ ] Final `CLAUDE.md` status pass
-- [ ] Tag v1
+- [x] Error handling: empty folder, deleted folder, corrupt mp3, no audio device
+- [x] First-run experience when no folder has been chosen yet
+- [x] `README.md` with run instructions
+- [x] PyInstaller build → standalone `.exe` (distribution only; dev still runs live source)
+- [x] Final `CLAUDE.md` status pass
+- [x] Tag v1
+
+`PlayerController` grew a device-loss path and `core/` grew two small things;
+otherwise the seam held for the fifth batch running.
+
+**The four error cases were not four problems.** Corrupt mp3 was already done
+(Batch 3) and no-audio-device-at-launch was already a message box (Batch 3).
+What was actually missing was the *middle* of both: a folder that had gone said
+"No playable MP3s in Music" about a folder that wasn't there, and a device that
+went away *while running* said nothing at all — every control still worked and
+none of them did anything, which is the worst version of a failure. Both are
+decisions-log rows now. The device one reconnects rather than asking for a
+restart, because headphones coming out and going back in is a normal Tuesday.
+
+**Two bugs found by leaving the intended path.** Testing the packaged exe meant
+hand-writing a `settings.json`, PowerShell wrote it with a BOM, and the app
+quietly reverted every setting — `read_text(encoding="utf-8")` hands the BOM to
+`json.loads` and the whole file counts as corrupt. It is `utf-8-sig` now, and
+"survives a hand-edited file" means survives the way Notepad and PowerShell
+actually write one. Separately, a *passing* harness check crashed the run: the
+shell's own strings contain `▸` and a Windows console is cp1252, so printing the
+text it had just approved raised `UnicodeEncodeError`. `app.py` reconfigures its
+streams for the same reason — under `run.bat` a track name with a `·` in it
+would take down the traceback that was trying to tell you something else.
+
+**The status line needed two layers, not one.** A bad track is an event and
+times out; a missing device is a condition and must not. A transient covers a
+standing message and then uncovers it — but a *new* standing message clears the
+transient outright, because "audio device lost" queued behind a four-second-old
+"3 files skipped" reads as the app not having noticed.
+
+**And the renders caught what 154 assertions couldn't**, again: `no-such-folder
+is gone -- Settings ▸ Music folder` passed every check and ran off the right
+edge mid-word at 720 px, because the empty column draws at the item size and the
+status line doesn't. Same string, two fonts, one of them too big for it. It is a
+short form and a long form now. The Settings row had the same shape of problem
+from the other end — `no-such-folder  (missing)` pushed the row's own label into
+an ellipsis, and a row whose value elides its label has them the wrong way round.
+
+Verified: 202 tests green (16 new, core-only as the convention requires),
+`tools/shell_harness.py` 154/154 including 31 new checks across the three
+empties, the device outage and the first run — and the reconnect in there is a
+*real* reopen of the real WASAPI stream, resuming mid-track. Rendered the new
+screens with the real platform at 720x480 and looked at them. Ran from source
+through nav, playback, the speed slider, and out via Settings ▸ Quit with
+settings flushed. Built the exe (149 MB unpacked, 60 MB zipped, 59 s), ran it,
+and played a track through it — which is the only thing that proves libsndfile
+and PortAudio actually came along.
+
+Also landed: `main.py` deleted. It was the Batch 0 `QWidget` stub, tracked and
+dead since `app.py` existed.
 
 ---
 
@@ -542,6 +631,9 @@ venv/Scripts/python.exe -m pip install -r requirements.txt
 run.bat                          # console: tracebacks and prints land here
 venv/Scripts/python.exe -m mp3player.app
 powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .lnk
+
+# the standalone build -- distribution only, never the edit-run loop
+venv/Scripts/python.exe tools/build_exe.py    # -> dist/XMB Player/ + a zip
 
 # tests
 venv/Scripts/python.exe -m pytest

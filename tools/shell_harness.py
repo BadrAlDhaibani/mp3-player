@@ -26,14 +26,27 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# The shell's own strings contain "▸" and "·", and a Windows console defaults to
+# cp1252 -- which turns a *passing* check into a UnicodeEncodeError the moment it
+# prints the text it just approved.
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mp3player.core import settings as settings_mod  # noqa: E402
 from mp3player.core.audio import sfx  # noqa: E402
-from mp3player.core.audio.engine import AudioEngine  # noqa: E402
+from mp3player.core.audio.engine import (  # noqa: E402
+    AudioDeviceError,
+    AudioEngine,
+    StreamWatch,
+)
+from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.ui import theme  # noqa: E402
+from mp3player.ui import main_window  # noqa: E402
 from mp3player.ui.controller import PlayerController  # noqa: E402
 from mp3player.ui.main_window import (  # noqa: E402
     CAT_MUSIC,
@@ -95,6 +108,27 @@ class SoundLog:
 
     def take(self) -> list[str]:
         return [name for name, _ in self.take_calls()]
+
+
+class _Stalled:
+    """A `StreamWatch` that has already made up its mind.
+
+    Standing in for the verdict, not for the stream: the real one keeps running
+    underneath, which is what lets the reconnect that follows be a real reopen
+    of a real device rather than another stand-in. When it counts as stalled is
+    `StreamWatch`'s own business and is tested offline in `tests/test_engine.py`.
+    """
+
+    def reset(self, blocks: int) -> None:
+        pass
+
+    def stalled(self, blocks: int) -> bool:
+        return True
+
+
+def _refuse() -> None:
+    """What `reopen` does while the device really is still unplugged."""
+    raise AudioDeviceError("no usable audio output device (harness)")
 
 
 class Clock:
@@ -647,6 +681,114 @@ def main() -> int:
     check("music column is empty", column.count == 0)
     check("and says why", "No playable MP3s" in column._empty_text)
     check("paints when empty", not window.grab().isNull())
+
+    print("\n-- the folder went away")
+    # The case that used to read "No playable MP3s in Music" about a folder that
+    # was not there at all. Three empties, three different sentences.
+    clock.tick()  # past the error blip's throttle window
+    log.take()
+    gone = Path(__file__).parent / "no-such-folder-b7"
+    controller.open_folder(gone, remember=False)
+    app.processEvents()
+    check("a missing folder is not the same as an empty one",
+          "is gone" in column._empty_text, column._empty_text)
+    check("...and it says so on the status line", "is gone" in stage._status)
+    check("...which stays up rather than timing out",
+          not stage._status_timer.isActive())
+    check("...and it made a noise, because something is wrong",
+          sfx.ERROR in log.take())
+    bar.set_index(CAT_SETTINGS)
+    check("the settings row flags it too",
+          "missing" in column._items[0].value, column._items[0].value)
+    check("paints with a missing folder", not window.grab().isNull())
+
+    clock.tick()
+    log.take()
+    controller.open_folder(Path(__file__).parent, remember=False)
+    app.processEvents()
+    check("an empty-but-real folder is silent -- nothing is wrong",
+          sfx.ERROR not in log.take())
+    check("...and clears the standing message", stage._status == "")
+
+    # Put the real library back: the device section needs something playing.
+    controller.open_folder(folder, remember=False)
+    app.processEvents()
+
+    print("\n-- the audio device went away")
+    # `StreamWatch` decides *when* a live stream counts as dead, and it has its
+    # own offline tests. What can only be checked here is everything downstream
+    # of that verdict, so the verdict is what gets faked -- the real stream keeps
+    # running underneath, which is also what lets the reconnect below be real.
+    if controller.tracks:
+        controller.play_index(0)
+        app.processEvents()
+    clock.tick()
+    log.take()
+
+    engine._watch = _Stalled()
+    check("the engine reports the stall", engine.stalled)
+
+    controller._poll()
+    app.processEvents()
+    check("the controller notices", controller.device_lost)
+    check("...and stops claiming to be playing", not engine.is_playing)
+    check("...says so", stage._status == main_window.DEVICE_LOST_TEXT)
+    check("...and keeps saying it", not stage._status_timer.isActive())
+    check("...blipping once", log.take().count(sfx.ERROR) == 1)
+    controller._poll()
+    controller._poll()
+    check("...and only once, however long it stays lost", log.take() == [])
+    check("paints with no device", not window.grab().isNull())
+
+    # A failed reconnect is the normal answer while the device is still out. It
+    # must not clear the message, and it must not start narrating its retries.
+    engine_reopen, engine.reopen = engine.reopen, _refuse
+    controller._try_reconnect()
+    app.processEvents()
+    check("a failed retry changes nothing", controller.device_lost)
+    check("...and stays quiet about it", log.take() == [])
+    check("...leaving the message up", stage._status == main_window.DEVICE_LOST_TEXT)
+    engine.reopen = engine_reopen
+
+    # Now for real: this closes the live stream, re-enumerates PortAudio, picks
+    # a device again and rebuilds the track onto it. On this machine that is the
+    # actual reconnect path, not a stand-in for it.
+    engine._watch = StreamWatch()
+    controller._try_reconnect()
+    app.processEvents()
+    check("reconnecting really reopens the stream", engine.running)
+    check("...clears the condition", not controller.device_lost)
+    check("...and takes the message down", stage._status == "")
+    check("...resuming where it left off", engine.is_playing and engine.position > 0.0,
+          f"{engine.position:.2f}s of {engine.duration:.2f}s")
+    check("...silently -- nobody pressed anything", log.take() == [])
+    controller.engine.pause()
+
+    print("\n-- first run: nothing has ever been chosen")
+    # A second window, built the way `app.py` builds one, against settings with
+    # no folder in them. Cheaper than restarting, and it is the same code path.
+    first = MainWindow(controller)
+    first.resize(980, 640)
+    first._on_folder(None)
+    first._on_library(scan_folder(None))
+    app.processEvents()
+    check("opens on Settings, not Now Playing", first.stage.bar.index == CAT_SETTINGS)
+    check("...settled there rather than sliding to it",
+          first.stage.bar._display == float(CAT_SETTINGS))
+    check("...on the Music folder row", first.stage.column.index == 0)
+    check("...telling you what to press", first.stage._status == main_window.FIRST_RUN_TEXT)
+    check("...and the standing message underneath it names the same row",
+          "Settings" in first.stage._sticky and "No folder yet" in first.stage._sticky,
+          first.stage._sticky)
+    check("paints on a first run", not first.grab().isNull())
+    # Choosing a folder later must not send you back to Settings.
+    first._on_folder(folder)
+    first._on_library(scan_folder(folder))
+    first.stage.bar.set_index(CAT_MUSIC)
+    first._on_library(scan_folder(folder))
+    check("a later library change leaves you where you are",
+          first.stage.bar.index == CAT_MUSIC)
+    first.deleteLater()
 
     # Put everything back before shutdown flushes settings to disk.
     controller.open_folder(folder, remember=False)

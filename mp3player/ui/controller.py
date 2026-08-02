@@ -27,8 +27,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.decode import DecodeError
-from mp3player.core.audio.engine import AudioEngine
-from mp3player.core.library import ScanResult, scan_folder
+from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
+from mp3player.core.library import scan_folder
 from mp3player.core.models import Track
 from mp3player.core.settings import Settings
 
@@ -39,6 +39,12 @@ POLL_MS = 33  # ~30 Hz
 SAVE_DELAY_MS = 800
 
 SEEK_STEP = 5.0
+
+# How often to try to get the output back after the device went away. Each
+# attempt tears PortAudio down and back up to re-enumerate, which costs a
+# fraction of a second on the UI thread -- fine occasionally while the app is
+# already silent, not fine at 30 Hz.
+RECONNECT_MS = 2000
 
 
 class PlayerController(QObject):
@@ -58,6 +64,11 @@ class PlayerController(QObject):
     speed_changed = Signal(float)
     volume_changed = Signal(float)
     failed = Signal(str)  # something the user should see, in one sentence
+    # The output device coming and going. Separate from `failed` because it is a
+    # *condition*, not an event: its message has to stay up until it stops being
+    # true, and the error blip that `failed` earns must not repeat once every
+    # reconnect attempt for as long as the headphones are out.
+    device_changed = Signal(bool)  # True when audio is working again
 
     def __init__(
         self, engine: AudioEngine, saved: Settings, parent: QObject | None = None
@@ -71,6 +82,8 @@ class PlayerController(QObject):
         # Mirrored so the poll only emits `playing_changed` on an actual edge --
         # the engine's own flag flips by itself at end of track.
         self._was_playing = engine.is_playing
+        self._device_lost = False
+        self._resume_on_reconnect = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_MS)
@@ -80,6 +93,10 @@ class PlayerController(QObject):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(SAVE_DELAY_MS)
         self._save_timer.timeout.connect(self._save_now)
+
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setInterval(RECONNECT_MS)
+        self._reconnect_timer.timeout.connect(self._try_reconnect)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -96,13 +113,17 @@ class PlayerController(QObject):
         if self._folder is not None:
             self.open_folder(self._folder, remember=False)
         else:
-            self.library_changed.emit(ScanResult())
+            # `scan_folder` rather than a bare `ScanResult()`: the reason there
+            # is no music is a thing the window renders, and "nothing has been
+            # chosen yet" is the one reason that gets its own first-run screen.
+            self.library_changed.emit(scan_folder(None))
 
         self._timer.start()
 
     def shutdown(self) -> None:
         """Stop polling, flush settings, close the stream. Idempotent."""
         self._timer.stop()
+        self._reconnect_timer.stop()
         self._save_now()
         self.engine.close()
 
@@ -129,8 +150,10 @@ class PlayerController(QObject):
 
         if remember:
             self._save_soon()
-        if not result.tracks:
-            self.failed.emit(f"No playable MP3s in {self._folder}")
+        # No message from here about an empty result. `library_changed` already
+        # carries *why* it was empty, and the window is where that becomes a
+        # sentence -- the same sentence the empty column has to print anyway.
+        # Two spellings of "no music here" is how they drift apart.
 
     def rescan(self) -> None:
         """Re-read the current folder -- files may have come or gone."""
@@ -236,6 +259,10 @@ class PlayerController(QObject):
     def _poll(self) -> None:
         engine = self.engine
 
+        if not self._device_lost and engine.stalled:
+            self._on_device_lost()
+            return
+
         if engine.take_finished():
             # Polled, never pushed -- see the threading rules in engine.py.
             # Advancing here means `is_playing` is true again before the edge
@@ -249,6 +276,52 @@ class PlayerController(QObject):
         if playing != self._was_playing:
             self._was_playing = playing
             self.playing_changed.emit(playing)
+
+    # -- the device going away --------------------------------------------
+    #
+    # Headphones come out, a USB interface is unplugged, Windows switches the
+    # default device. The stream stops being asked for blocks and the app goes
+    # quiet with no error anywhere -- which is the worst version of this, because
+    # every control still works and none of them do anything.
+
+    @property
+    def device_lost(self) -> bool:
+        return self._device_lost
+
+    def _on_device_lost(self) -> None:
+        self._device_lost = True
+        # It cannot play, so it is not playing. Banked and then actually paused,
+        # rather than only reported: leaving the mixer's flag set would have the
+        # next poll emit `playing_changed(True)` straight back and flicker the
+        # transport button once every 33 ms.
+        self._resume_on_reconnect = self.engine.is_playing
+        self.engine.pause()
+        self._set_playing(False)
+        self.device_changed.emit(False)
+        self._reconnect_timer.start()
+
+    def _try_reconnect(self) -> None:
+        """One attempt at getting the output back. Called on a slow timer.
+
+        Failure is the expected answer while the device is still unplugged, so
+        it stays quiet and waits for the next tick. Nothing here reports
+        progress: an app that narrates its retries is noisier than one that
+        simply starts working again.
+        """
+        try:
+            self.engine.reopen()
+        except AudioDeviceError:
+            return
+
+        self._reconnect_timer.stop()
+        self._device_lost = False
+        if self._resume_on_reconnect:
+            # Back where you left it, still going. `reopen` restored the
+            # position; this restores the transport, and the fade in the mixer
+            # means it arrives rather than cutting in.
+            self.engine.play()
+        self.device_changed.emit(True)
+        self._set_playing(self.engine.is_playing)
 
     # -- persistence -------------------------------------------------------
 

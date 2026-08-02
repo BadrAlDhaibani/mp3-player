@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# PyInstaller output -- tools/build_exe.py rebuilds all of it
+build/
+dist/
+*.spec
+
 # audio: never commit music or spike renders
 *.mp3
 *.wav

@@ -87,10 +87,19 @@ class Settings:
 
 
 def load(path: Path | None = None) -> Settings:
-    """Read settings from disk. Never raises -- falls back to defaults."""
+    """Read settings from disk. Never raises -- falls back to defaults.
+
+    Read as `utf-8-sig`, not `utf-8`: a byte-order mark is what Notepad and
+    PowerShell's `Out-File -Encoding utf8` put at the front of a UTF-8 file, and
+    plain `utf-8` hands that BOM to `json.loads` as a stray character. The whole
+    file is then "corrupt" and every setting silently goes back to its default
+    -- which looks exactly like the app forgetting your music folder for no
+    reason. `utf-8-sig` eats a BOM if there is one and is identical if not. We
+    still write without one.
+    """
     target = path or config_path()
     try:
-        raw = json.loads(target.read_text(encoding="utf-8"))
+        raw = json.loads(target.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return Settings()
     return Settings.from_dict(raw)

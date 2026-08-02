@@ -30,6 +30,25 @@ def test_defaults_when_file_is_corrupt(path) -> None:
     assert s.load(path) == Settings()
 
 
+def test_a_byte_order_mark_does_not_wipe_the_settings(path) -> None:
+    """Notepad and `Out-File -Encoding utf8` both write one.
+
+    Read as plain `utf-8` the BOM reaches `json.loads` as a stray character, the
+    file counts as corrupt, and every setting quietly reverts -- which the user
+    experiences as the app forgetting their music folder for no reason. Found
+    by hand-editing this file on the way to testing the packaged exe.
+    """
+    original = Settings(music_folder=path.parent / "Music", volume=0.5, speed=1.3)
+    path.write_text(json.dumps(original.to_dict()), encoding="utf-8-sig")
+    assert path.read_bytes().startswith(b"\xef\xbb\xbf")  # it really is there
+    assert s.load(path) == original
+
+
+def test_we_still_write_without_a_bom(path) -> None:
+    s.save(Settings(), path)
+    assert not path.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
 @pytest.mark.parametrize("payload", ["null", '"a string"', "[1, 2, 3]", "42"])
 def test_defaults_when_json_is_not_an_object(path, payload) -> None:
     path.write_text(payload)

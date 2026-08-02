@@ -5,8 +5,8 @@ without a cycle. If a number appears in two widgets, it belongs in this file.
 
 The palette is PS3 XMB read from memory rather than sampled: a near-black navy
 that lifts toward the horizon, white text at three brightnesses, and one icy
-accent used sparingly enough that it still reads as an accent. Batch 5 paints
-the wave *over* `background_brush`; the gradient is what shows through it.
+accent used sparingly enough that it still reads as an accent. The wave is
+painted *over* `background_brush`; the gradient is what shows through it.
 """
 
 from __future__ import annotations
@@ -48,6 +48,30 @@ def faded(color: QColor, alpha: float) -> QColor:
     out = QColor(color)
     out.setAlpha(max(0, min(255, int(color.alpha() * alpha))))
     return out
+
+
+def mix(first: QColor, second: QColor, amount: float) -> QColor:
+    """`first` at 0, `second` at 1. Alpha is interpolated with the channels.
+
+    What lets a category or an item *become* the selection rather than switch
+    to it: everything about the active look is the far end of a mix, so the
+    animation gets a cross-fade for free.
+    """
+    amount = max(0.0, min(1.0, amount))
+
+    def channel(a: int, b: int) -> int:
+        return int(round(a + (b - a) * amount))
+
+    return QColor(
+        channel(first.red(), second.red()),
+        channel(first.green(), second.green()),
+        channel(first.blue(), second.blue()),
+        channel(first.alpha(), second.alpha()),
+    )
+
+
+def lerp(first: float, second: float, amount: float) -> float:
+    return first + (second - first) * max(0.0, min(1.0, amount))
 
 
 # -- fonts -----------------------------------------------------------------
@@ -167,6 +191,106 @@ NP_HINT_TEXT = 11
 
 WINDOW_DEFAULT = (980, 640)
 WINDOW_MINIMUM = (720, 480)
+
+
+# -- motion ----------------------------------------------------------------
+#
+# Short enough that holding an arrow key still feels like scrubbing a list
+# rather than waiting for it. The slide is the only thing that moves on a
+# navigation, so it sets the whole app's tempo.
+
+SLIDE_MS = 190  # crossbar and item column, sliding to the new selection
+APPEAR_MS = 220  # a category's content arriving after a crossbar step
+APPEAR_OFFSET = 26  # how far it flies in from, in pixels
+
+# The selection glow: rounded rects *stroked* one step further out each time,
+# each fainter than the last. Two things this got wrong on the way:
+#
+# Filled rings stack their alpha over the plate and put a hard step at every
+# ring edge, which reads as a border rather than as light. Stroke them.
+#
+# And the falloff has to start *at* the plate and be gradual. Four rings 5 px
+# apart drops from full to half in one step, and that first bright band sitting
+# just off the edge is a rim -- the same border by another route. Small steps,
+# an eased decay, and enough of them to get out to a believable distance.
+GLOW_RINGS = 6
+GLOW_STEP = 3
+GLOW_ALPHA = 40
+GLOW_FALLOFF = 1.6  # exponent; >1 keeps the light close to the plate
+
+# The plate dims while the list is in flight, which is what hides its width
+# changing under the new selection. It must not dim to *nothing*, though: a
+# Home-to-End jump is several rows of travel, and without a floor the cursor
+# would simply be missing for most of it.
+GLOW_FLOOR = 0.35
+
+
+# -- the wave --------------------------------------------------------------
+#
+# A band centred on the crossbar row, not a full-screen field: it lights the
+# row the selection lives on instead of drifting behind the track list.
+#
+# The buffer is coarse across and full-height down, which is not a compromise
+# but a fit to the shape: a ribbon is a long, slowly-varying horizontal band,
+# so its edges run almost horizontally and it is the *vertical* sampling alone
+# that decides whether they look crisp. Along x a feature spans hundreds of
+# pixels and a quarter of them is indistinguishable. Rendering both axes coarse
+# is what made the first version look soft.
+
+# A cap, not a promise -- see the note on the timer in `wave.py`. Windows'
+# 15.6 ms tick turns a 33 ms coarse timer into roughly 21 fps, which is
+# deliberately left alone: the fastest ribbon moves 2 px a frame at 1600 px
+# wide, and buying the other 9 fps costs about four times the CPU.
+WAVE_FPS = 30
+WAVE_SCALE_X = 4  # across: coarse, and invisible
+WAVE_SCALE_Y = 1  # down: full, and the only thing crispness depends on
+WAVE_AMPLITUDE = 0.085  # of the stage height
+WAVE_BAND = 0.42  # falloff distance from the row, of the stage height
+WAVE_THICKNESS = 26  # ribbon thickness in full-resolution pixels
+WAVE_ALPHA = 52
+WAVE_BLOOM_ALPHA = 42
+WAVE_BREATH = 0.55  # radians/sec of the bloom's slow swell
+
+# Both of these were set by measurement, not taste -- see the perf note in
+# `wave.py`. Sampling a ribbon 60 times across the width is the point where
+# faceting stops being visible through the upscale; the glow is a downsampled
+# copy of the buffer added back over the top.
+WAVE_STEP = 60
+# In *screen* pixels, then divided back through each axis's scale. Stated this
+# way because the buffer's two axes are scaled differently: a single divisor
+# would give a halo four times wider than it is tall without ever saying so.
+WAVE_GLOW_RADIUS = 9
+WAVE_GLOW = 0.6  # how much of the blurred copy is added back
+
+# Hue tracks the speed slider, so the atmosphere reads out the one thing this
+# app is for: deep blue at daycore, the accent itself at 1.00x, violet at
+# nightcore. The knots are (slider fraction, value) -- 1.00x is 0.4 of the way
+# along a 0.80..1.30 range, which is why the middle knot sits there.
+_WAVE_HUE = ((0.0, 0.625), (0.4, 0.571), (1.0, 0.819))
+_WAVE_SATURATION = ((0.0, 0.70), (0.4, 0.51), (1.0, 0.74))
+
+
+def _along(knots: tuple[tuple[float, float], ...], fraction: float) -> float:
+    """Piecewise-linear lookup through `knots`, clamped at both ends."""
+    fraction = max(0.0, min(1.0, fraction))
+    for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
+        if fraction <= x1:
+            span = x1 - x0
+            return y0 if span <= 0 else lerp(y0, y1, (fraction - x0) / span)
+    return knots[-1][1]
+
+
+def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> QColor:
+    """The wave's colour at a point along the speed slider.
+
+    At `fraction=0.4` this returns ACCENT to within a rounding step, which is
+    the point: at 1.00x the wave is the same icy blue as every other accent in
+    the app, and only the effect pulls it away.
+    """
+    hue = (_along(_WAVE_HUE, fraction) + hue_shift) % 1.0
+    color = QColor.fromHsvF(hue, _along(_WAVE_SATURATION, fraction), 1.0)
+    color.setAlpha(max(0, min(255, alpha)))
+    return color
 
 
 # -- stylesheet ------------------------------------------------------------

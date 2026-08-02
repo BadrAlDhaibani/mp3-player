@@ -7,6 +7,11 @@ other half: it drives the actual widgets through synthesised key and mouse
 events and asserts on what the shell did, which is the only way to catch a
 crossbar and an item column quietly fighting over the same pixels.
 
+Animations are checked by driving their clocks (`settle()`, or the tween's own
+`setCurrentTime`) rather than by sleeping. Waiting out real milliseconds makes
+the result depend on when the event loop happened to get a turn, which is how
+you write a test that passes on your machine and nowhere else.
+
 It never writes settings. The folder it opens for the empty-library case is
 passed with `remember=False`, and volume and speed are put back before the
 controller flushes on shutdown.
@@ -91,11 +96,21 @@ def main() -> int:
 
     page = stage.page
 
+    wave = stage.wave
+
     print("\n-- structure")
     check("starts on Now Playing", bar.index == CAT_NOW)
     check("now playing shows the page, not a list", page.isVisible() and not column.isVisible())
     check("transport has no speed control", not hasattr(transport, "speed"))
     check("paints", not window.grab().isNull())
+    # Siblings paint in creation order, so the wave being constructed first is
+    # the whole of what puts it behind everything else. Nothing else enforces it.
+    order = stage.children()
+    check(
+        "the wave is under every other stage child",
+        all(order.index(wave) < order.index(other) for other in (bar, column, page)),
+    )
+    check("the wave ignores the mouse", wave.testAttribute(Qt.WA_TransparentForMouseEvents))
 
     print("\n-- crossbar nav")
     press(window, Qt.Key_Right)
@@ -144,6 +159,91 @@ def main() -> int:
         "the last category clears the item column",
         furthest + theme.CATEGORY_ICON_SMALL // 2 < theme.ITEM_X - theme.ITEM_MARKER_GAP,
         f"{furthest} vs {theme.ITEM_X}",
+    )
+
+    print("\n-- motion: the offset animates, the resting layout doesn't move")
+    # The two geometry functions above are the resting ones on purpose. These
+    # check the other half: that something actually slides, and that it lands.
+    bar.set_index(CAT_MUSIC)
+    column.settle()
+    column.set_index(0)
+    column.set_index(min(4, column.count - 1))
+    check("the column slides rather than jumping", column._display != column.index,
+          f"display={column._display:.2f} index={column.index}")
+    check(
+        "...while the row it will rest on is already the crossbar row",
+        column._item_y(column.index) == column.row_y(),
+    )
+    check(
+        "...and hit-testing uses that resting layout, not the moving one",
+        column.hit(QPoint(400, column.row_y())) == column.index,
+    )
+    column.settle()
+    check("settling lands exactly on the target", column._display == float(column.index))
+    check(
+        "...and the painted row is then the resting row",
+        column._paint_y(column.index) == float(column.row_y()),
+    )
+
+    bar.set_index(CAT_SETTINGS)
+    check("the crossbar slides too", bar._display != bar.index, f"{bar._display:.2f}")
+    check("...without moving where a click lands", bar.hit(QPoint(theme.FOCUS_X, row)) == bar.index)
+    bar.settle()
+    check("and it settles", bar._display == float(bar.index))
+
+    print("\n-- motion: a category's content flies in")
+    check("stepping to Settings started an entrance", column._appear < 1.0,
+          f"appear={column._appear:.2f}")
+    column.settle()
+    check("...which settles at fully arrived", column._appear == 1.0)
+    bar.set_index(CAT_NOW)
+    bar.settle()
+    check("the page gets one as well", page._appear < 1.0, f"appear={page._appear:.2f}")
+    page.settle()
+    check("...and settles too", page._appear == 1.0)
+    check(
+        "the hidden half was settled rather than left animating",
+        column._appear == 1.0 and column._display == float(column.index),
+    )
+    bar.set_index(CAT_MUSIC)
+    bar.settle()
+    column.settle()
+
+    print("\n-- the wave")
+    check("the wave paints", not wave.grab().isNull())
+    controller.set_speed(settings_mod.NIGHTCORE_SPEED)
+    app.processEvents()
+    check("its hue follows the speed to nightcore", abs(wave._fraction - 1.0) < 1e-6,
+          f"{wave._fraction:.3f}")
+    controller.set_speed(settings_mod.DAYCORE_SPEED)
+    app.processEvents()
+    check("...and to daycore", abs(wave._fraction) < 1e-6, f"{wave._fraction:.3f}")
+    controller.set_speed(1.0)
+    app.processEvents()
+    check("...and 1.00x sits where the accent does", abs(wave._fraction - 0.4) < 1e-6)
+    # The claim in theme.py that 1.00x *is* ACCENT, checked rather than trusted:
+    # the hue knots were fitted to it, and a palette edit could silently break it.
+    at_normal = theme.wave_color(0.4)
+    check(
+        "the wave at 1.00x is the accent colour",
+        max(
+            abs(at_normal.red() - theme.ACCENT.red()),
+            abs(at_normal.green() - theme.ACCENT.green()),
+            abs(at_normal.blue() - theme.ACCENT.blue()),
+        )
+        <= 2,
+        f"{at_normal.getRgb()[:3]} vs {theme.ACCENT.getRgb()[:3]}",
+    )
+    day, normal, night = (theme.wave_color(f).hue() for f in (0.0, 0.4, 1.0))
+    check(
+        "daycore, normal and nightcore are three distinct hues",
+        len({day, normal, night}) == 3,
+        f"{day} / {normal} / {night}",
+    )
+    check(
+        "...and nightcore is the one off toward violet",
+        night > day > normal,
+        f"night={night} day={day} normal={normal}",
     )
 
     print("\n-- activation")
@@ -357,6 +457,32 @@ def main() -> int:
         # It cuts one way safely: `track_rect` subtracts the DAYCORE/NIGHTCORE
         # advances, so offscreen it comes out *narrower* than reality. A track
         # that survives here survives on screen.
+
+    print("\n-- perf: the wave is the only thing running when nothing happens")
+    # The budget is one frame at WAVE_FPS. The first version of the wave blew
+    # straight through it -- 25 ms against 33 -- by stroking each ribbon with a
+    # wide soft pen. Assert the fix stays fixed; the number, not the intent.
+    budget = 1000 / theme.WAVE_FPS
+    window.resize(1600, 900)
+    app.processEvents()
+    wave.reset_stats()
+    for _ in range(60):
+        wave.update()
+        app.processEvents()
+    check(
+        f"a wave frame at 1600x900 costs well under {budget:.0f} ms",
+        0.0 < wave.average_render_ms < budget / 3,
+        f"{wave.average_render_ms:.2f} ms over {wave._frames} frames",
+    )
+    check(
+        "a hidden wave stops its timer entirely",
+        (wave.hide(), not wave._timer.isActive())[1],
+    )
+    wave.show()
+    check("...and starts it again when shown", wave._timer.isActive())
+    # Coarse is a decision, not a default: a precise timer would raise the
+    # system-wide timer resolution for the sake of 9 more fps nobody can see.
+    check("the wave's timer is deliberately coarse", wave._timer.timerType() == Qt.CoarseTimer)
 
     print("\n-- empty library")
     folder = controller.folder

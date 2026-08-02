@@ -11,15 +11,19 @@ If a box below isn't ticked, it isn't done.
 >
 > **Done:** Batch 0 (spike) · Batch 1 (core library & settings) ·
 > Batch 2 (audio engine, 174 tests green) · Batch 3 (ugly working player) ·
-> Batch 4 (XMB shell structure — it looks like an XMB now, it just doesn't move)
-> **Next:** **Batch 5 — XMB shell: motion & atmosphere.** `wave.py`, then
-> animate the two offsets the shell already computes (`Crossbar._centre_x` and
-> `ItemColumn._item_y` are both expressed as a distance from the active index,
-> which is the hook). `controller.py` and everything under `core/` stay as they are.
+> Batch 4 (XMB shell structure) ·
+> Batch 5 (motion & atmosphere — it moves now, and there's a wave behind it)
+> **Next:** **Batch 6 — sound & feel.** The synthesized blips from `sfx.py`
+> exist and are tested but nothing calls them; hook `move` / `confirm` / `back`
+> to the navigation that Batch 5 just gave a tempo, then tune by ear.
+> `controller.py` and everything under `core/` have still not been touched
+> since Batch 3.
 >
 > Before writing any of it, read the note in the conventions about
 > `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
-> Batch 4 was found by rendering a PNG and looking at it; none by an assertion.
+> Batch 4 was found by rendering a PNG and looking at it; none by an assertion —
+> and in Batch 5 the glow took two goes to stop looking like a border, both
+> caught the same way.
 >
 > Starting a fresh session? Read the decisions log and conventions below before
 > writing anything — they're the accumulated agreements, not suggestions.
@@ -88,6 +92,12 @@ here and write down why.
 | **The bar and the column never share horizontal space** | The active item sits *on* the crossbar row, so any overlap makes one of them unclickable — the first thing Batch 4's harness caught. `ITEM_X` clears the furthest-right category icon by construction. **A fourth category means moving `ITEM_X`, not just appending to the list.** |
 | **Both stage children are transparent to the mouse** | `Crossbar` and `ItemColumn` are full-size overlapping siblings. `ignore()` on a press propagates to parents, not siblings, so `XmbStage` does the hit-testing and the children only paint. |
 | **Arrow keys belong to the crossbar; seek moved to Shift+←→** | Nav is what arrows mean in an XMB. Every focusable child sets `NoFocus` so the window keeps the keys whatever was last clicked. |
+| **The wave is a band on the crossbar row, not a full-screen field** | Chosen with the user in Batch 5. Run full height the ribbons pass behind the track list and the transport bar and turn into noise; kept to a masked band they light the row the selection actually lives on. |
+| **The wave's hue tracks the speed slider** | Also chosen with the user. Deep blue at daycore, the app's own `ACCENT` at 1.00x, violet at nightcore — so the background reads out the one thing the app is *for*, and moves while the slider is dragged. The hue knots are fitted so that 1.00x really is `ACCENT`; the harness checks that rather than trusting it. |
+| **Resting geometry and painted geometry are separate functions** | `_centre_x` / `_item_y` are where things come to rest; `_paint_x` / `_paint_y` are where they are this instant. Hit-testing uses the resting pair on purpose — a click during a slide should mean the row you aimed at, not the one passing under the pointer — and it's also what keeps the harness's "the selection never moves" assertions meaningful once things move. |
+| **Animations are `QPropertyAnimation` on a float property, via `ui/motion.py`** | Qt already owns the timer, the easing and the repaint. `Tween.to()` restarts from the value's *current* position, which is what stops a held arrow key from stuttering. `finish()` exists for animations nobody can see — a hidden column, and the offscreen harness, which drives clocks rather than sleeping. |
+| **The wave's buffer is coarse across and full-height down** | A ribbon is a long, slowly-varying horizontal band, so its edges run almost horizontally and only the *vertical* sampling decides whether they look crisp; along x a feature spans hundreds of pixels and three in four can go. Quartering both axes — the obvious thing, and what shipped first — looks soft for the same money. Full res 14 ms, both axes quartered 4 ms, **only x quartered 5.6 ms and looks like the 14**. |
+| **The wave runs on a coarse timer at ~21 fps, not a precise 30** | Windows' 15.6 ms tick makes a 33 ms coarse timer fire every 46.8. A precise timer does deliver 30 fps but raises the *system-wide* timer resolution — a battery cost the whole machine pays for an app that sits open for hours — and measured about four times the CPU. The quickest ribbon moves ~2 px between frames either way. |
 
 ### Open questions
 
@@ -114,7 +124,8 @@ mp3player/
       engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
-    theme.py             # colors, fonts, metrics -- single source of truth
+    theme.py             # colors, fonts, metrics, motion -- single source of truth
+    motion.py            # Tween: one easing helper, shared by the three animators
     controller.py        # PlayerController(QObject): binds core <-> ui
     chrome.py            # frameless drag/resize/min/close
     main_window.py       # composes the shell; XmbStage owns the mouse
@@ -123,7 +134,7 @@ mp3player/
       item_column.py     # the item list -- Music and Settings only
       now_playing.py     # the Now Playing *page*: art, track, speed slider
       transport.py       # bottom bar: seek, transport buttons, volume
-      wave.py            # Batch 5, not written yet
+      wave.py            # the wave: ribbons in a band on the crossbar row
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
 tools/                   # dev harnesses -- runnable, kept, not shipped
@@ -209,6 +220,24 @@ don't invent a second way to do a thing we've already solved.
 - **In Qt stylesheets, subcontrol comes before pseudo-state** —
   `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
   discards a malformed rule *and everything after it* without a word.
+- **Animate by easing one float property; never hand-roll a frame timer.**
+  `ui/motion.py` wraps `QPropertyAnimation`; the property's setter is where
+  `update()` goes. Anything that animates also needs `settle()`, so a hidden
+  widget stops and the harness can reach the resting state without sleeping.
+- **Drive animation clocks in tests, don't sleep.** `settle()` or
+  `Tween.setCurrentTime(ms)`. Waiting out real milliseconds makes the result
+  depend on when the event loop got a turn.
+- **Measure CPU inside the real event loop.** A `processEvents()` poll loop
+  costs more than what it's measuring — it reported 44% for a wave that
+  actually costs 12.
+- **A widget that repaints continuously must be cheap in *path* terms, not
+  just pixel terms.** Wide-pen strokes on many-point paths are the trap;
+  filling and faking the halo elsewhere is ten times faster.
+- **Before downscaling a render buffer, ask which axis the detail is in.**
+  Halving both axes is a reflex, and it costs crispness in the direction that
+  had it to lose. The wave's edges are horizontal, so vertical resolution is
+  the whole of how sharp it looks and horizontal resolution is nearly free to
+  give away.
 
 ---
 
@@ -340,12 +369,65 @@ at maximum; and `QSlider:disabled::sub-page` has the subcontrol and pseudo-state
 the wrong way round, which makes Qt silently discard that rule *and every rule
 after it*.
 
-### Batch 5 — XMB shell: motion & atmosphere
+### Batch 5 — XMB shell: motion & atmosphere ✅
 
-- [ ] `wave.py` — sine ribbons, additive glow, half-res pixmap upscale, fps cap
-- [ ] Slide + fade animations on category and item change
-- [ ] Glow / scale on the selected item
-- [ ] Perf pass — idle CPU with the wave running
+- [x] `wave.py` — sine ribbons, additive glow, anisotropic buffer upscaled, fps cap
+- [x] Slide + fade animations on category and item change
+- [x] Glow / scale on the selected item
+- [x] Perf pass — idle CPU with the wave running
+
+`PlayerController` and `core/` were untouched again — three batches running.
+
+**The hook Batch 4 left worked.** Both offsets were already written as a
+distance from the active index, so animating them was one float each: `_display`
+eases toward `_index` and the paint reads that. Nothing about the layout moved.
+The active *look* stopped being a branch at the same time — a category and an
+item are each drawn once, at a size and colour mixed by how close they are to
+the focus point, so mid-slide two of them genuinely trade places instead of one
+switching off and the other on.
+
+**The wave cost 25 ms a frame before it cost 2.** The first version stroked each
+ribbon with a wide soft pen for its halo and sampled the curve 160 times — a
+background, using three quarters of a 33 ms budget. Stroking was 18 ms of it (a
+wide pen makes Qt compute a join per point) and building the paths in Python was
+another 4. Filling instead of stroking, sampling 60 times, and taking the halo
+from one downsampled additive copy of the whole buffer brought it to ~2 ms.
+Worth remembering: **the cost here is path geometry, not pixels.** Dropping the
+render resolution from 1/2 to 1/4 moved 25 ms to 19; deleting one `setPen`
+moved it to 6.
+
+**Then the balance flipped, and the first version shipped too soft.** With the
+stroke gone, filling the ribbons became the largest item in the frame — so
+pixels were suddenly worth attacking, and the buffer that had been quartered on
+both axes was blurring the edges for no benefit along x. See the decisions log:
+coarse across, full-height down, which is 5.6 ms against full resolution's 14
+and looks like it. Found by running it and being told the ribbons looked soft,
+not by any measurement — the frame budget was never the complaint.
+
+Measured idle, real event loop, this machine (8 cores), final:
+
+| | CPU, one core | fps |
+|---|---|---|
+| 980x640, wave running | 2–3% | 21 |
+| 980x640, wave hidden | 2.5% | — |
+| 1600x900, wave running | 12% | 21 |
+| 1600x900, playing | 18% | 21 |
+
+At the default window the wave is free to within the noise; at 1600x900 it costs
+about a tenth of one core, and the anisotropic buffer bought its crispness for
+nothing measurable. **Measure in the real event loop** — a first pass that
+polled `processEvents()` in a sleep loop reported 44%, nearly all of it the
+polling.
+
+Two bugs the screenshots caught, both invisible to any assertion:
+the ribbons ended with a vertical closing edge at the buffer boundary, and
+antialiasing it left a half-covered column that the 3x upscale blew up into a
+seam near both window edges (they now start and end a step off-buffer); and
+the selection glow read as a *border* twice running — first as stacked filled
+rings, whose alpha piles up over the plate and steps at every edge, then as four
+stroked rings 5 px apart, whose bright innermost band sitting just off the plate
+is a rim by another name. Six small steps with an eased falloff, starting at the
+plate, is a glow.
 
 ### Batch 6 — Sound & feel
 

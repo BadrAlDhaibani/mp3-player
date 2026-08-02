@@ -30,6 +30,7 @@ from mp3player.ui.widgets.crossbar import Category, Crossbar
 from mp3player.ui.widgets.item_column import Item, ItemColumn
 from mp3player.ui.widgets.now_playing import NowPlaying, NowPlayingPage
 from mp3player.ui.widgets.transport import TransportBar, clock
+from mp3player.ui.widgets.wave import WaveBackground
 
 CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
 
@@ -46,11 +47,12 @@ SPEED_STEP = 0.01  # one Up/Down press on the Now Playing page
 
 
 class XmbStage(QWidget):
-    """The cross itself: crossbar, item column, and the Now Playing page.
+    """The cross itself: the wave, the crossbar, the item column, the page.
 
-    All three are transparent to the mouse so this one widget can decide what a
+    All four are transparent to the mouse so this one widget can decide what a
     click meant -- they overlap, and letting any of them eat events would make
-    the others unclickable.
+    the others unclickable. The wave is constructed first, which is what puts
+    it at the bottom of the stack: siblings paint in creation order.
 
     The column and the page are alternatives, never both: Music and Settings are
     lists, Now Playing is a page. `show_page` swaps them.
@@ -58,24 +60,46 @@ class XmbStage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.wave = WaveBackground(self)
         self.bar = Crossbar(self)
         self.column = ItemColumn(self)
         self.page = NowPlayingPage(self)
         self._status = ""
         self._dragging = False
-
-    def show_page(self, showing: bool) -> None:
-        self.page.setVisible(showing)
-        self.column.setVisible(not showing)
+        self._showing_page: bool | None = None
 
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
         self._status_timer.setInterval(STATUS_MS)
         self._status_timer.timeout.connect(lambda: self.set_status(""))
 
+    def show_page(self, showing: bool) -> None:
+        """Swap the column and the page. Visibility only -- `enter` does the fly-in.
+
+        `_refresh_column` calls this on every controller signal, so anything
+        animated from in here would restart whenever the position poll noticed
+        a new duration.
+        """
+        if showing == self._showing_page:
+            return
+        self._showing_page = showing
+        self.page.setVisible(showing)
+        self.column.setVisible(not showing)
+        # Whatever just went behind has no business still animating.
+        (self.column if showing else self.page).settle()
+
+    def enter(self) -> None:
+        """Fly the visible half in. One call per crossbar step, and no other.
+
+        Not folded into `show_page`: Music to Settings leaves the same widget
+        on screen with different rows in it, and that is every bit as much an
+        arrival as swapping the page for the column.
+        """
+        (self.page if self._showing_page else self.column).enter()
+
     def resizeEvent(self, event) -> None:
         # Not a layout: they're deliberately on top of each other.
-        for child in (self.bar, self.column, self.page):
+        for child in (self.wave, self.bar, self.column, self.page):
             child.setGeometry(self.rect())
         super().resizeEvent(event)
 
@@ -187,6 +211,7 @@ class MainWindow(ChromeWindow):
         self._build()
         self._connect()
         self._refresh_column(reset=True)
+        self.stage.enter()  # the app arrives the same way a category does
 
     # -- construction ------------------------------------------------------
 
@@ -203,6 +228,7 @@ class MainWindow(ChromeWindow):
         self.set_body(body)
 
         self.stage.bar.set_categories(CATEGORIES)
+        self.stage.wave.set_fraction(_speed_fraction(self._speed))
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _connect(self) -> None:
@@ -268,6 +294,10 @@ class MainWindow(ChromeWindow):
 
     def _on_speed(self, speed: float) -> None:
         self._speed = speed
+        # The wave's hue is the speed: deep blue at daycore, violet at
+        # nightcore. It's the only part of the app that says what the effect is
+        # doing while you're looking at some other category.
+        self.stage.wave.set_fraction(_speed_fraction(speed))
         # Nothing to push at the transport bar any more -- the slider that shows
         # this lives in the Now Playing column, which `_refresh_column` repaints
         # along with the subtitle that names it.
@@ -286,6 +316,7 @@ class MainWindow(ChromeWindow):
         self._selection[self._category] = self.stage.column.index
         self._category = index
         self._refresh_column(restore=True)
+        self.stage.enter()
 
     def _refresh_column(self, *, reset: bool = False, restore: bool = False) -> None:
         """Rebuild the visible column from current state.

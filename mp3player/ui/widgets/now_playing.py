@@ -18,11 +18,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtCore import Property, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from mp3player.ui import theme
+from mp3player.ui.motion import Tween
 
 DAYCORE_LABEL = "DAYCORE"
 NIGHTCORE_LABEL = "NIGHTCORE"
@@ -50,6 +51,8 @@ class NowPlayingPage(QWidget):
         # letting either of them eat events would break the other.
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._state = NowPlaying()
+        self._appear = 1.0
+        self._arrival = Tween(self, "appear", theme.APPEAR_MS)
 
     def set_state(self, state: NowPlaying) -> None:
         if state != self._state:
@@ -59,6 +62,28 @@ class NowPlayingPage(QWidget):
     @property
     def state(self) -> NowPlaying:
         return self._state
+
+    # -- arrival -----------------------------------------------------------
+    #
+    # The page flies in when a crossbar step lands on it, the same way the item
+    # column does. Nothing else here animates: the slider follows the engine
+    # live, and easing it would put the handle somewhere the audio isn't.
+
+    def _get_appear(self) -> float:
+        return self._appear
+
+    def _set_appear(self, value: float) -> None:
+        self._appear = float(value)
+        self.update()
+
+    appear = Property(float, _get_appear, _set_appear)
+
+    def enter(self) -> None:
+        self._appear = 0.0
+        self._arrival.to(1.0)
+
+    def settle(self) -> None:
+        self._arrival.finish()
 
     # -- geometry ----------------------------------------------------------
 
@@ -124,6 +149,12 @@ class NowPlayingPage(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
+
+        # Same arrival as the item column. A transform, so `track_rect` and
+        # `art_rect` -- which the stage hit-tests against -- never see it.
+        if self._appear < 1.0:
+            painter.setOpacity(self._appear)
+            painter.translate((1.0 - self._appear) * theme.APPEAR_OFFSET, 0)
 
         self._paint_art(painter)
         self._paint_title(painter)

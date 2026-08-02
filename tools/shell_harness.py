@@ -211,6 +211,53 @@ def main() -> int:
         check(f"paints at {width}x{height}", not window.grab().isNull())
         check(f"children fill the stage at {width}", bar.size() == stage.size())
 
+    print("\n-- the minimum window still fits its contents")
+    # Fixed widths in the transport row used to add up to 773 px against 629
+    # available, and Qt resolved that by drawing the readouts on top of the
+    # sliders. Assert the row can actually shrink instead.
+    window.resize(*theme.WINDOW_MINIMUM)
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    window.layout().activate()
+
+    inner = window.width() - 2 * theme.RESIZE_MARGIN - 2 * theme.TRANSPORT_MARGIN
+    check(
+        "the transport row fits",
+        transport.layout().itemAt(1).minimumSize().width() <= inner,
+        f"needs {transport.layout().itemAt(1).minimumSize().width()}, has {inner}",
+    )
+    check(
+        "the speed readout clears its slider",
+        transport.speed_value.x() > transport.speed.geometry().right(),
+    )
+    check(
+        "the volume readout clears its slider",
+        transport.volume_value.x() > transport.volume.geometry().right(),
+    )
+    check(
+        "nothing overruns the right margin",
+        transport.volume_value.geometry().right()
+        <= transport.width() - theme.TRANSPORT_MARGIN,
+    )
+    check("the title shrank rather than overflowed", transport.title.width() > 0)
+
+    check("paints at the minimum size", not window.grab().isNull())
+
+    # The art square shrinks to the room above the crossbar row and is dropped
+    # rather than clipped. At 720x480 there is no room; at 980x640 there is.
+    def art_room() -> int:
+        return column._item_y(0) - theme.ITEM_SPACING // 2 - theme.HEADER_GAP - 52
+
+    check("no art at the minimum size", art_room() < theme.HEADER_ART_MIN, f"room={art_room()}")
+    window.resize(980, 640)
+    app.processEvents()
+    room = art_room()
+    check(
+        "art at the default size, unclipped",
+        theme.HEADER_ART_MIN <= min(theme.HEADER_ART, room) and room > 0,
+        f"room={room}",
+    )
+
     print("\n-- empty library")
     folder = controller.folder
     controller.open_folder(Path(__file__).parent, remember=False)

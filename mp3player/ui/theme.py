@@ -89,7 +89,10 @@ def font(
 # other categories slide past it; the active item sits on the crossbar row
 # forever and the list scrolls under it.
 
-CROSSBAR_Y_RATIO = 0.40  # of the stage height, measured to the icon centres
+# Of the stage height, measured to the icon centres. Every pixel above the row
+# is what the Now Playing header has to live in, so this is really a trade
+# between header room and how many items fit below.
+CROSSBAR_Y_RATIO = 0.44
 
 FOCUS_X = 88  # where the active category icon centres
 CATEGORY_SPACING = 88
@@ -111,7 +114,11 @@ ITEM_FADE_SPAN = 9.0  # distance at which an item would fade out completely
 ITEM_FADE_FLOOR = 0.38  # ...except it never gets dimmer than this, so a short
 # action list doesn't read as half-disabled. Long track lists still fall away.
 
-HEADER_ART = 132  # the "now playing" art placeholder, square
+# The art placeholder shrinks to whatever room is left above the crossbar row,
+# and is dropped entirely below the minimum -- a clipped square looks like a
+# bug, and at 720x480 there is genuinely no room for one.
+HEADER_ART = 132  # the "now playing" art placeholder, square, at full size
+HEADER_ART_MIN = 64  # below this it isn't worth drawing
 HEADER_GAP = 26  # art block -> first item
 
 RIGHT_MARGIN = 40
@@ -119,7 +126,17 @@ STATUS_MARGIN = 18
 
 CHROME_HEIGHT = 34
 TRANSPORT_HEIGHT = 104
+TRANSPORT_MARGIN = 28  # tighter than RIGHT_MARGIN: this row is the crowded one
 RESIZE_MARGIN = 6  # window border the frameless resize grips live in
+
+# The transport row must survive the minimum window width. Fixed widths would
+# not: at 720 the row wanted 773 px, so Qt overlapped the readouts onto the
+# sliders it could not shrink. Every control below is a *range*.
+BUTTON_W, BUTTON_H = 34, 28
+SPEED_SLIDER = (72, 140)  # min, max
+VOLUME_SLIDER = (62, 96)
+SPEED_VALUE_W = 46
+VOLUME_VALUE_W = 36
 
 WINDOW_DEFAULT = (980, 640)
 WINDOW_MINIMUM = (720, 480)

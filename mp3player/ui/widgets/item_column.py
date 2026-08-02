@@ -218,22 +218,33 @@ class ItemColumn(QWidget):
             )
 
     def _paint_header(self, painter: QPainter, header: Header) -> None:
+        """Art, title, subtitle -- sized to the room above the crossbar row.
+
+        How much room there is depends on the window height and on how far the
+        column has scrolled, so the art can't be a constant. It shrinks to fit
+        and disappears below `HEADER_ART_MIN`: at the 720x480 minimum there is
+        genuinely no space for a square, and a clipped one reads as a bug.
+        """
         bottom = self._item_y(0) - theme.ITEM_SPACING // 2 - theme.HEADER_GAP
-        art_top = bottom - HEADER_TEXT_BLOCK - theme.HEADER_ART
-        if art_top > self.height():
-            return
+        if bottom <= 0:
+            return  # scrolled off the top entirely
 
-        art = QRect(theme.ITEM_X, art_top, theme.HEADER_ART, theme.HEADER_ART)
-        painter.setPen(theme.PANEL_EDGE)
-        painter.setBrush(theme.PANEL)
-        painter.drawRoundedRect(art, 6, 6)
-        painter.setBrush(Qt.NoBrush)
+        room = bottom - HEADER_TEXT_BLOCK
+        size = min(theme.HEADER_ART, room)
+        text_top = bottom - HEADER_TEXT_BLOCK
 
-        # No ID3 art in v1 (see the scope list) -- a note glyph stands in, and
-        # the block is already the right shape for a cover when tags land.
-        painter.setFont(theme.font(52, family=theme.GLYPH_FAMILY))
-        painter.setPen(theme.faded(theme.TEXT_FAINT, 0.7))
-        painter.drawText(art, Qt.AlignCenter, "♪")
+        if size >= theme.HEADER_ART_MIN:
+            art = QRect(theme.ITEM_X, text_top - size, size, size)
+            painter.setPen(theme.PANEL_EDGE)
+            painter.setBrush(theme.PANEL)
+            painter.drawRoundedRect(art, 6, 6)
+            painter.setBrush(Qt.NoBrush)
+
+            # No ID3 art in v1 (see the scope list) -- a note glyph stands in,
+            # and the block is the right shape for a cover when tags land.
+            painter.setFont(theme.font(max(24, size * 2 // 5), family=theme.GLYPH_FAMILY))
+            painter.setPen(theme.faded(theme.TEXT_FAINT, 0.7))
+            painter.drawText(art, Qt.AlignCenter, "♪")
 
         available = self._text_width()
         painter.setFont(theme.font(21))
@@ -242,7 +253,7 @@ class ItemColumn(QWidget):
             header.title, Qt.ElideRight, available
         )
         painter.drawText(
-            QRect(theme.ITEM_X, art.bottom() + 8, available, 26),
+            QRect(theme.ITEM_X, text_top + 4, available, 26),
             Qt.AlignLeft | Qt.AlignVCenter,
             title,
         )
@@ -251,7 +262,7 @@ class ItemColumn(QWidget):
             painter.setFont(theme.font(13))
             painter.setPen(theme.TEXT_FAINT)
             painter.drawText(
-                QRect(theme.ITEM_X, art.bottom() + 34, available, 18),
+                QRect(theme.ITEM_X, text_top + 30, available, 18),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 header.subtitle,
             )

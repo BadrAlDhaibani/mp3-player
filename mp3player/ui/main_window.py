@@ -394,8 +394,16 @@ class MainWindow(ChromeWindow):
 
 
 def _speed_name(speed: float) -> str:
-    if speed > 1.02:
+    """Name the presets; describe everything else by direction.
+
+    Calling 1.05x "Nightcore" because it happens to be above 1.0 overstates it.
+    The two presets get their names, and the continuous slider in between gets
+    an honest label.
+    """
+    if abs(speed - settings_mod.NIGHTCORE_SPEED) < 0.005:
         return "Nightcore"
-    if speed < 0.98:
+    if abs(speed - settings_mod.DAYCORE_SPEED) < 0.005:
         return "Daycore"
-    return "Normal"
+    if abs(speed - 1.0) < 0.005:
+        return "Normal"
+    return "Sped up" if speed > 1.0 else "Slowed"

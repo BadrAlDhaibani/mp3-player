@@ -14,10 +14,12 @@ a skipping CD, while a live speed change is the whole point.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -77,24 +79,22 @@ class TransportBar(QWidget):
         self.play_button = _glyph_button(PLAY_GLYPH)
         self.next_button = _glyph_button(NEXT_GLYPH)
 
-        self.title = _label("nothing loaded", 14, theme.TEXT)
+        # The only thing on the bottom row allowed to take the leftover space --
+        # and the only thing allowed to shrink to nothing.
+        self.title = _ElidingLabel("nothing loaded")
 
-        self.speed = QSlider(Qt.Horizontal)
+        self.speed = _slider(*theme.SPEED_SLIDER)
         self.speed.setRange(
             int(settings_mod.MIN_SPEED * SPEED_SCALE),
             int(settings_mod.MAX_SPEED * SPEED_SCALE),
         )
-        self.speed.setFixedWidth(140)
-        self.speed.setFocusPolicy(Qt.NoFocus)
         self.speed_value = _label("1.00x", 12, theme.ACCENT)
-        self.speed_value.setFixedWidth(48)
+        self.speed_value.setFixedWidth(theme.SPEED_VALUE_W)
 
-        self.volume = QSlider(Qt.Horizontal)
+        self.volume = _slider(*theme.VOLUME_SLIDER)
         self.volume.setRange(0, 100)
-        self.volume.setFixedWidth(96)
-        self.volume.setFocusPolicy(Qt.NoFocus)
         self.volume_value = _label("80%", 12, theme.TEXT_FAINT)
-        self.volume_value.setFixedWidth(38)
+        self.volume_value.setFixedWidth(theme.VOLUME_VALUE_W)
 
         top = QHBoxLayout()
         top.setSpacing(12)
@@ -103,22 +103,24 @@ class TransportBar(QWidget):
         top.addWidget(self.duration)
 
         bottom = QHBoxLayout()
-        bottom.setSpacing(10)
+        bottom.setSpacing(8)
         bottom.addWidget(self.previous_button)
         bottom.addWidget(self.play_button)
         bottom.addWidget(self.next_button)
-        bottom.addSpacing(14)
+        bottom.addSpacing(10)
         bottom.addWidget(self.title, 1)
         bottom.addWidget(_label("SPEED", 10, theme.TEXT_FAINT, spaced=True))
         bottom.addWidget(self.speed)
         bottom.addWidget(self.speed_value)
-        bottom.addSpacing(18)
+        bottom.addSpacing(12)
         bottom.addWidget(_label("VOL", 10, theme.TEXT_FAINT, spaced=True))
         bottom.addWidget(self.volume)
         bottom.addWidget(self.volume_value)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(theme.RIGHT_MARGIN, 14, theme.RIGHT_MARGIN, 16)
+        root.setContentsMargins(
+            theme.TRANSPORT_MARGIN, 14, theme.TRANSPORT_MARGIN, 16
+        )
         root.setSpacing(12)
         root.addLayout(top)
         root.addLayout(bottom)
@@ -172,6 +174,40 @@ class TransportBar(QWidget):
         self.seek_requested.emit(self.seek.value() / SEEK_SCALE)
 
 
+class _ElidingLabel(QLabel):
+    """A label that shrinks to nothing and ellipsises, instead of clipping.
+
+    A plain QLabel demands the width of its text and, when the row can't give
+    it, gets truncated mid-word with no ellipsis to say so. `Ignored` lets the
+    layout squeeze this to zero; `paintEvent` decides what still fits.
+    """
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self._full = text
+        self.setFont(theme.font(14))
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text: str) -> None:  # noqa: N802 -- Qt's name
+        self._full = text
+        super().setText(text)
+        self.update()
+
+    def text(self) -> str:
+        return self._full
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        painter.setFont(self.font())
+        painter.setPen(theme.TEXT)
+        elided = QFontMetrics(self.font()).elidedText(
+            self._full, Qt.ElideRight, self.width()
+        )
+        painter.drawText(self.rect(), Qt.AlignLeft | Qt.AlignVCenter, elided)
+
+
 def _label(text: str, pixels: int, color, *, spaced: bool = False) -> QLabel:
     label = QLabel(text)
     label.setFont(theme.font(pixels, letter_spacing=spaced))
@@ -179,9 +215,18 @@ def _label(text: str, pixels: int, color, *, spaced: bool = False) -> QLabel:
     return label
 
 
+def _slider(minimum_width: int, maximum_width: int) -> QSlider:
+    """A slider that can give ground. Fixed widths are what broke the row."""
+    slider = QSlider(Qt.Horizontal)
+    slider.setMinimumWidth(minimum_width)
+    slider.setMaximumWidth(maximum_width)
+    slider.setFocusPolicy(Qt.NoFocus)
+    return slider
+
+
 def _glyph_button(glyph: str) -> QPushButton:
     button = QPushButton(glyph)
-    button.setFixedSize(38, 30)
+    button.setFixedSize(theme.BUTTON_W, theme.BUTTON_H)
     button.setCursor(Qt.PointingHandCursor)
     button.setFocusPolicy(Qt.NoFocus)  # keys belong to the crossbar, not here
     button.setFont(theme.font(15, family=theme.GLYPH_FAMILY))

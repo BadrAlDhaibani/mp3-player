@@ -60,6 +60,7 @@ class TitleBar(QWidget):
         super().__init__(window)
         self._window = window
         self.setFixedHeight(theme.CHROME_HEIGHT)
+        self.setCursor(Qt.ArrowCursor)  # never inherit the window's resize cursor
 
         label = QLabel(title, self)
         label.setFont(theme.font(12, letter_spacing=True))
@@ -144,6 +145,9 @@ class ChromeWindow(QWidget):
             self._body.deleteLater()
         self._body = body
         body.setParent(self)
+        # An explicit cursor, so the body never *inherits* the resize cursor
+        # this window sets on itself. See `mouseMoveEvent`.
+        body.setCursor(Qt.ArrowCursor)
         self._layout.addWidget(body, 1)
 
     # -- window state ------------------------------------------------------
@@ -187,9 +191,17 @@ class ChromeWindow(QWidget):
     #
     # Only the margin strip around the body belongs to this widget, so these
     # handlers only ever fire out there. No hit-testing against children needed.
+    #
+    # Cursor discipline matters more than it looks. A cursor set here is
+    # inherited by any child that hasn't set its own, and the window stops
+    # receiving move events the moment the pointer crosses into the body -- so a
+    # cursor set on the way *in* to the margin has no event to reset it on the
+    # way out, and the arrow stays a resize arrow. Two things prevent that: the
+    # body sets its own cursor (see `set_body`), and this widget unsets rather
+    # than overwrites, including right after a drag the compositor took over.
 
     def mouseMoveEvent(self, event) -> None:
-        self.setCursor(_cursor_for(self._edges_at(event.position().toPoint())))
+        self._show_cursor_for(self._edges_at(event.position().toPoint()))
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:
@@ -198,12 +210,21 @@ class ChromeWindow(QWidget):
             handle = self.windowHandle()
             if handle is not None:
                 handle.startSystemResize(edges)
+                # The drag ends wherever the user let go -- usually over the
+                # body, where no move event of ours will ever arrive.
+                self.unsetCursor()
                 return
         super().mousePressEvent(event)
 
     def leaveEvent(self, event) -> None:
-        self.setCursor(Qt.ArrowCursor)
+        self.unsetCursor()
         super().leaveEvent(event)
+
+    def _show_cursor_for(self, edges: Qt.Edges) -> None:
+        if edges:
+            self.setCursor(_cursor_for(edges))
+        else:
+            self.unsetCursor()
 
     def _edges_at(self, pos: QPoint) -> Qt.Edges:
         if self._gripless():

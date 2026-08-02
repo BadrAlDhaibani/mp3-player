@@ -102,8 +102,12 @@ class Crossbar(QWidget):
 
         row = self.row_y()
 
+        # The rule stops where the item column starts. Run it the full width and
+        # it strikes through whatever sits on the row -- the Now Playing song
+        # title most obviously -- and past the selection plate it was only ever
+        # a stray segment anyway.
         painter.setPen(theme.LINE)
-        painter.drawLine(0, row, self.width(), row)
+        painter.drawLine(0, row, theme.ITEM_X - theme.ITEM_MARKER_GAP, row)
 
         for index, category in enumerate(self._categories):
             self._paint_category(painter, index, category, row)

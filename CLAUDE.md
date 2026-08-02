@@ -67,6 +67,11 @@ here and write down why.
 | **Categories: Now Playing · Music · Settings** | Chosen with the user in Batch 4. Column-per-context, closest to real XMB. |
 | ~~Speed and volume live in the transport bar~~ → **volume only** | *Revised after Batch 4's first real run.* The original reasoning — the live speed slider is the whole app, so keep it on screen everywhere — was sound while Now Playing was a list of transport actions. Once Now Playing became the page for the effect, a second speed slider in the bottom bar was two controls for one value: exactly the redundancy that got `Play / Next / Previous / Restart` deleted from that column. Now Playing owns speed; the bar owns the track. |
 | **Now Playing is the speed page** | Its old rows all duplicated the transport bar. What it lacked was the one thing the app is *for*. Art, the current track, and one slider. |
+| **Now Playing is a *page*, not a list — its own widget** | The song title sits *on* the crossbar row and a fixed block hangs beneath it, which is the opposite arrangement to a column that pins its selection to the row and scrolls everything past it. `now_playing.py` rather than a mode inside `item_column.py`; `ItemColumn` went back to being a plain list. |
+| **No "press Enter to adjust": Up/Down drive the slider** | Because the page has no list, the vertical arrows have nothing else they could mean — so the step-in mode was deleted rather than advertised. A hint under the track says `↑ ↓ adjust` up front. Left/Right stay category nav everywhere. |
+| **The info block shows the warped length** | `2:00 · plays in 1:44 at 1.15x`. It's the one number only this app can tell you and it moves as the slider does. Suppressed at 1.00x, where it would just repeat itself. |
+| **The crossbar rule stops at the item column** | Run full width it strikes through whatever sits on the row — the Now Playing song title most obviously — and past the selection plate it was only ever a stray segment. |
+| **The status line is right-aligned** | It's the only edge of the stage nothing else claims: the left gutter is the art, and the left of the column is the key hint and, further down a long list, the track titles. |
 | **The speed range is the two presets: 0.80x–1.30x** | So the slider's end labels can be read literally — slam the handle right and you get nightcore, no explanation needed. `MIN_SPEED`/`MAX_SPEED` are now *defined as* `DAYCORE_SPEED`/`NIGHTCORE_SPEED`. Costs the extremes; 1.50x is chipmunks and 0.50x is a dirge, so little was lost. `tools/engine_harness.py` keeps its own wider 0.5–1.5 bounds — it probes the engine, not the product. |
 | **Slider rows are stepped into: Enter, then arrows, then Enter/Esc** | Left/Right are category navigation and can't be spent on a value. This is what real XMB does with slider items, and the row outlines itself while it holds the arrow keys so the mode is visible. |
 | **The art placeholder lives in the gutter, not above the items** | Stacked above the column it competed with them for vertical room, and at 720x480 there wasn't any — it clipped, then had to be dropped. Out in the empty space left of the column its size is bounded by the *gutter*, so no supported window size can take it away. |
@@ -182,6 +187,13 @@ don't invent a second way to do a thing we've already solved.
 - **`setCursor` is inherited by children and outlives the pointer.** A widget
   that sets a cursor conditionally must `unsetCursor()` rather than set an
   arrow, and anything below it should set its own.
+- **The offscreen platform has no font database, so `tools/shell_harness.py`
+  cannot judge text layout.** `QFontMetrics` there returns fallback widths about
+  2.5x too wide (a hint that measures 60px on screen measures 148px offscreen).
+  Anything that depends on how wide text actually is — collisions, elision,
+  whether two labels touch — has to be checked by rendering a PNG with the real
+  platform and *looking at it*. That is where every layout bug so far has been
+  found, and none of them were found by an assertion.
 - **In Qt stylesheets, subcontrol comes before pseudo-state** —
   `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
   discards a malformed rule *and everything after it* without a word.
@@ -278,10 +290,11 @@ crossbar row; choosing something else slides the *content* past those points.
 Both are computed as an offset from the active index, so Batch 5 animates two
 floats rather than restructuring anything.
 
-Verified offscreen (`tools/shell_harness.py`, real WASAPI stream): 79/79 —
+Verified offscreen (`tools/shell_harness.py`, real WASAPI stream): 78/78 —
 crossbar and item nav, per-category cursor memory, hit-testing, mouse
-select-then-open, the speed slider (step-in, arrow clamping at both presets,
-Escape leaving the row without leaving fullscreen, drag-to-end), transport,
+select-then-open, the speed slider (Up/Down with nothing pressed first,
+clamping at both presets, arrows still being category and list nav elsewhere,
+drag-to-end), transport,
 empty library, fullscreen, resize grips, and a clean paint at 720x480 /
 980x640 / 1600x900. Then run for real with a mapped window: launches,
 navigates, exits 0, settings flushed.
@@ -290,10 +303,12 @@ Tests still 174 green (`tests/` is core-only by convention).
 **Reworked after the first real run.** Now Playing's column was
 `Play / Next / Previous / Restart / Find in Music` — every one of which the
 transport bar already did — while the speed presets sat in Settings, which is
-the wrong home for the point of the app. Now Playing is now art, the current
-track, and one Daycore→Nightcore slider; the transport bar dropped its speed
-control; Settings dropped its three presets. See the decisions log: one row in
-it had to be revised rather than added to.
+the wrong home for the point of the app. Now Playing is now the song title on the
+crossbar row, an info block beneath it, one Daycore→Nightcore slider and the
+art out in the gutter; the transport bar dropped its speed control; Settings
+dropped its three presets. It stopped being a list at all, so it became its own
+widget and `ItemColumn` went back to being a plain list. See the decisions log:
+one row in it had to be revised rather than added to.
 
 Then three more from running it for real at 721x479, near the minimum:
 the transport row's fixed widths needed 773 px against 629 available, so Qt

@@ -146,13 +146,24 @@ VOLUME_VALUE_W = 36
 # `item_column.py` now and the two must agree.
 SPEED_SCALE = 100
 
-# The painted speed row: DAYCORE | track | NIGHTCORE | readout.
+# The painted speed slider: DAYCORE | track | NIGHTCORE | readout.
 SLIDER_END_LABEL = 10  # pixel size of the two end captions
 SLIDER_LABEL_GAP = 14
 SLIDER_TRACK_H = 4
 SLIDER_HANDLE = 12
-SLIDER_TRACK_MIN = 60  # narrower than this and the row isn't worth painting
+SLIDER_TRACK_MIN = 60  # narrower than this and it isn't worth painting
 SLIDER_VALUE_W = 68  # room for the readout *and* a gap after NIGHTCORE
+
+# The Now Playing page, as offsets from the crossbar row. It is a page, not a
+# list -- the song title sits *on* the row and everything else hangs beneath it
+# at a fixed distance, so nothing here scrolls.
+NP_TITLE = 24  # font size of the song title
+NP_INFO_FIRST = 54  # row -> first info line
+NP_INFO_SECOND = 78
+NP_INFO_TEXT = 13
+NP_SLIDER = 128
+NP_HINT = 154
+NP_HINT_TEXT = 11
 
 WINDOW_DEFAULT = (980, 640)
 WINDOW_MINIMUM = (720, 480)

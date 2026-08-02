@@ -27,10 +27,12 @@ from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
 from mp3player.ui.controller import SEEK_STEP, PlayerController
 from mp3player.ui.widgets.crossbar import Category, Crossbar
-from mp3player.ui.widgets.item_column import Header, Item, ItemColumn
-from mp3player.ui.widgets.transport import TransportBar
+from mp3player.ui.widgets.item_column import Item, ItemColumn
+from mp3player.ui.widgets.now_playing import NowPlaying, NowPlayingPage
+from mp3player.ui.widgets.transport import TransportBar, clock
 
 CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
+
 
 CATEGORIES = (
     Category("▶", "Now Playing"),
@@ -40,23 +42,31 @@ CATEGORIES = (
 
 STATUS_MS = 6000  # how long a failure line stays up
 PAGE = 5  # items per PageUp/PageDown
-SPEED_STEP = 0.01  # one arrow press inside the speed slider
+SPEED_STEP = 0.01  # one Up/Down press on the Now Playing page
 
 
 class XmbStage(QWidget):
-    """The cross itself: crossbar and item column, stacked and full-bleed.
+    """The cross itself: crossbar, item column, and the Now Playing page.
 
-    Both children are transparent to the mouse so this one widget can decide
-    what a click meant -- they overlap, and letting either of them eat events
-    would make the other unclickable.
+    All three are transparent to the mouse so this one widget can decide what a
+    click meant -- they overlap, and letting any of them eat events would make
+    the others unclickable.
+
+    The column and the page are alternatives, never both: Music and Settings are
+    lists, Now Playing is a page. `show_page` swaps them.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.bar = Crossbar(self)
         self.column = ItemColumn(self)
+        self.page = NowPlayingPage(self)
         self._status = ""
         self._dragging = False
+
+    def show_page(self, showing: bool) -> None:
+        self.page.setVisible(showing)
+        self.column.setVisible(not showing)
 
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
@@ -65,7 +75,7 @@ class XmbStage(QWidget):
 
     def resizeEvent(self, event) -> None:
         # Not a layout: they're deliberately on top of each other.
-        for child in (self.bar, self.column):
+        for child in (self.bar, self.column, self.page):
             child.setGeometry(self.rect())
         super().resizeEvent(event)
 
@@ -82,8 +92,10 @@ class XmbStage(QWidget):
         painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setFont(theme.font(13))
         painter.setPen(theme.WARN)
-        # Aligned with the item column, not with the window edge: the gutter to
-        # the left belongs to the art placeholder, and the two used to overlap.
+        # Right-aligned, and it has to stay that way. The gutter on the left is
+        # the art placeholder's; the left of the column is the Now Playing key
+        # hint and, further down a long Music list, the track titles. This is
+        # the only edge of the stage that nothing else claims.
         painter.drawText(
             QRect(
                 theme.ITEM_X,
@@ -91,7 +103,7 @@ class XmbStage(QWidget):
                 self.width() - theme.ITEM_X - theme.RIGHT_MARGIN,
                 22,
             ),
-            Qt.AlignLeft | Qt.AlignVCenter,
+            Qt.AlignRight | Qt.AlignVCenter,
             self._status,
         )
 
@@ -102,14 +114,15 @@ class XmbStage(QWidget):
             return
         pos = event.position().toPoint()
 
-        # The slider track is tested first: a press there is a drag, not a
-        # request to re-open the row it happens to sit on.
-        track = self.column.track_rect(self.column.index)
-        if track is not None and track.adjusted(-8, -10, 8, 10).contains(pos):
-            self._dragging = True
-            self.column.slider_moved.emit(
-                self.column.fraction_at(self.column.index, pos.x())
-            )
+        if self.page.isVisible():
+            track = self.page.track_rect()
+            if track is not None and track.adjusted(-8, -12, 8, 12).contains(pos):
+                self._dragging = True
+                self.page.slider_moved.emit(self.page.fraction_at(pos.x()))
+                return
+            category = self.bar.hit(pos)
+            if category is not None:
+                self.bar.set_index(category)
             return
 
         item = self.column.hit(pos)
@@ -129,26 +142,30 @@ class XmbStage(QWidget):
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging:
-            # Live, like the slider it replaced: hearing the pitch move while
-            # you drag is the entire point (decisions log).
-            self.column.slider_moved.emit(
-                self.column.fraction_at(
-                    self.column.index, event.position().toPoint().x()
-                )
+            # Live: hearing the pitch move while you drag is the entire point
+            # (decisions log).
+            self.page.slider_moved.emit(
+                self.page.fraction_at(event.position().toPoint().x())
             )
 
     def mouseReleaseEvent(self, event) -> None:
         self._dragging = False
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.LeftButton or self.page.isVisible():
             return
         if self.column.hit(event.position().toPoint()) is not None:
             self.column.activate()
 
     def wheelEvent(self, event) -> None:
         steps = event.angleDelta().y() // 120
-        if steps:
+        if not steps:
+            return
+        if self.page.isVisible():
+            self.page.slider_moved.emit(
+                min(1.0, max(0.0, self.page.state.fraction + steps * 0.02))
+            )
+        else:
             self.column.step(-steps)
 
 
@@ -165,6 +182,7 @@ class MainWindow(ChromeWindow):
         self._folder: Path | None = None
         self._playing = False
         self._speed = settings_mod.DEFAULT_SPEED
+        self._duration = 0.0
 
         self._build()
         self._connect()
@@ -193,7 +211,7 @@ class MainWindow(ChromeWindow):
         controller.library_changed.connect(self._on_library)
         controller.folder_changed.connect(self._on_folder)
         controller.track_changed.connect(self._on_track)
-        controller.position_changed.connect(self.transport.set_position)
+        controller.position_changed.connect(self._on_position)
         controller.playing_changed.connect(self._on_playing)
         controller.speed_changed.connect(self._on_speed)
         controller.volume_changed.connect(self.transport.set_volume)
@@ -201,7 +219,7 @@ class MainWindow(ChromeWindow):
 
         self.stage.bar.index_changed.connect(self._on_category)
         self.stage.column.activated.connect(self._activate)
-        self.stage.column.slider_moved.connect(self._on_slider_dragged)
+        self.stage.page.slider_moved.connect(self._on_slider_dragged)
 
         self.transport.play_pressed.connect(controller.toggle)
         self.transport.next_pressed.connect(controller.next_track)
@@ -235,6 +253,14 @@ class MainWindow(ChromeWindow):
                 self.stage.column.set_index(index)
         self._refresh_column()
 
+    def _on_position(self, position: float, duration: float) -> None:
+        self.transport.set_position(position, duration)
+        # This fires 30 times a second; only the *duration* changes what the
+        # page says, so the rebuild is gated on it rather than on the clock.
+        if duration != self._duration:
+            self._duration = duration
+            self._refresh_column()
+
     def _on_playing(self, playing: bool) -> None:
         self._playing = playing
         self.transport.set_playing(playing)
@@ -259,7 +285,6 @@ class MainWindow(ChromeWindow):
         # index rather than against `bar.index`.
         self._selection[self._category] = self.stage.column.index
         self._category = index
-        self.stage.column.set_editing(False)  # never carry edit mode across
         self._refresh_column(restore=True)
 
     def _refresh_column(self, *, reset: bool = False, restore: bool = False) -> None:
@@ -275,12 +300,10 @@ class MainWindow(ChromeWindow):
         category = self._category
         index = 0 if reset else self._selection[category]
 
+        self.stage.show_page(category == CAT_NOW)
+
         if category == CAT_NOW:
-            self.stage.column.set_items(
-                self._now_playing_items(),
-                header=self._now_playing_header(),
-                index=index,
-            )
+            self.stage.page.set_state(self._now_playing())
         elif category == CAT_MUSIC:
             self.stage.column.set_items(
                 self._music_items(), index=index, empty_text=self._music_empty_text()
@@ -290,24 +313,43 @@ class MainWindow(ChromeWindow):
 
         self._selection[category] = self.stage.column.index
 
-    def _now_playing_header(self) -> Header:
+    def _now_playing(self) -> NowPlaying:
+        """The Now Playing page's contents, formatted here rather than there.
+
+        The page paints strings; this decides what they say -- same split as the
+        item builders below. Speed applies whether or not a track is loaded, so
+        the slider is live even on an empty library.
+        """
         track = self.controller.current
         where = self._folder.name if self._folder else "no folder"
-        return Header(
+
+        if track is None:
+            first = f"{len(self._library.tracks)} tracks  ·  {where}"
+            second = (
+                "Choose one in Music"
+                if self._library.tracks
+                else "No folder yet  --  Settings ▸ Music folder"
+            )
+        else:
+            # The warped length is the one number only this app can tell you,
+            # and it moves as the slider does. `duration` is the file's real
+            # length, so dividing by speed gives the wallclock it'll actually
+            # take -- 2:00 at 1.30x really is 1:32.
+            first = f"{clock(self._duration)}"
+            if self._duration > 0 and abs(self._speed - 1.0) > 0.005:
+                first += f"   ·   plays in {clock(self._duration / self._speed)}"
+                first += f" at {self._speed:.2f}x"
+            second = (
+                f"Track {self.controller.index + 1} of {len(self._library.tracks)}"
+                f"   ·   {where}"
+            )
+
+        return NowPlaying(
             title=track.title if track else "Nothing playing",
-            subtitle=f"{_speed_name(self._speed)} {self._speed:.2f}x  ·  {where}",
+            lines=(first, second),
+            fraction=_speed_fraction(self._speed),
+            speed_text=f"{self._speed:.2f}x",
         )
-
-    def _now_playing_items(self) -> list[Item]:
-        """One row: the Daycore/Nightcore slider.
-
-        Everything this column used to offer -- play, next, previous, restart --
-        the transport bar at the bottom already does, so it said the same thing
-        twice. What it didn't have was the effect, which is the reason the app
-        exists. Speed applies whether or not a track is loaded, so this row is
-        live even on an empty library.
-        """
-        return [Item("Speed", f"{self._speed:.2f}x", fraction=_speed_fraction(self._speed))]
 
     def _music_items(self) -> list[Item]:
         playing = self.controller.index
@@ -337,19 +379,12 @@ class MainWindow(ChromeWindow):
     # -- activation --------------------------------------------------------
 
     def _activate(self, index: int) -> None:
-        category = self._category
-        if category == CAT_NOW:
-            self._activate_now(index)
-        elif category == CAT_MUSIC:
+        # Now Playing has no items to activate -- it's a page, and its only
+        # control answers to the arrow keys directly.
+        if self._category == CAT_MUSIC:
             self.controller.play_index(index)
-        else:
+        elif self._category == CAT_SETTINGS:
             self._activate_settings(index)
-
-    def _activate_now(self, index: int) -> None:
-        # The only row is the slider: opening it steps into it, so the arrow
-        # keys drive the speed instead of the crossbar until you step back out.
-        if index == 0:
-            self.stage.column.set_editing(True)
 
     def _activate_settings(self, index: int) -> None:
         if index == 0:
@@ -377,26 +412,13 @@ class MainWindow(ChromeWindow):
         key = event.key()
         modifiers = event.modifiers()
 
-        # Stepped into the speed slider: the arrows belong to it, and Escape
-        # means "leave the row" before it can mean "leave fullscreen".
-        if self.stage.column.editing:
-            if key == Qt.Key_Left:
-                self.controller.set_speed(self._speed - SPEED_STEP)
-            elif key == Qt.Key_Right:
-                self.controller.set_speed(self._speed + SPEED_STEP)
-            elif key in (
-                Qt.Key_Return,
-                Qt.Key_Enter,
-                Qt.Key_Escape,
-                Qt.Key_Backspace,
-                Qt.Key_Up,
-                Qt.Key_Down,
-            ):
-                self.stage.column.set_editing(False)
-            elif key == Qt.Key_Space:
-                self.controller.toggle()  # harmless, and expected to always work
-            else:
-                super().keyPressEvent(event)
+        # On Now Playing there is no list, so Up and Down have nothing to
+        # navigate and drive the slider instead. That's what lets this page have
+        # no "press Enter to adjust" step: the arrows can't mean anything else,
+        # and the hint under the track says so up front.
+        if self._category == CAT_NOW and key in (Qt.Key_Up, Qt.Key_Down):
+            direction = SPEED_STEP if key == Qt.Key_Up else -SPEED_STEP
+            self.controller.set_speed(self._speed + direction)
             return
 
         if key in (Qt.Key_Left, Qt.Key_Right):
@@ -443,19 +465,3 @@ def _speed_fraction(speed: float) -> float:
     if span <= 0:
         return 0.0
     return min(1.0, max(0.0, (speed - settings_mod.MIN_SPEED) / span))
-
-
-def _speed_name(speed: float) -> str:
-    """Name the presets; describe everything else by direction.
-
-    Calling 1.05x "Nightcore" because it happens to be above 1.0 overstates it.
-    The two presets get their names, and the continuous slider in between gets
-    an honest label.
-    """
-    if abs(speed - settings_mod.NIGHTCORE_SPEED) < 0.005:
-        return "Nightcore"
-    if abs(speed - settings_mod.DAYCORE_SPEED) < 0.005:
-        return "Daycore"
-    if abs(speed - 1.0) < 0.005:
-        return "Normal"
-    return "Sped up" if speed > 1.0 else "Slowed"

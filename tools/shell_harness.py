@@ -89,9 +89,11 @@ def main() -> int:
         controller.shutdown()
         return 1
 
+    page = stage.page
+
     print("\n-- structure")
     check("starts on Now Playing", bar.index == CAT_NOW)
-    check("now playing is one slider row", column.count == 1 and column.is_slider(0))
+    check("now playing shows the page, not a list", page.isVisible() and not column.isVisible())
     check("transport has no speed control", not hasattr(transport, "speed"))
     check("paints", not window.grab().isNull())
 
@@ -165,14 +167,7 @@ def main() -> int:
     check("folder row names the folder", column._items[0].value == controller.folder.name)
     check("no speed rows left here", not any(i.label == "Nightcore" for i in column._items))
 
-    print("\n-- the speed slider")
-    bar.set_index(CAT_NOW)
-    app.processEvents()
-    check("not editing until asked", not column.editing)
-
-    # Left/Right are category nav until the row is stepped into.
-    press(window, Qt.Key_Right)
-    check("right still changes category", bar.index == CAT_MUSIC)
+    print("\n-- the speed slider: no mode to discover")
     bar.set_index(CAT_NOW)
     app.processEvents()
 
@@ -181,43 +176,49 @@ def main() -> int:
     controller.set_speed(1.05)
     app.processEvents()
 
-    press(window, Qt.Key_Return)
-    check("enter steps into the slider", column.editing)
     before = engine.speed
-    press(window, Qt.Key_Left)
-    check("left slows it", engine.speed < before, f"{before:.3f} -> {engine.speed:.3f}")
-    check("...and does NOT change category", bar.index == CAT_NOW)
-    press(window, Qt.Key_Right)
-    press(window, Qt.Key_Right)
-    check("right speeds it up", engine.speed > before)
+    press(window, Qt.Key_Down)
+    check(
+        "down slows it, with nothing pressed first",
+        engine.speed < before,
+        f"{before:.3f} -> {engine.speed:.3f}",
+    )
+    press(window, Qt.Key_Up)
+    press(window, Qt.Key_Up)
+    check("up speeds it up", engine.speed > before)
+    check("...and the page stays put", bar.index == CAT_NOW)
 
     for _ in range(200):  # walk it off the end
-        press(window, Qt.Key_Right)
+        press(window, Qt.Key_Up)
     check(
         "clamps at nightcore",
         abs(engine.speed - settings_mod.NIGHTCORE_SPEED) < 1e-6,
         f"{engine.speed:.3f}",
     )
     for _ in range(200):
-        press(window, Qt.Key_Left)
+        press(window, Qt.Key_Down)
     check(
         "clamps at daycore",
         abs(engine.speed - settings_mod.DAYCORE_SPEED) < 1e-6,
         f"{engine.speed:.3f}",
     )
 
-    press(window, Qt.Key_Escape)
-    check("escape steps back out", not column.editing)
-    check("...without leaving fullscreen", not window.isFullScreen())
     press(window, Qt.Key_Right)
-    check("arrows are category nav again", bar.index == CAT_MUSIC)
+    check("left/right are still category nav", bar.index == CAT_MUSIC)
+    # Music restores its own cursor, so step from wherever it left off.
+    was = column.index
+    press(window, Qt.Key_Down)
+    check(
+        "down is list nav once there's a list",
+        column.index == was + 1,
+        f"{was} -> {column.index}",
+    )
     bar.set_index(CAT_NOW)
     app.processEvents()
-    check("leaving the category clears edit mode", not column.editing)
 
     print("\n-- dragging the slider")
-    track = column.track_rect(0)
-    check("the slider row has a track", track is not None)
+    track = page.track_rect()
+    check("the page has a track", track is not None)
     drag(stage, track.right(), track.center().y())
     check(
         "dragging to the right end is nightcore",
@@ -237,7 +238,6 @@ def main() -> int:
         abs(engine.speed - midpoint) < 0.02,
         f"{engine.speed:.3f} vs {midpoint:.3f}",
     )
-    check("a press on the track does not re-open the row", not column.editing)
 
     print("\n-- transport")
     before = controller.index
@@ -251,19 +251,36 @@ def main() -> int:
     transport.play_pressed.emit()
     check("play/pause toggles", not engine.is_playing)
 
-    print("\n-- now playing reflects the engine")
+    print("\n-- the page reflects the engine")
     bar.set_index(CAT_NOW)
     controller.set_speed(1.10)
     app.processEvents()
-    check("the row reads the speed", column._items[0].value == "1.10x")
+    state = page.state
+    check("the readout shows the speed", state.speed_text == "1.10x")
     check(
         "the handle sits proportionally along the track",
-        abs(column._items[0].fraction - 0.6) < 0.01,
-        f"fraction={column._items[0].fraction:.3f}",
+        abs(state.fraction - 0.6) < 0.01,
+        f"fraction={state.fraction:.3f}",
     )
-    check("header names the track", column._header.title == controller.current.title)
-    check("header names the speed", "1.10x" in column._header.subtitle)
-    check("paints with a header", not window.grab().isNull())
+    check("the title is the song", state.title == controller.current.title)
+    check(
+        "the info block gives the warped length",
+        "plays in" in state.lines[0] and "1.10x" in state.lines[0],
+        state.lines[0],
+    )
+    check(
+        "...and where the track sits in the library",
+        f"of {len(controller.tracks)}" in state.lines[1],
+        state.lines[1],
+    )
+    controller.set_speed(1.0)
+    app.processEvents()
+    check(
+        "no warped length at 1.00x -- it would just repeat itself",
+        "plays in" not in page.state.lines[0],
+        page.state.lines[0],
+    )
+    check("paints the page", not window.grab().isNull())
 
     print("\n-- chrome")
     window.toggle_fullscreen()
@@ -311,28 +328,35 @@ def main() -> int:
     )
     check("the title shrank rather than overflowed", transport.title.width() > 0)
 
-    check("the speed row still has a usable track", column.track_rect(0) is not None)
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    check("the page still has a usable track", page.track_rect() is not None)
     check("paints at the minimum size", not window.grab().isNull())
 
-    # The art lives in the gutter now, sized by it rather than by whatever
-    # vertical room the items left over -- so unlike the old header art, no
-    # supported window size can take it away.
-    def art_size() -> int:
-        top = column.row_y() + theme.CATEGORY_LABEL_GAP + theme.ART_TOP_GAP
-        return min(
-            theme.ART_MAX,
-            theme.ITEM_X - 2 * theme.RIGHT_MARGIN,
-            column.height() - theme.ART_BOTTOM_PAD - top,
-        )
-
+    # The art is sized by the gutter rather than by leftover vertical room, so
+    # unlike the header art it replaced, no supported window size drops it. The
+    # hint under the slider has to stay on screen at the minimum too, or the
+    # "no mode to discover" claim quietly stops being true.
     for width, height in ((720, 480), (980, 640), (1600, 900)):
         window.resize(width, height)
         app.processEvents()
+        art = page.art_rect()
+        check(f"art shows at {width}x{height}", art is not None, f"{art}")
+        hint_top = page.row_y() + theme.NP_HINT
         check(
-            f"art shows at {width}x{height}",
-            art_size() >= theme.ART_MIN,
-            f"size={art_size()}",
+            f"the key hint is on screen at {width}x{height}",
+            hint_top + 18 <= page.height(),
+            f"hint bottom {hint_top + 18} vs stage {page.height()}",
         )
+        # NOTE: don't add text-width assertions here. This harness runs under
+        # QT_QPA_PLATFORM=offscreen, which has no font database -- QFontMetrics
+        # returns fallback widths roughly 2.5x too wide (the hint measures 148px
+        # offscreen against 60px real). Anything that depends on how wide text
+        # actually is has to be checked by looking at a render.
+        #
+        # It cuts one way safely: `track_rect` subtracts the DAYCORE/NIGHTCORE
+        # advances, so offscreen it comes out *narrower* than reality. A track
+        # that survives here survives on screen.
 
     print("\n-- empty library")
     folder = controller.folder

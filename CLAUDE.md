@@ -170,6 +170,14 @@ don't invent a second way to do a thing we've already solved.
 - **The window paints the background once; children leave theirs unfilled.**
   That's what keeps one gradient continuous across the chrome, the stage and
   the transport bar. Never set an opaque background on a child.
+- **No fixed widths in a row that has to survive 720 px.** Give controls a
+  min/max range. Qt can't shrink a `setFixedWidth`, so it overlaps them instead
+  and the result looks like a paint bug rather than a layout one.
+- **Anything sized in pixels must survive the minimum window.** `WINDOW_MINIMUM`
+  is 720x480; check there, not at the default. Shrink or drop — never clip.
+- **`setCursor` is inherited by children and outlives the pointer.** A widget
+  that sets a cursor conditionally must `unsetCursor()` rather than set an
+  arrow, and anything below it should set its own.
 - **In Qt stylesheets, subcontrol comes before pseudo-state** —
   `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
   discards a malformed rule *and everything after it* without a word.
@@ -272,6 +280,16 @@ select-then-open, settings presets, transport, empty library, fullscreen,
 resize grips, and a clean paint at 720x480 / 980x640 / 1600x900. Then run for
 real with a mapped window: launches, navigates, exits 0, settings flushed.
 Tests still 174 green (`tests/` is core-only by convention).
+
+Then three more from running it for real at 721x479, near the minimum:
+the transport row's fixed widths needed 773 px against 629 available, so Qt
+drew the readouts on top of the sliders and truncated the title mid-word;
+the Now Playing art was a constant 132 px square in whatever room happened to
+be left, clipped at the minimum and clearing by -2 px even at the default;
+and the resize cursor stuck, because a cursor set on the window is inherited by
+children and the window stops getting move events once the pointer enters the
+body. Controls in that row are ranges now, the art sizes itself to the room and
+is dropped below 64 px, and the body sets its own cursor.
 
 Two bugs the harness caught and one the screenshots did:
 the item column overlapped the right-hand category icons, making them

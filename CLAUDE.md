@@ -10,10 +10,12 @@ If a box below isn't ticked, it isn't done.
 > ## ▶ Resume here
 >
 > **Done:** Batch 0 (spike) · Batch 1 (core library & settings) ·
-> Batch 2 (audio engine, 174 tests green) · Batch 3 (ugly working player)
-> **Next:** **Batch 4 — XMB shell: structure.** `theme.py`, `chrome.py`,
-> crossbar + item column, then swap the ugly window out. `controller.py` and
-> everything under `core/` stay exactly as they are.
+> Batch 2 (audio engine, 174 tests green) · Batch 3 (ugly working player) ·
+> Batch 4 (XMB shell structure — it looks like an XMB now, it just doesn't move)
+> **Next:** **Batch 5 — XMB shell: motion & atmosphere.** `wave.py`, then
+> animate the two offsets the shell already computes (`Crossbar._centre_x` and
+> `ItemColumn._item_y` are both expressed as a distance from the active index,
+> which is the hook). `controller.py` and everything under `core/` stay as they are.
 >
 > Starting a fresh session? Read the decisions log and conventions below before
 > writing anything — they're the accumulated agreements, not suggestions.
@@ -62,6 +64,14 @@ here and write down why.
 | **Settings are written on an 800 ms debounce** | A volume drag emits a change per pixel; none of them deserve a disk write. Flushed unconditionally on `shutdown()`, so quitting always persists. |
 | **Seek commits on release; speed is live** | Dragging the *speed* slider and hearing the pitch move is the entire app. A live seek would post a fade-jump-fade per pixel and sound like a skipping CD, so it waits for release. |
 | **Auto-advance wraps the list** | Running off the last track loops to the first. Matches the Batch 2 harness, and "stop dead at the end" is a worse default than repeat-all. Not a shuffle/repeat *feature* — that's still post-v1. |
+| **Categories: Now Playing · Music · Settings** | Chosen with the user in Batch 4. Column-per-context, closest to real XMB. |
+| **Speed and volume live in the transport bar, not behind Settings** | The decisions log calls the live speed slider "the entire app"; burying it one category down contradicts that. Settings offers the three *presets*; the bar keeps the continuous control on screen in every category. |
+| **The window is a plain `QWidget`, not a `QMainWindow`** | The only thing wanted from `QMainWindow` was a central widget, and its layout ignores the contents margins that give the frameless resize grips somewhere to live. |
+| **Move/resize via `startSystemMove` / `startSystemResize`** | The compositor owns the drag, so Aero Snap and edge snapping still work and there's no lag. Ten lines instead of a mouse-delta loop. |
+| **The item column is painted, not a `QListWidget`** | XMB scrolls on *every* step because the selection is nailed to the crossbar row. A list view only scrolls when the selection would leave the viewport — the opposite behaviour. |
+| **The bar and the column never share horizontal space** | The active item sits *on* the crossbar row, so any overlap makes one of them unclickable — the first thing Batch 4's harness caught. `ITEM_X` clears the furthest-right category icon by construction. **A fourth category means moving `ITEM_X`, not just appending to the list.** |
+| **Both stage children are transparent to the mouse** | `Crossbar` and `ItemColumn` are full-size overlapping siblings. `ignore()` on a press propagates to parents, not siblings, so `XmbStage` does the hit-testing and the children only paint. |
+| **Arrow keys belong to the crossbar; seek moved to Shift+←→** | Nav is what arrows mean in an XMB. Every focusable child sets `NoFocus` so the window keeps the keys whatever was last clicked. |
 
 ### Open questions
 
@@ -154,6 +164,15 @@ don't invent a second way to do a thing we've already solved.
   click-free.
 - **Speed and pitch are linked by design.** If you're ever tempted to add
   time-stretch, that's a decisions-log change, not an implementation detail.
+- **Every number that positions something lives in `theme.py`.** If a metric
+  appears in two widgets it belongs there, and `theme.py` imports no other `ui`
+  module so anything can pull from it.
+- **The window paints the background once; children leave theirs unfilled.**
+  That's what keeps one gradient continuous across the chrome, the stage and
+  the transport bar. Never set an opaque background on a child.
+- **In Qt stylesheets, subcontrol comes before pseudo-state** —
+  `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
+  discards a malformed rule *and everything after it* without a word.
 
 ---
 
@@ -228,13 +247,39 @@ settings round-trip, 21/21, zero underruns. Live speed measured **1.28x
 wallclock** against a requested 1.30x. Tests still 174 green — Batch 3 is all
 Qt, and Qt isn't tested (CLAUDE.md: `tests/` is core only, no display needed).
 
-### Batch 4 — XMB shell: structure
+### Batch 4 — XMB shell: structure ✅
 
-- [ ] `theme.py` — palette, fonts, metrics
-- [ ] `chrome.py` — frameless window, `startSystemMove`/`startSystemResize`, F11
-- [ ] `crossbar.py` + `item_column.py` — three categories, keyboard *and* mouse nav
-- [ ] Transport strip restyled into the bottom bar
-- [ ] Swap the ugly window out; identical controller underneath
+- [x] `theme.py` — palette, fonts, metrics, the transport stylesheet
+- [x] `chrome.py` — frameless window, `startSystemMove`/`startSystemResize`, F11
+- [x] `crossbar.py` + `item_column.py` — three categories, keyboard *and* mouse nav
+- [x] Transport strip restyled into the bottom bar (seek, transport, speed, volume)
+- [x] Swap the ugly window out; identical controller underneath
+- [x] `tools/shell_harness.py` — offscreen, drives real key and mouse events
+
+`PlayerController` and `core/` were not touched — the whole front end was
+replaced and nothing below the seam noticed, which is the first real test of
+the rule that Batch 2 and 3 were written around.
+
+**The rule that makes it feel like an XMB: the selection never moves.** The
+active category is pinned at `FOCUS_X` and the active item is pinned to the
+crossbar row; choosing something else slides the *content* past those points.
+Both are computed as an offset from the active index, so Batch 5 animates two
+floats rather than restructuring anything.
+
+Verified offscreen (`tools/shell_harness.py`, real WASAPI stream): 54/54 —
+crossbar and item nav, per-category cursor memory, hit-testing, mouse
+select-then-open, settings presets, transport, empty library, fullscreen,
+resize grips, and a clean paint at 720x480 / 980x640 / 1600x900. Then run for
+real with a mapped window: launches, navigates, exits 0, settings flushed.
+Tests still 174 green (`tests/` is core-only by convention).
+
+Two bugs the harness caught and one the screenshots did:
+the item column overlapped the right-hand category icons, making them
+unclickable (fixed in the metrics, not with a hit-test tiebreak); an unstyled
+`QSlider::add-page` kept the native light track, so every slider looked pegged
+at maximum; and `QSlider:disabled::sub-page` has the subcontrol and pseudo-state
+the wrong way round, which makes Qt silently discard that rule *and every rule
+after it*.
 
 ### Batch 5 — XMB shell: motion & atmosphere
 
@@ -274,6 +319,9 @@ powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .ln
 
 # tests
 venv/Scripts/python.exe -m pytest
+
+# the Batch 4 harness -- drives the real widgets offscreen, no display
+venv/Scripts/python.exe tools/shell_harness.py
 
 # the Batch 2 harness -- keyboard-driven audio engine, no Qt
 venv/Scripts/python.exe tools/engine_harness.py            # the saved folder

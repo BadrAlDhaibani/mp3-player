@@ -17,6 +17,10 @@ If a box below isn't ticked, it isn't done.
 > `ItemColumn._item_y` are both expressed as a distance from the active index,
 > which is the hook). `controller.py` and everything under `core/` stay as they are.
 >
+> Before writing any of it, read the note in the conventions about
+> `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
+> Batch 4 was found by rendering a PNG and looking at it; none by an assertion.
+>
 > Starting a fresh session? Read the decisions log and conventions below before
 > writing anything — they're the accumulated agreements, not suggestions.
 > Then confirm the batch with the user before starting it.
@@ -25,8 +29,11 @@ If a box below isn't ticked, it isn't done.
 
 ## v1 scope
 
-**In:** pick a folder · browse its tracks · play/pause/next/prev/seek · live speed
-slider with Nightcore/Normal/Daycore presets · XMB look · synthesized UI sounds.
+**In:** pick a folder · browse its tracks · play/pause/next/prev/seek · a live
+speed slider running Daycore → Nightcore · XMB look · synthesized UI sounds.
+
+(There are no longer separate Nightcore/Normal/Daycore *preset buttons* — the
+two presets became the ends of the slider itself. See the decisions log.)
 
 **Deliberately out of v1** — good ideas, parked until v1 actually ships:
 ID3 tags & album art · spectrum visualizer · shuffle/repeat/queue · export to file ·
@@ -110,8 +117,13 @@ mp3player/
     theme.py             # colors, fonts, metrics -- single source of truth
     controller.py        # PlayerController(QObject): binds core <-> ui
     chrome.py            # frameless drag/resize/min/close
-    main_window.py
-    widgets/             # wave.py, crossbar.py, item_column.py, transport.py
+    main_window.py       # composes the shell; XmbStage owns the mouse
+    widgets/
+      crossbar.py        # category row + the rule it sits on
+      item_column.py     # the item list -- Music and Settings only
+      now_playing.py     # the Now Playing *page*: art, track, speed slider
+      transport.py       # bottom bar: seek, transport buttons, volume
+      wave.py            # Batch 5, not written yet
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
 tools/                   # dev harnesses -- runnable, kept, not shipped

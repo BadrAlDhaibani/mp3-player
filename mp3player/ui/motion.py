@@ -9,6 +9,12 @@ up the motion in flight instead of snapping back and replaying it.
 `QPropertyAnimation` already owns the timer, the easing and the repaint, so
 this is a thin wrapper rather than a tweening engine. The animated attribute
 has to be a Qt `Property` on the target; its setter is where `update()` goes.
+
+The default curve is an ease-*out*, and that is a constraint rather than a
+preference: restarting from the current value is only smooth if the curve has
+speed at t=0. Give this an ease-in and a held arrow key stutters once per key
+repeat, because every press stops the motion dead and accelerates it again from
+nothing. Anything passed as `curve` should clear the same bar.
 """
 
 from __future__ import annotations

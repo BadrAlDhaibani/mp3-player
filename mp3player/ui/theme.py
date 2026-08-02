@@ -198,9 +198,29 @@ WINDOW_MINIMUM = (720, 480)
 # Short enough that holding an arrow key still feels like scrubbing a list
 # rather than waiting for it. The slide is the only thing that moves on a
 # navigation, so it sets the whole app's tempo.
+#
+# Both numbers came down in Batch 6, and by looking rather than by feel
+# (`tools/filmstrip.py`): a strip of one row step rendered every 27 ms was
+# still visibly travelling at 54 ms and *identical* from 81 ms to 190. An
+# ease-out spends its last third covering the last few percent of the distance,
+# so the old durations were the length of the motion plus a drift nobody can
+# see.
+#
+# Shortening does not remove that drift -- the invisible fraction belongs to
+# the curve, not to the duration, and roughly the last half of any ease-out is
+# imperceptible. It makes the total honest instead: the drift is now ~60 ms
+# rather than ~110. Flattening the curve is the other lever, and the arrival is
+# where it would pay most, a fade being even more front-loaded to the eye than
+# a slide. Left alone deliberately: one motion character across the shell, and
+# that one is a preference rather than something a filmstrip settles.
+#
+# The curve stays an ease-*out* for a reason that outranks taste: `Tween.to()`
+# restarts from wherever the value has got to, and an ease-in restarts it at
+# zero velocity. Held arrow keys would then stutter once per repeat, which is
+# the exact problem the restart-from-current behaviour exists to avoid.
 
-SLIDE_MS = 190  # crossbar and item column, sliding to the new selection
-APPEAR_MS = 220  # a category's content arriving after a crossbar step
+SLIDE_MS = 140  # crossbar and item column, sliding to the new selection
+APPEAR_MS = 160  # a category's content arriving after a crossbar step
 APPEAR_OFFSET = 26  # how far it flies in from, in pixels
 
 # The selection glow: rounded rects *stroked* one step further out each time,

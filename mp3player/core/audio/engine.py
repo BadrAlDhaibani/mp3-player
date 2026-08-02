@@ -30,7 +30,7 @@ import numpy as np
 import sounddevice as sd
 
 from mp3player.core.audio import decode
-from mp3player.core.audio.dsp import Fader, fade_frames, fade_out_at, resample
+from mp3player.core.audio.dsp import Fader, fade_before_end, fade_frames, resample
 from mp3player.core.audio.sfx import SfxBank
 
 # Measured in Batch 0: WASAPI at blocksize 512 is ~22 ms, against 186 ms for
@@ -155,15 +155,16 @@ class _MusicVoice:
     ) -> tuple[np.ndarray, bool]:
         # Sample-rate conversion rides along in the ratio for free.
         ratio = speed * (self.file_rate / self.stream_rate)
+        start = self.pos
         block, self.pos, valid = resample(
-            self.samples, self.pos, frames, ratio, out=out
+            self.samples, start, frames, ratio, out=out
         )
-        if valid >= frames:
-            return block, False
-        # The samples simply run out. Files do not reliably end on silence, so
-        # ramp the last few milliseconds down rather than cutting mid-waveform.
-        fade_out_at(block, valid, self._end_fade)
-        return block, True
+        # The samples simply run out, and files do not reliably end on silence.
+        # Asked on every block rather than only on the last one: a ten
+        # millisecond ramp does not fit in whatever is left of the block where
+        # the track happens to end, so it has to start in the one before.
+        fade_before_end(block, start, ratio, len(self.samples) - 1, self._end_fade)
+        return block, valid < frames
 
 
 class _SfxVoice:
@@ -336,15 +337,35 @@ class Mixer:
         self._seek_request = (self._seek_serial, float(seconds))
 
     def play_sfx(self, name: str, gain: float = 1.0) -> None:
-        """Fire a UI sound into the next pool slot.
+        """Fire a UI sound into a free pool slot, or steal the oldest.
 
-        Round-robin rather than "first free": when every slot is busy the oldest
-        is stolen, so the newest keypress is always the one you hear.
+        Free first, round-robin second. Plain round-robin cut a voice that was
+        still sounding *while seven slots sat idle*, and the one it always cut
+        was the longest sound in the pool -- the longest being, by definition,
+        the one still playing when the pointer comes back round. At the app's
+        rate limit that is half a second of held arrow key chopping the 1.1 s
+        startup swell in half: a gain that goes to zero in one sample, which is
+        the definition of a click (CLAUDE.md, conventions).
+
+        Stealing is still what happens when the pool really is full, so the
+        newest keypress is always the one you hear.
         """
         samples = self.sfx.get(name)
-        slot = self._sfx_voices[self._sfx_next]
-        self._sfx_next = (self._sfx_next + 1) % len(self._sfx_voices)
-        slot.arm(samples, gain)
+        self._next_sfx_voice().arm(samples, gain)
+
+    def _next_sfx_voice(self) -> _SfxVoice:
+        voices = self._sfx_voices
+        for offset in range(len(voices)):
+            index = (self._sfx_next + offset) % len(voices)
+            # `active` is written by the audio thread and read here. The race is
+            # benign in both directions: a voice that finishes a moment after
+            # this reads it is one we skipped for nothing.
+            if not voices[index].active:
+                self._sfx_next = (index + 1) % len(voices)
+                return voices[index]
+        slot = voices[self._sfx_next]
+        self._sfx_next = (self._sfx_next + 1) % len(voices)
+        return slot
 
     # -- the audio thread --------------------------------------------------
 

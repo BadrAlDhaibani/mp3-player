@@ -39,7 +39,7 @@ def resample(
     rest are silence rather than a held final sample, because a held sample is
     a DC step. `valid < frames` means the read ran off the end -- and the caller
     still owes the signal a fade down to that point, since a track that stops
-    while it is loud is a step too. See `fade_out_at`.
+    while it is loud is a step too. See `fade_before_end`.
 
     `pos` is a float advanced continuously, which is why `ratio` may change
     between calls -- or between blocks -- with no discontinuity.
@@ -73,19 +73,41 @@ def resample(
     return out, new_pos, valid
 
 
-def fade_out_at(block: np.ndarray, index: int, length: int) -> None:
-    """Ramp `block` down in place so it reaches exactly zero at `index`.
+def fade_before_end(
+    block: np.ndarray, pos: float, ratio: float, last: int, length: int
+) -> None:
+    """Ramp `block` down in place so it reaches zero as the samples run out.
 
     Used where the signal stops for a reason other than a transport change --
-    the end of a track. The ramp starts at unity, so it joins the untouched
-    samples before it without a seam of its own.
+    the end of a track. Files do not reliably end on silence, so running off the
+    end and zero-filling is itself a step.
+
+    Written against the read *position* rather than against the block, which is
+    the whole point and was the Batch 6 bug: a ramp that can only live inside
+    the final block is as long as whatever happens to be left of that block. Ask
+    for 10 ms and you get 10 ms when the track ends near a block boundary and
+    one sample when it ends just after one -- a full-amplitude step, a click,
+    and about one track in sixteen. Here the gain is a function of how far the
+    read position still is from the end, so the ramp starts in whichever block
+    is 10 ms out and crosses the boundary without knowing it is there.
+
+    `pos` is the read position at the *start* of `block`, `ratio` the step per
+    output frame, `last` the highest sample index that can be read, and `length`
+    the fade in output frames.
     """
-    start = max(0, index - length)
-    count = index - start
-    if count <= 0:
+    if ratio <= 0.0 or length <= 0 or len(block) == 0:
         return
-    ramp = np.linspace(1.0, 0.0, count, dtype=np.float32)
-    block[start:index] *= ramp[:, None]
+
+    # Output frames until the read position reaches the end of the samples.
+    # One subtraction and a compare in the common case: most blocks are nowhere
+    # near the end and must not pay for an array they will not use.
+    remaining = (last - pos) / ratio
+    if remaining > length + len(block):
+        return
+
+    ahead = remaining - np.arange(len(block), dtype=np.float64)
+    gain = np.clip(ahead / length, 0.0, 1.0).astype(np.float32)
+    block *= gain[:, None]
 
 
 class Fader:

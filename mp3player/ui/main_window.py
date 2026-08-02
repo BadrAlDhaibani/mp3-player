@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 
@@ -26,6 +26,7 @@ from mp3player.core.library import ScanResult
 from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
 from mp3player.ui.controller import SEEK_STEP, PlayerController
+from mp3player.ui.sounds import Sounds
 from mp3player.ui.widgets.crossbar import Category, Crossbar
 from mp3player.ui.widgets.item_column import Item, ItemColumn
 from mp3player.ui.widgets.now_playing import NowPlaying, NowPlayingPage
@@ -57,6 +58,13 @@ class XmbStage(QWidget):
     The column and the page are alternatives, never both: Music and Settings are
     lists, Now Playing is a page. `show_page` swaps them.
     """
+
+    # The mouse's half of the navigation blip. Emitted only when a click or a
+    # wheel step actually moved the cursor, so clicking the selected category or
+    # scrolling against the end of a list is silent -- the same as the keyboard,
+    # which gets this by comparing indices around the keypress. The stage says
+    # *that* the cursor moved and nothing more; `ui/sounds.py` owns the rest.
+    moved = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -144,9 +152,7 @@ class XmbStage(QWidget):
                 self._dragging = True
                 self.page.slider_moved.emit(self.page.fraction_at(pos.x()))
                 return
-            category = self.bar.hit(pos)
-            if category is not None:
-                self.bar.set_index(category)
+            self._click_category(pos)
             return
 
         item = self.column.hit(pos)
@@ -155,14 +161,20 @@ class XmbStage(QWidget):
             # mouse equivalent of Down-then-Enter, and it makes a single click
             # on the already-selected track do the obvious thing.
             if item == self.column.index:
-                self.column.activate()
+                self.column.activate()  # `activated` is what sounds the confirm
             else:
                 self.column.set_index(item)
+                self.moved.emit()
             return
 
+        self._click_category(pos)
+
+    def _click_category(self, pos: QPoint) -> None:
         category = self.bar.hit(pos)
-        if category is not None:
-            self.bar.set_index(category)
+        if category is None or category == self.bar.index:
+            return  # missed, or clicked the one already selected
+        self.bar.set_index(category)
+        self.moved.emit()
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging:
@@ -186,17 +198,24 @@ class XmbStage(QWidget):
         if not steps:
             return
         if self.page.isVisible():
+            # No `moved` here: the slider ticks instead, and only when the value
+            # it lands on is a different one. The window fires that, since it is
+            # the half that knows whether the speed actually changed.
             self.page.slider_moved.emit(
                 min(1.0, max(0.0, self.page.state.fraction + steps * 0.02))
             )
-        else:
-            self.column.step(-steps)
+            return
+        before = self.column.index
+        self.column.step(-steps)
+        if self.column.index != before:
+            self.moved.emit()
 
 
 class MainWindow(ChromeWindow):
     def __init__(self, controller: PlayerController) -> None:
         super().__init__("XMB PLAYER")
         self.controller = controller
+        self.sounds = Sounds(controller)
 
         # Per-category cursors: stepping away from Music and back should land
         # where you left, not at the top of a 200-track list.
@@ -211,7 +230,12 @@ class MainWindow(ChromeWindow):
         self._build()
         self._connect()
         self._refresh_column(reset=True)
-        self.stage.enter()  # the app arrives the same way a category does
+        # The app arrives the same way a category does -- and now it announces
+        # itself the same way too. The stream is already open by here (`app.py`
+        # builds the engine first), so the swell starts under the folder scan
+        # rather than after it.
+        self.stage.enter()
+        self.sounds.startup()
 
     # -- construction ------------------------------------------------------
 
@@ -242,14 +266,19 @@ class MainWindow(ChromeWindow):
         controller.speed_changed.connect(self._on_speed)
         controller.volume_changed.connect(self.transport.set_volume)
         controller.failed.connect(self.stage.set_status)
+        # The one sound wired to a controller signal rather than to an input:
+        # a failure is the app answering back, and it is worth hearing whether
+        # or not you were looking at the status line when it appeared.
+        controller.failed.connect(lambda _message: self.sounds.error())
 
         self.stage.bar.index_changed.connect(self._on_category)
         self.stage.column.activated.connect(self._activate)
         self.stage.page.slider_moved.connect(self._on_slider_dragged)
+        self.stage.moved.connect(self.sounds.move)
 
-        self.transport.play_pressed.connect(controller.toggle)
-        self.transport.next_pressed.connect(controller.next_track)
-        self.transport.previous_pressed.connect(controller.previous_track)
+        self.transport.play_pressed.connect(self._toggle)
+        self.transport.next_pressed.connect(lambda: self._skip(+1))
+        self.transport.previous_pressed.connect(lambda: self._skip(-1))
         self.transport.seek_requested.connect(controller.seek)
         self.transport.volume_requested.connect(controller.set_volume)
 
@@ -305,7 +334,47 @@ class MainWindow(ChromeWindow):
 
     def _on_slider_dragged(self, fraction: float) -> None:
         span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
-        self.controller.set_speed(settings_mod.MIN_SPEED + fraction * span)
+        self._set_speed(settings_mod.MIN_SPEED + fraction * span)
+
+    # -- things the user did ----------------------------------------------
+    #
+    # Four small wrappers, and they all exist for the same reason: the sound
+    # belongs to the *press*, not to what the press changed. Wiring these
+    # straight through to the controller is what used to make auto-advance blip
+    # like a keypress and a slider pinned at nightcore keep on ticking.
+
+    def _set_speed(self, value: float) -> None:
+        """Speed, from the arrows, the wheel or a drag. Ticks only on a change.
+
+        `_on_speed` has already run by the time `set_speed` returns -- the
+        signal is direct -- so `self._speed` is the new value here. Comparing
+        against it is what keeps a slider held at either end silent instead of
+        ticking at the frame rate against a clamp.
+        """
+        before = self._speed
+        self.controller.set_speed(value)
+        if self._speed != before:
+            self.sounds.tick()
+
+    def _toggle(self) -> None:
+        """Play/pause, from Space or the transport button."""
+        was = self._playing
+        self.controller.toggle()
+        if self._playing == was:
+            return  # nothing loaded and it wouldn't load: `failed` says so
+        self.sounds.confirm() if self._playing else self.sounds.back()
+
+    def _skip(self, delta: int) -> None:
+        """Next/Previous. The end of a track goes through `controller.step`
+        directly and so stays silent -- that is the whole reason this exists."""
+        self.sounds.move()
+        self.controller.step(delta)
+
+    def _fullscreen(self) -> None:
+        """F11 and Escape. The Settings row goes through `_activate`, which has
+        already sounded its confirm by the time it gets here."""
+        self.toggle_fullscreen()
+        self.sounds.confirm() if self.isFullScreen() else self.sounds.back()
 
     # -- categories and items ---------------------------------------------
 
@@ -410,6 +479,10 @@ class MainWindow(ChromeWindow):
     # -- activation --------------------------------------------------------
 
     def _activate(self, index: int) -> None:
+        # One confirm for every activation, keyboard or mouse: `activated` is
+        # only emitted when there is something to open, so an Enter on an empty
+        # list is silent rather than a blip about nothing.
+        self.sounds.confirm()
         # Now Playing has no items to activate -- it's a page, and its only
         # control answers to the arrow keys directly.
         if self._category == CAT_MUSIC:
@@ -440,55 +513,74 @@ class MainWindow(ChromeWindow):
     # matter what the user last clicked.
 
     def keyPressEvent(self, event) -> None:
-        key = event.key()
-        modifiers = event.modifiers()
+        before = (self.stage.bar.index, self.stage.column.index)
+
+        if not self._handle_key(event.key(), event.modifiers()):
+            super().keyPressEvent(event)
+            return
+
+        # The navigation blip is decided here rather than in ten branches: if
+        # the cursor ended up somewhere other than it started, that was a move.
+        # Which also buys the right silences for free -- Up against the top of a
+        # list changes nothing, and a blip there would be the app claiming a
+        # press did something when it didn't.
+        #
+        # Branches that speak for themselves (Enter, Space, the slider) leave
+        # both indices alone. The exception is Ctrl+arrow, which asks for `move`
+        # itself *and* shifts the Music cursor onto the new track; asking twice
+        # inside the throttle window means once (`ui/sounds.py`).
+        if (self.stage.bar.index, self.stage.column.index) != before:
+            self.sounds.move()
+
+        self._selection[self._category] = self.stage.column.index
+
+    def _handle_key(self, key: int, modifiers) -> bool:
+        """Do what `key` means. False if it means nothing here."""
+        column = self.stage.column
 
         # On Now Playing there is no list, so Up and Down have nothing to
         # navigate and drive the slider instead. That's what lets this page have
         # no "press Enter to adjust" step: the arrows can't mean anything else,
         # and the hint under the track says so up front.
         if self._category == CAT_NOW and key in (Qt.Key_Up, Qt.Key_Down):
-            direction = SPEED_STEP if key == Qt.Key_Up else -SPEED_STEP
-            self.controller.set_speed(self._speed + direction)
-            return
+            self._set_speed(self._speed + (SPEED_STEP if key == Qt.Key_Up else -SPEED_STEP))
+            return True
 
         if key in (Qt.Key_Left, Qt.Key_Right):
             forward = key == Qt.Key_Right
             if modifiers & Qt.ControlModifier:
-                self.controller.next_track() if forward else self.controller.previous_track()
+                self._skip(+1 if forward else -1)
             elif modifiers & Qt.ShiftModifier:
                 self.controller.nudge(SEEK_STEP if forward else -SEEK_STEP)
             else:
                 self.stage.bar.step(1 if forward else -1)
-            return
+            return True
 
         if key == Qt.Key_Up:
-            self.stage.column.step(-1)
+            column.step(-1)
         elif key == Qt.Key_Down:
-            self.stage.column.step(+1)
+            column.step(+1)
         elif key == Qt.Key_PageUp:
-            self.stage.column.step(-PAGE)
+            column.step(-PAGE)
         elif key == Qt.Key_PageDown:
-            self.stage.column.step(+PAGE)
+            column.step(+PAGE)
         elif key == Qt.Key_Home:
-            self.stage.column.set_index(0)
+            column.set_index(0)
         elif key == Qt.Key_End:
-            self.stage.column.set_index(self.stage.column.count - 1)
+            column.set_index(column.count - 1)
         elif key in (Qt.Key_Return, Qt.Key_Enter):
-            self.stage.column.activate()
+            column.activate()
         elif key == Qt.Key_Backspace:
             self.stage.bar.step(-1)  # XMB's "back" is a step left
         elif key == Qt.Key_Space:
-            self.controller.toggle()
+            self._toggle()
         elif key == Qt.Key_F11:
-            self.toggle_fullscreen()
+            self._fullscreen()
         elif key == Qt.Key_Escape and self.isFullScreen():
-            self.toggle_fullscreen()
+            self._fullscreen()
         else:
-            super().keyPressEvent(event)
-            return
-
-        self._selection[self._category] = self.stage.column.index
+            return False
+        return True
 
 
 def _speed_fraction(speed: float) -> float:

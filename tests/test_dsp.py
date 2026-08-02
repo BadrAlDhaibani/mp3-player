@@ -11,8 +11,8 @@ import pytest
 from mp3player.core.audio.dsp import (
     FADE_MS,
     Fader,
+    fade_before_end,
     fade_frames,
-    fade_out_at,
     resample,
 )
 
@@ -141,33 +141,64 @@ def test_supplied_buffer_is_cleared_past_the_end() -> None:
     assert np.all(out[valid:] == 0.0)
 
 
-# -- fade_out_at ---------------------------------------------------------
+# -- fade_before_end -----------------------------------------------------
+
+SIZE = 512  # the mixer's block, so the boundaries here are the real ones
 
 
-def test_fade_out_reaches_zero_exactly_at_the_index() -> None:
-    block = np.ones((100, 2), np.float32)
-    fade_out_at(block, 60, 20)
-    assert block[59, 0] == pytest.approx(0.0, abs=1e-6)
-    assert block[39, 0] == 1.0  # untouched before the ramp
+def ending_gain(last: int, *, length: int = 480, ratio: float = 1.0, blocks: int = 6):
+    """The gain the ending fade applies, over `blocks` consecutive blocks.
+
+    Rendered block by block exactly as the callback would, and then joined --
+    because the whole question about this fade is what it does *across* a block
+    boundary, and one block at a time cannot answer it.
+    """
+    rendered = []
+    for index in range(blocks):
+        block = np.ones((SIZE, 2), np.float32)
+        fade_before_end(block, index * SIZE * ratio, ratio, last, length)
+        rendered.append(block)
+    return np.concatenate(rendered)[:, 0]
 
 
-def test_fade_out_starts_at_unity_so_it_leaves_no_seam() -> None:
-    block = np.ones((100, 2), np.float32)
-    fade_out_at(block, 60, 20)
-    assert block[40, 0] == pytest.approx(1.0, abs=0.06)
-    assert np.abs(np.diff(block[:60, 0])).max() < 0.06
+def test_the_ending_fade_reaches_zero_exactly_as_the_samples_run_out() -> None:
+    gain = ending_gain(last=3 * SIZE)
+    assert gain[3 * SIZE] == pytest.approx(0.0, abs=1e-6)
+    assert np.all(gain[3 * SIZE :] == 0.0)
+    assert gain[0] == 1.0  # untouched a long way out
 
 
-def test_fade_out_is_clipped_to_the_start_of_the_block() -> None:
-    block = np.ones((100, 2), np.float32)
-    fade_out_at(block, 10, 480)  # a ramp longer than the audio before it
-    assert block[9, 0] == pytest.approx(0.0, abs=1e-6)
-    assert block[0, 0] == pytest.approx(1.0)
+@pytest.mark.parametrize("offset", (0, 1, 37, 200, 400, 511))
+def test_the_ending_fade_is_its_full_length_wherever_the_end_lands(offset: int) -> None:
+    """The Batch 6 bug, in one assertion.
+
+    A ramp that can only live inside the final block is as long as whatever is
+    left of that block: ten milliseconds when the track happens to end on a
+    boundary and *one sample* when it ends just after one. Written against the
+    read position instead, the ramp is the length it asks for and simply starts
+    in an earlier block when it needs to.
+    """
+    length = 480
+    gain = ending_gain(last=3 * SIZE + offset, length=length)
+    ramping = np.count_nonzero((gain > 0.0) & (gain < 1.0))
+    assert ramping == pytest.approx(length, abs=2), f"ramp was {ramping} frames"
 
 
-def test_fade_out_at_zero_does_nothing() -> None:
-    block = np.ones((10, 2), np.float32)
-    fade_out_at(block, 0, 480)
+def test_the_ending_fade_has_no_step_of_its_own() -> None:
+    gain = ending_gain(last=3 * SIZE + 1)  # the alignment that used to click
+    assert np.abs(np.diff(gain)).max() <= 1.0 / 480 * 1.01
+
+
+def test_blocks_nowhere_near_the_end_are_left_alone() -> None:
+    """The early-out. This runs in the audio callback on every block."""
+    block = np.ones((SIZE, 2), np.float32)
+    fade_before_end(block, 0.0, 1.0, 48000, 480)
+    assert np.all(block == 1.0)
+
+
+def test_a_stopped_read_does_not_divide_by_its_own_rate() -> None:
+    block = np.ones((SIZE, 2), np.float32)
+    fade_before_end(block, 0.0, 0.0, 100, 480)
     assert np.all(block == 1.0)
 
 

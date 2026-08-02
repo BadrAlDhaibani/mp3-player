@@ -31,6 +31,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mp3player.core import settings as settings_mod  # noqa: E402
+from mp3player.core.audio import sfx  # noqa: E402
 from mp3player.core.audio.engine import AudioEngine  # noqa: E402
 from mp3player.ui import theme  # noqa: E402
 from mp3player.ui.controller import PlayerController  # noqa: E402
@@ -71,6 +72,51 @@ def drag(stage, x: int, y: int) -> None:
     stage.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x, y, Qt.NoButton))
 
 
+class SoundLog:
+    """Records every sound the shell asks for, and passes it through.
+
+    Wraps `PlayerController.play_sfx`, which is the only route the UI has to the
+    engine -- so this sees exactly what a real run would play, throttle and all,
+    without knowing anything about how the window decided it.
+    """
+
+    def __init__(self, controller) -> None:
+        self.calls: list[tuple[str, float]] = []
+        self._forward = controller.play_sfx
+        controller.play_sfx = self._record
+
+    def _record(self, name: str, gain: float = 1.0) -> None:
+        self.calls.append((name, gain))
+        self._forward(name, gain)
+
+    def take_calls(self) -> list[tuple[str, float]]:
+        calls, self.calls = self.calls, []
+        return calls
+
+    def take(self) -> list[str]:
+        return [name for name, _ in self.take_calls()]
+
+
+class Clock:
+    """A hand-driven millisecond clock for the sound throttle.
+
+    Sleeping through 60 ms to prove a blip is allowed again would make the
+    result depend on when the event loop got a turn -- the same reason the
+    animations are driven rather than waited out. Starts far from zero so the
+    throttle's "has it been long enough" is answered against a real timestamp
+    even for whatever played before this was installed.
+    """
+
+    def __init__(self, start: float = 1e7) -> None:
+        self.ms = float(start)
+
+    def __call__(self) -> float:
+        return self.ms
+
+    def tick(self, ms: float = 1000.0) -> None:
+        self.ms += ms
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     saved = settings_mod.load()
@@ -80,7 +126,15 @@ def main() -> int:
     print(f"stream: {engine.sample_rate} Hz")
 
     controller = PlayerController(engine, saved)
+    # Installed before the window exists, because the window sounds the startup
+    # swell in its constructor -- the same place it starts the entrance.
+    log = SoundLog(controller)
+
     window = MainWindow(controller)
+    launched_with = log.take()
+    clock = Clock()
+    window.sounds.clock = clock
+
     window.resize(980, 640)
     window.show()
     controller.start()
@@ -381,6 +435,107 @@ def main() -> int:
         page.state.lines[0],
     )
     check("paints the page", not window.grab().isNull())
+
+    print("\n-- sound: what makes a noise")
+    # The blips have been tested since Batch 2; what is new here is *when* they
+    # fire. Every check below is really about which presses are silent, because
+    # that is the half a synthesizer test can't see -- a player that blips at
+    # the end of every track, or against the end of every list, is one that
+    # sounds broken while every sound in it is correct.
+    check("launching plays the startup swell", launched_with == [sfx.STARTUP],
+          f"{launched_with}")
+    log.take()  # whatever the sections above made; the map starts here
+
+    clock.tick()
+    press(window, Qt.Key_Right)
+    check("a crossbar step blips", log.take() == [sfx.MOVE], f"now {bar.index}")
+    clock.tick()
+    press(window, Qt.Key_Down)
+    check("so does a row", log.take() == [sfx.MOVE])
+    clock.tick()
+    press(window, Qt.Key_Home)
+    log.take()
+    clock.tick()
+    press(window, Qt.Key_Up)
+    check("...but a press that goes nowhere is silent", log.take() == [])
+
+    clock.tick()
+    press(window, Qt.Key_Down)
+    press(window, Qt.Key_Down)
+    check("two moves in the same instant are one blip", log.take() == [sfx.MOVE])
+    clock.tick()
+    press(window, Qt.Key_Down)
+    check("...and the next one once time has passed", log.take() == [sfx.MOVE])
+
+    clock.tick()
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("Enter confirms", log.take() == [sfx.CONFIRM])
+    clock.tick()
+    press(window, Qt.Key_Space)
+    check("space pausing sounds back", log.take() == [sfx.BACK])
+    clock.tick()
+    press(window, Qt.Key_Space)
+    check("...and starting again confirms", log.take() == [sfx.CONFIRM])
+
+    # The one the controller could not get right on its own: `step(+1)` is both
+    # of these, and only one of them is something the user did.
+    clock.tick()
+    was = controller.index
+    engine.mixer._finished = True
+    controller._poll()
+    app.processEvents()
+    check("a track ending advances the list", controller.index != was)
+    check("...in silence -- nobody pressed anything", log.take() == [])
+    clock.tick()
+    press(window, Qt.Key_Right, Qt.ControlModifier)
+    app.processEvents()
+    check("...while pressing Next for the same move blips", log.take() == [sfx.MOVE])
+
+    row = column.row_y()
+    clock.tick()
+    click(stage, 400, row + theme.ITEM_SPACING)
+    check("a click that selects blips", log.take() == [sfx.MOVE])
+    clock.tick()
+    click(stage, 400, row)
+    app.processEvents()
+    check("a click on the selection confirms", log.take() == [sfx.CONFIRM])
+    clock.tick()
+    click(stage, theme.FOCUS_X, row)
+    check("clicking the category you're already on is silent", log.take() == [])
+
+    print("\n-- sound: the speed slider ticks, quietly and not forever")
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    controller.set_speed(1.05)  # straight to the controller: no tick of its own
+    log.take()
+
+    clock.tick()
+    press(window, Qt.Key_Up)
+    calls = log.take_calls()
+    check("adjusting the speed ticks", [name for name, _ in calls] == [sfx.MOVE], f"{calls}")
+    check(
+        "...at less than a navigation blip",
+        bool(calls) and calls[0][1] < 1.0,
+        f"gain {calls[0][1] if calls else '-'}",
+    )
+    for _ in range(200):  # walk it into the clamp
+        clock.tick()
+        press(window, Qt.Key_Up)
+    log.take()
+    clock.tick()
+    press(window, Qt.Key_Up)
+    check(
+        "a slider already at nightcore stops ticking",
+        log.take() == [],
+        f"speed {engine.speed:.3f}",
+    )
+    controller.set_speed(1.0)
+    app.processEvents()
+
+    clock.tick()
+    controller.failed.emit("harness")
+    check("a failure is audible, not just printed", log.take() == [sfx.ERROR])
 
     print("\n-- chrome")
     window.toggle_fullscreen()

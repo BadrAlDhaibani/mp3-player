@@ -124,14 +124,20 @@ _BUILDERS = {
 
 
 def _finish(wave: np.ndarray, sample_rate: int, peak: float) -> np.ndarray:
-    """Normalise to `peak`, ramp both ends to zero, return `float32[n, 2]`."""
+    """Ramp both ends to zero, normalise to `peak`, return `float32[n, 2]`.
+
+    That order matters, and it used to be the other way round. A blip whose
+    loudest moment is its first sample -- `move`, and every percussive sound
+    worth the name -- has that sample multiplied by the attack ramp's zero, so
+    normalising first sets a level the envelope then takes away: `move` asked
+    for 0.22 and came out at 0.18, and the mix in `_PEAKS` was quietly a
+    different mix from the one written down. Enveloping first makes the table
+    mean what it says.
+    """
     wave = np.asarray(wave, dtype=np.float32)
     if wave.ndim == 1:
         wave = np.repeat(wave[:, None], 2, axis=1)
-
-    loudest = float(np.abs(wave).max()) if wave.size else 0.0
-    if loudest > 0.0:
-        wave = wave * (peak / loudest)
+    wave = wave.copy()  # the builders' arrays are scaled in place below
 
     frames = len(wave)
     attack = min(frames // 2, max(1, int(sample_rate * _ATTACK_MS / 1000)))
@@ -140,6 +146,10 @@ def _finish(wave: np.ndarray, sample_rate: int, peak: float) -> np.ndarray:
         wave[:attack] *= np.linspace(0.0, 1.0, attack, dtype=np.float32)[:, None]
     if release > 0:
         wave[-release:] *= np.linspace(1.0, 0.0, release, dtype=np.float32)[:, None]
+
+    loudest = float(np.abs(wave).max()) if wave.size else 0.0
+    if loudest > 0.0:
+        wave *= peak / loudest
 
     return np.ascontiguousarray(wave, dtype=np.float32)
 

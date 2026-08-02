@@ -10,20 +10,25 @@ If a box below isn't ticked, it isn't done.
 > ## ▶ Resume here
 >
 > **Done:** Batch 0 (spike) · Batch 1 (core library & settings) ·
-> Batch 2 (audio engine, 174 tests green) · Batch 3 (ugly working player) ·
+> Batch 2 (audio engine) · Batch 3 (ugly working player) ·
 > Batch 4 (XMB shell structure) ·
-> Batch 5 (motion & atmosphere — it moves now, and there's a wave behind it)
-> **Next:** **Batch 6 — sound & feel.** The synthesized blips from `sfx.py`
-> exist and are tested but nothing calls them; hook `move` / `confirm` / `back`
-> to the navigation that Batch 5 just gave a tempo, then tune by ear.
-> `controller.py` and everything under `core/` have still not been touched
-> since Batch 3.
+> Batch 5 (motion & atmosphere) ·
+> Batch 6 (sound & feel — **all but the ear pass**; 186 tests, 123 harness checks)
+>
+> **Next:** **finish Batch 6's one open box, then Batch 7.** Everything is
+> wired and every silence is deliberate, but *"tune the synthesized sounds by
+> ear"* is not something this side of the screen can tick. Run
+> `tools/sfx_harness.py`, listen — especially `m` (a held arrow key) and `p`
+> (blips over music) — and say what to change. The numbers are all in one
+> place: `_PEAKS` in `core/audio/sfx.py` for the mix, `_MIN_GAP_MS` in
+> `ui/sounds.py` for how often.
 >
 > Before writing any of it, read the note in the conventions about
 > `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
 > Batch 4 was found by rendering a PNG and looking at it; none by an assertion —
-> and in Batch 5 the glow took two goes to stop looking like a border, both
-> caught the same way.
+> in Batch 5 the glow took two goes to stop looking like a border, and in Batch 6
+> the easing durations were halved on the evidence of a filmstrip after feel had
+> called them fine twice.
 >
 > Starting a fresh session? Read the decisions log and conventions below before
 > writing anything — they're the accumulated agreements, not suggestions.
@@ -69,6 +74,7 @@ here and write down why.
 | **End of track is polled, not pushed** | The roadmap said "end-of-track callback", but the conventions forbid calling anything from the audio thread. The callback sets a flag; `take_finished()` reports it once to the 30 Hz poll. No callable is exposed at all — a footgun nobody needs. |
 | **Seeks are serial-tagged, not consume-and-clear** | A slider drag posts a stream of seeks. If the audio thread cleared the request slot, a seek posted microseconds later could be dropped. The audio thread only ever *reads* the slot and records which serial it applied, so the last seek always wins. |
 | **Tracks fade out at their own end** | Files do not reliably end on silence. Running off the end and zero-filling is itself a step — the first thing Batch 2's tests caught. `resample` reports how many frames were real; the voice ramps the last 10 ms down to meet the silence. |
+| ~~The ending ramp lives in the final block~~ → **it is a function of read position** | *Corrected in Batch 6.* A 10 ms ramp does not fit in whatever is left of the block where the track happens to end, so `fade_out_at` was silently giving you 480 frames of fade when a track ended near a block boundary and **one** when it ended just after one — a full-amplitude step, and about one track in sixteen. `fade_before_end` computes the gain from how far the read position still is from the end, so the ramp starts in whichever block is 10 ms out and crosses the boundary without knowing it is there. |
 | **Non-MP3 files are skipped, not listed** | ~8% of this library's `.mp3` files are actually MP4/AAC (YouTube downloads with the wrong extension). libsndfile can't decode AAC, and adding PyAV (~35 MB) isn't worth it for a novelty app. `scan_folder()` sniffs magic bytes and drops anything that isn't real MP3. Revisit post-v1 if the missing 8% becomes annoying. |
 | **Widgets never touch `AudioEngine`** | Everything goes through `PlayerController`. That's what lets Batch 4 delete `main_window.py` and keep the controller — the seam is only real if nothing crosses it. |
 | **Decode stays on the UI thread in v1** | Measured 0.07–0.21 s for this library. A worker thread means a load token, a cancel path, and a race on every fast next/next/next. Real cost, speculative benefit — revisit in Batch 7 if it grates. |
@@ -98,6 +104,15 @@ here and write down why.
 | **Animations are `QPropertyAnimation` on a float property, via `ui/motion.py`** | Qt already owns the timer, the easing and the repaint. `Tween.to()` restarts from the value's *current* position, which is what stops a held arrow key from stuttering. `finish()` exists for animations nobody can see — a hidden column, and the offscreen harness, which drives clocks rather than sleeping. |
 | **The wave's buffer is coarse across and full-height down** | A ribbon is a long, slowly-varying horizontal band, so its edges run almost horizontally and only the *vertical* sampling decides whether they look crisp; along x a feature spans hundreds of pixels and three in four can go. Quartering both axes — the obvious thing, and what shipped first — looks soft for the same money. Full res 14 ms, both axes quartered 4 ms, **only x quartered 5.6 ms and looks like the 14**. |
 | **The wave runs on a coarse timer at ~21 fps, not a precise 30** | Windows' 15.6 ms tick makes a 33 ms coarse timer fire every 46.8. A precise timer does deliver 30 fps but raises the *system-wide* timer resolution — a battery cost the whole machine pays for an app that sits open for hours — and measured about four times the CPU. The quickest ribbon moves ~2 px between frames either way. |
+| **Sound policy lives in `ui/sounds.py`, not the controller** | The controller cannot tell the cases apart: `step(+1)` is a press of Next *and* the end of a track, and only one of those should blip. The window can, because it is the half that was pressed. So the controller announces (`failed`, `playing_changed`) and forwards `play_sfx`, and every decision about *what* makes a noise is made at the input that caused it. |
+| **Sound follows intent, not state** | Nothing is wired to `index_changed`: auto-advance moves the cursor too, and a blip nobody asked for reads as an alert rather than as feedback. Keyboard navigation compares the indices around the keypress and blips if they differ, which also buys the right silence at the end of a list for free. |
+| **Auto-advance is silent** | Chosen with the user. You didn't press anything. Pressing Next for the same move still blips. |
+| **The speed slider ticks, quietly and rate-limited** | Also chosen with the user. `move` at 0.55 gain, no closer than 90 ms apart. It fires while you are already hearing the result, so it only has to say "that registered". Silent when the slider is pinned at either preset — a control that ticks against a clamp is claiming a press did something. |
+| **The startup swell stays** | Also chosen with the user. It's the console-boot feel, it happens once a launch, and it is the one sound with room to be the loudest thing you hear. Sounded from `MainWindow.__init__` next to the entrance animation — the app arrives once, in both senses. |
+| **UI sounds are throttled per sound, and dropped rather than queued** | A held key repeats about 30 times a second; unthrottled that is 30 overlapping 45 ms blips, which is a buzz and not a series of ticks. A blip that arrives after the keypress that earned it has stopped being feedback — 22 ms of output latency is already the budget — so a queue would spend the rest of it playing catch-up. Asking twice for the same blip inside its window therefore means once, which is what lets Ctrl+→ ask for `move` directly *and* trip the index comparison. |
+| **The SFX pool takes a free voice before it steals one** | Round-robin alone cut a voice that was still sounding while seven slots sat idle — and the victim was always the *longest* sound, that being the one still playing when the pointer comes round. Half a second of held arrow key chopped the 1.1 s startup swell in half. Stealing is still what happens when the pool is genuinely full, so the newest keypress is always the one you hear. |
+| **Animation durations are set from a filmstrip, not from feel** | Batch 5 set 190/220 ms by feel. A strip of one row step, rendered every 27 ms, was still travelling at 54 ms and pixel-identical from 81 ms to 190. 140/160 ms is the same curve with most of that drift removed — the character is unchanged, only the dead time. Note what this *doesn't* fix: the invisible fraction belongs to the curve, so roughly the last half of any ease-out is imperceptible at any duration. Flattening it is the other lever, and the arrival is where it would pay most; left alone as a preference rather than something the evidence settles. |
+| **The curve must be an ease-*out*, whatever else it is** | `Tween.to()` restarts from wherever the value has got to, and an ease-in restarts it at zero velocity. Any `InOut*` curve therefore stutters once per key repeat while an arrow is held — the exact problem restarting-from-current exists to solve. This is a constraint on the choice, not a preference within it. |
 
 ### Open questions
 
@@ -120,12 +135,13 @@ mp3player/
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
-      dsp.py             # resample(), Fader, fade_out_at() -- pure numpy
+      dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
       engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
     motion.py            # Tween: one easing helper, shared by the three animators
+    sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
     chrome.py            # frameless drag/resize/min/close
     main_window.py       # composes the shell; XmbStage owns the mouse
@@ -238,6 +254,30 @@ don't invent a second way to do a thing we've already solved.
   had it to lose. The wave's edges are horizontal, so vertical resolution is
   the whole of how sharp it looks and horizontal resolution is nearly free to
   give away.
+- **A sound belongs to the press, not to the state change it caused.** Wire
+  blips at the input, not to a signal — every signal worth listening to also
+  fires when the app did something by itself, and that is the difference
+  between feedback and an alert.
+- **A press that changes nothing makes no sound.** Up at the top of a list, a
+  slider at its clamp, a click on the category you are already on. Compare
+  before and after rather than trusting the branch you are in.
+- **Normalise a sound *after* enveloping it, never before.** Anything
+  percussive has its peak in the first samples, which is exactly where the
+  attack ramp is still at zero — so normalising first sets a level the
+  envelope then takes away, and the mix table quietly stops being the mix.
+- **A ramp that has to be N frames long cannot be written against one block.**
+  If the thing it lands on can fall anywhere in a block, compute the gain from
+  the *position* and let the ramp start in whichever block it needs to. The
+  block-local version silently gives you a shorter fade the closer the event
+  lands to the start of a block, and the worst case is no fade at all.
+- **Judge motion from a filmstrip, not from watching it.** Render the same
+  tween every N ms with the clock driven by hand, tile the frames, and look:
+  the frames that are identical to their neighbour are the part of the
+  duration nobody can see. Twice now the number that felt right was about
+  double the number that was doing anything.
+- **Make the throttle's clock injectable.** `Sounds.clock` is swappable for
+  the same reason the animations have `settle()` — a test that sleeps through
+  a rate limit is a test that depends on the scheduler.
 
 ---
 
@@ -278,7 +318,8 @@ Verified against the real library: `~/Music` 31 playable / 6 skipped,
 
 - [x] `decode.py` — `load_audio()` → `float32[n,2]` + sample rate, mono upmixed,
       surround folded, every failure a `DecodeError`
-- [x] `dsp.py` — `resample()`, `Fader`, `fade_out_at()`
+- [x] `dsp.py` — `resample()`, `Fader`, `fade_out_at()` *(replaced in Batch 6 by
+      `fade_before_end()`; see the decisions log for why)*
 - [x] `engine.py` — always-on stream, music voice, transport, live speed, volume,
       end-of-track (polled, not pushed), device negotiation
 - [x] `sfx.py` — synthesized blips + `play_sfx()` into a fixed voice pool on the
@@ -431,10 +472,54 @@ plate, is a glow.
 
 ### Batch 6 — Sound & feel
 
-- [ ] Hook `move` / `confirm` / `back` / `error` / `startup` to navigation
-- [ ] Tune the synthesized sounds by ear
-- [ ] Click-free fades on every transition
-- [ ] Easing curve tuning
+- [x] Hook `move` / `confirm` / `back` / `error` / `startup` to navigation
+- [ ] **Tune the synthesized sounds by ear** — the instrument exists
+      (`tools/sfx_harness.py`); the ear does not live on this side of the
+      screen. Not tickable from here.
+- [x] Click-free fades on every transition
+- [x] Easing curve tuning
+
+`sfx.py` was *tested* from Batch 2 and *called* from Batch 3 — but only by the
+controller, for transport. None of the shell Batches 4 and 5 built made a
+sound: not a crossbar step, not a row, not Enter, not a click. That is what
+landed here, along with `ui/sounds.py` to decide when.
+
+**The interesting half was the silences.** Every hard case was a place where
+two different events reach the same code: `step(+1)` is a press of Next and
+also the end of a track; `column.set_index` is a keypress and also
+auto-advance moving the cursor to the track that just started. Wiring sound to
+those signals gives an app that blips at nothing, which sounds broken while
+every sound in it is correct — so the policy moved up to `ui/sounds.py` and the
+window fires it at the input. Keyboard navigation compares the crossbar and
+column indices around the keypress and blips only if they differ, which is one
+place instead of ten branches and makes clamping at either end of a list
+silent for free.
+
+**Two clicks found, neither by ear.** Writing "click-free on every transition"
+as one continuous render — the whole session in a single array, rather than one
+transition per test — turned up the end-of-track fade being as long as whatever
+was left of the block the track ended in: 10 ms if it ended near a boundary,
+**one sample** if it ended just after one, which is a full-amplitude step and
+about one track in sixteen. And the SFX pool's round-robin stole a voice that
+was still sounding with seven free, always the longest one, so half a second of
+held arrow key cut the startup swell in half. Both are decisions-log rows now.
+
+The sounds themselves got one fix that did not need ears: `_finish` normalised
+*before* enveloping, so `move` — whose peak is its first sample — asked for
+0.22 and came out at 0.18. Peak is not loudness either; the harness prints the
+loudest 30 ms alongside it, which is the column to compare when the question is
+whether one sound sits under another.
+
+Easing was re-tuned by rendering filmstrips of a single row step, and they
+settled it: still travelling at 54 ms, pixel-identical from 81 ms to 190. The
+durations came down to 140/160 ms. The tool that showed it is
+`tools/filmstrip.py` now, because a convention that says "look at the motion"
+needs something to look with.
+
+Verified: 186 tests green (12 new, all core-only as the convention requires),
+`tools/shell_harness.py` 123/123 including 19 new checks that are mostly about
+what *doesn't* make a noise, and a real mapped-window run through nav, play,
+category switching and the speed slider — exit 0, zero underruns.
 
 ### Batch 7 — Ship v1
 
@@ -463,6 +548,14 @@ venv/Scripts/python.exe -m pytest
 
 # the Batch 4 harness -- drives the real widgets offscreen, no display
 venv/Scripts/python.exe tools/shell_harness.py
+
+# the Batch 6 harness -- audition the UI sounds; `m` is the one that matters
+venv/Scripts/python.exe tools/sfx_harness.py
+venv/Scripts/python.exe tools/sfx_harness.py "song.mp3"
+
+# look at an animation instead of watching it -- real platform, driven clock
+venv/Scripts/python.exe tools/filmstrip.py out.png                # a row step
+venv/Scripts/python.exe tools/filmstrip.py out.png --what appear --ms 220
 
 # the Batch 2 harness -- keyboard-driven audio engine, no Qt
 venv/Scripts/python.exe tools/engine_harness.py            # the saved folder

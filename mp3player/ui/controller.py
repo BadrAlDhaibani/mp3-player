@@ -11,6 +11,12 @@ Two rules from CLAUDE.md land here in particular:
     thread, so `_poll` is the only place engine state is read while audio runs.
   * Settings are written after a pause, not on every slider tick -- a volume
     drag emits a change per pixel and none of them deserve a disk write.
+
+Nothing here decides what the app *sounds* like, and `play_sfx` is the only
+mention of sound in the file. Batch 6 moved that to `ui/sounds.py`, because this
+layer genuinely cannot tell the cases apart: `step(+1)` is a press of Next and
+also the end of a track, and only one of those should blip. The window knows,
+because it is the half that was pressed.
 """
 
 from __future__ import annotations
@@ -20,7 +26,6 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from mp3player.core import settings as settings_mod
-from mp3player.core.audio import sfx
 from mp3player.core.audio.decode import DecodeError
 from mp3player.core.audio.engine import AudioEngine
 from mp3player.core.library import ScanResult, scan_folder
@@ -94,7 +99,6 @@ class PlayerController(QObject):
             self.library_changed.emit(ScanResult())
 
         self._timer.start()
-        self.engine.play_sfx(sfx.STARTUP)
 
     def shutdown(self) -> None:
         """Stop polling, flush settings, close the stream. Idempotent."""
@@ -126,7 +130,6 @@ class PlayerController(QObject):
         if remember:
             self._save_soon()
         if not result.tracks:
-            self.engine.play_sfx(sfx.ERROR)
             self.failed.emit(f"No playable MP3s in {self._folder}")
 
     def rescan(self) -> None:
@@ -165,7 +168,6 @@ class PlayerController(QObject):
             # `scan_folder` already sniffed the magic bytes, so reaching here
             # means truncated or genuinely broken -- not the usual mislabelled
             # MP4. Leave the selection alone and say so.
-            self.engine.play_sfx(sfx.ERROR)
             self.failed.emit(f"Could not play {track.title}: {exc}")
             return
 
@@ -180,14 +182,16 @@ class PlayerController(QObject):
             self.play_index(0)
             return
         self.engine.toggle()
-        self.engine.play_sfx(sfx.CONFIRM if self.engine.is_playing else sfx.BACK)
         self._set_playing(self.engine.is_playing)
 
     def step(self, delta: int) -> None:
-        """Move `delta` tracks and play. Wraps -- the end of the list loops."""
+        """Move `delta` tracks and play. Wraps -- the end of the list loops.
+
+        Silent, and it has to be: this is also how auto-advance moves, and the
+        end of a track is not something the user did.
+        """
         if not self.tracks:
             return
-        self.engine.play_sfx(sfx.MOVE)
         self.play_index(self.index + delta if self.index >= 0 else 0)
 
     def next_track(self) -> None:
@@ -201,6 +205,17 @@ class PlayerController(QObject):
 
     def nudge(self, seconds: float) -> None:
         self.seek(self.engine.position + seconds)
+
+    # -- sound -------------------------------------------------------------
+
+    def play_sfx(self, name: str, gain: float = 1.0) -> None:
+        """Fire a UI sound. The only route the widgets have to the engine.
+
+        A plain forward, on purpose: *which* sound and *how often* are decided
+        in `ui/sounds.py`. This exists so the rule that nothing above the seam
+        touches `AudioEngine` survives the shell having a voice.
+        """
+        self.engine.play_sfx(name, gain)
 
     # -- knobs -------------------------------------------------------------
 

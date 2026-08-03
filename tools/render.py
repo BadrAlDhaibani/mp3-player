@@ -5,6 +5,7 @@
     venv/Scripts/python.exe tools/render.py out.png --what now --speed 1.30
     venv/Scripts/python.exe tools/render.py out.png --what settings --select 2
     venv/Scripts/python.exe tools/render.py out.png --theme all
+    venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
 
 The third leg of the stool. `shell_harness.py` asserts where things come to
 rest, `filmstrip.py` shows what happens on the way, and this shows what a screen
@@ -103,6 +104,11 @@ def main() -> int:
         help="step into the selected settings row, so the outline shows",
     )
     parser.add_argument(
+        "--status",
+        help="put a message on the status line -- the one place a sentence from "
+             "somewhere else lands, and the one drawn in the small font",
+    )
+    parser.add_argument(
         "--play", action="store_true", default=True,
         help="load a track, so the marker and the transport have something to say",
     )
@@ -151,6 +157,10 @@ def main() -> int:
         # Through `activate` rather than by setting the flag, so this renders
         # the state the app actually reaches rather than one arranged for it.
         stage.column.activate()
+        app.processEvents()
+
+    if args.status:
+        stage.set_status(args.status)
         app.processEvents()
 
     shots = []

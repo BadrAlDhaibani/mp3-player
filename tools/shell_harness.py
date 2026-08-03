@@ -39,6 +39,8 @@ from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, Qt  # no
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from mp3player import app as app_mod  # noqa: E402
+from mp3player.core import log as log_mod  # noqa: E402
 from mp3player.core import settings as settings_mod  # noqa: E402
 from mp3player.core.audio import sfx  # noqa: E402
 from mp3player.core.audio.engine import (  # noqa: E402
@@ -49,7 +51,7 @@ from mp3player.core.audio.engine import (  # noqa: E402
 from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.core.models import Track  # noqa: E402
 from mp3player.ui import main_window, theme  # noqa: E402
-from mp3player.ui.controller import PlayerController  # noqa: E402
+from mp3player.ui.controller import SAVE_FAILED_TEXT, PlayerController  # noqa: E402
 from mp3player.ui.main_window import (  # noqa: E402
     CAT_MUSIC,
     CAT_NOW,
@@ -193,6 +195,13 @@ class Clock:
 def main() -> int:
     app = QApplication(sys.argv)
     saved = settings_mod.load()
+
+    # Pointed at a temp file before anything else happens, so the whole run is
+    # recorded and the checks at the bottom can read back what the device
+    # section did. Never the real log: this is a test run, and it has no
+    # business in the file someone is asked to send in.
+    log_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    log_file = log_mod.setup(Path(log_dir.name) / "xmbplayer.log")
 
     engine = AudioEngine(volume=saved.volume, speed=saved.speed)
     engine.start()
@@ -1306,12 +1315,81 @@ def main() -> int:
           first.stage.bar.index == CAT_MUSIC)
     first.deleteLater()
 
-    # Put everything back before shutdown flushes settings to disk.
+    # Put everything back *before* the section below, not just before shutdown:
+    # it lets a settings write succeed again on purpose, and the values that
+    # reach the disk at that moment had better be the user's.
     controller.open_folder(folder, remember=False)
     controller.set_speed(saved.speed)
     controller.set_volume(saved.volume)
     controller.set_theme(saved.theme)
+
+    print("\n-- a settings write that fails")
+    # `save` returning False is faked rather than the disk being filled: the
+    # verdict is the only interesting part, and everything downstream of it --
+    # the status line, the blip, the log -- is the real code path.
+    real_save, settings_mod.save = settings_mod.save, lambda *a, **k: False
+    log.take()
+    controller._save_now()
+    app.processEvents()
+    check("a failed settings write reaches the status line",
+          stage._status == SAVE_FAILED_TEXT, stage._status)
+    check("...and blips, once", log.take().count(sfx.ERROR) == 1)
+    controller._save_now()
+    app.processEvents()
+    check("...and does not re-announce itself on the next failure", log.take() == [])
+    settings_mod.save = real_save
+    controller._save_now()
+    check("...saving again is silent", log.take() == [])
+    check("...and arms the message for next time", not controller._save_failed)
+
+    print("\n-- an exception with nowhere else to go")
+    # Under pythonw.exe there is no console, so `sys.excepthook` is the only
+    # thing between an unhandled exception and complete silence. PySide6 6.11
+    # hands the exception to the hook and *carries on*, which is why the dialog
+    # is one-shot: a broken paintEvent raises on every frame.
+    dialogs: list[object] = []
+    real_dialog, app_mod._show_crash_dialog = app_mod._show_crash_dialog, dialogs.append
+    real_hook = sys.excepthook
+    app_mod._install_crash_handler(log_file)
+
+    def _boom() -> None:
+        raise RuntimeError("harness crash probe")
+
+    # Called the way Qt calls it rather than through a slot: PySide6 lets an
+    # exception raised inside `processEvents()` propagate back out to whoever
+    # called *that*, so a QTimer probe would take the harness down instead of
+    # reaching the hook. Under `exec()` -- the only loop the app itself ever
+    # runs -- it goes to `sys.excepthook`, which was checked directly and is
+    # Qt's half anyway. This is ours: what the hook does when it is handed one.
+    print("   (the traceback below is the probe, and is meant to be here)")
+    for _ in range(2):
+        try:
+            _boom()
+        except RuntimeError:
+            sys.excepthook(*sys.exc_info())
+        app.processEvents()  # the posted dialog runs
+    sys.excepthook = real_hook
+    app_mod._show_crash_dialog = real_dialog
+
+    text = log_file.read_text(encoding="utf-8") if log_file else ""
+    check("an exception in a slot lands in the log", "harness crash probe" in text)
+    check("...with its traceback", "Traceback" in text)
+    check("...written once, however often it repeats",
+          text.count("unhandled exception") == 1)
+    check("...and offering exactly one dialog", len(dialogs) == 1, str(len(dialogs)))
+    check("...that names the log file", dialogs[:1] == [log_file])
+
+    print("\n-- the events that used to be invisible")
+    check("the log opened where it was pointed", log_file is not None and log_file.exists())
+    check("the stream says which device it opened", "stream open:" in text)
+    check("losing the device is written down", "stopped producing blocks" in text)
+    check("...and so is getting it back", "audio device back:" in text)
+    check("...and the retry that failed in between", "still no audio device" in text)
+    check("a failed settings write is written down", "could not write settings" in text)
+
     controller.shutdown()
+    log_mod.close()
+    log_dir.cleanup()
 
     total = len(PASSED) + len(FAILED)
     print(f"\n{len(PASSED)}/{total} passed")

@@ -108,6 +108,14 @@ press between you and a folder picker. It reads the `.mp3` files sitting
 directly in that folder — top level only — and remembers it, along with your
 volume, speed and theme, in `%APPDATA%/XMBPlayer/settings.json`.
 
+## When something goes wrong
+
+There is a log next to that file, at `%APPDATA%/XMBPlayer/xmbplayer.log`. It
+records which output device was opened, anything that went wrong with it, and
+any unexpected error — capped at a few hundred kilobytes, so it looks after
+itself. If the app puts up a box saying something went wrong, that file is what
+it is pointing at, and it is the thing to send on.
+
 ---
 
 ## Known limits

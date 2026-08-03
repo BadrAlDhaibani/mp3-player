@@ -25,6 +25,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from mp3player.core import log as log_mod
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.decode import DecodeError
 from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
@@ -32,6 +33,8 @@ from mp3player.core.library import scan_folder
 from mp3player.core.models import Track
 from mp3player.core.settings import Settings
 from mp3player.ui import theme
+
+_log = log_mod.get("controller")
 
 POLL_MS = 33  # ~30 Hz
 
@@ -46,6 +49,16 @@ SEEK_STEP = 5.0
 # fraction of a second on the UI thread -- fine occasionally while the app is
 # already silent, not fine at 30 Hz.
 RECONNECT_MS = 2000
+
+# Late audio blocks and failed reconnects both happen on a timer, so both are
+# rate-limited on the way to the log rather than written every time. The running
+# total is kept regardless -- the line that does get written covers the whole gap.
+XRUN_GAP_S = 10.0
+RECONNECT_GAP_S = 30.0
+
+# Short on purpose: the status line is drawn in the small font at the right edge,
+# and the log is where the path and the reason go.
+SAVE_FAILED_TEXT = "Could not save settings"
 
 
 class PlayerController(QObject):
@@ -90,6 +103,10 @@ class PlayerController(QObject):
         self._was_playing = engine.is_playing
         self._device_lost = False
         self._resume_on_reconnect = False
+        # Mirrors of two counters that are otherwise written and never read:
+        # the callback's xrun tally, and whether the last settings write worked.
+        self._xruns = engine.xruns
+        self._save_failed = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_MS)
@@ -132,6 +149,8 @@ class PlayerController(QObject):
 
     def shutdown(self) -> None:
         """Stop polling, flush settings, close the stream. Idempotent."""
+        if self._timer.isActive():
+            _log.info("shutting down after %d late audio block(s)", self.engine.xruns)
         self._timer.stop()
         self._reconnect_timer.stop()
         self._save_now()
@@ -201,6 +220,7 @@ class PlayerController(QObject):
             # `scan_folder` already sniffed the magic bytes, so reaching here
             # means truncated or genuinely broken -- not the usual mislabelled
             # MP4. Leave the selection alone and say so.
+            _log.warning("could not decode %s: %s", track.path, exc)
             self.failed.emit(f"Could not play {track.title}: {exc}")
             return
 
@@ -288,6 +308,8 @@ class PlayerController(QObject):
             self._on_device_lost()
             return
 
+        self._log_xruns()
+
         if engine.take_finished():
             # Polled, never pushed -- see the threading rules in engine.py.
             # Advancing here means `is_playing` is true again before the edge
@@ -296,6 +318,25 @@ class PlayerController(QObject):
 
         self.position_changed.emit(engine.position, engine.duration)
         self._set_playing(engine.is_playing)
+
+    def _log_xruns(self) -> None:
+        """Notice the audio callback falling behind.
+
+        `engine.xruns` is incremented by the audio thread and, until now, read by
+        nobody -- so a stream that was glitching told you nothing except by
+        sounding wrong. The mirror is only advanced when a line is actually
+        written, so a rate-limited report still accounts for every block since
+        the last one rather than for the ones that happened to land in a
+        window.
+        """
+        xruns = self.engine.xruns
+        if xruns != self._xruns and log_mod.due("xruns", XRUN_GAP_S):
+            _log.warning(
+                "%d late or dropped audio block(s), %d since launch",
+                xruns - self._xruns,
+                xruns,
+            )
+            self._xruns = xruns
 
     def _set_playing(self, playing: bool) -> None:
         if playing != self._was_playing:
@@ -315,6 +356,11 @@ class PlayerController(QObject):
 
     def _on_device_lost(self) -> None:
         self._device_lost = True
+        _log.warning(
+            "audio device stopped producing blocks (%s); retrying every %.1f s",
+            self.engine.device,
+            RECONNECT_MS / 1000.0,
+        )
         # It cannot play, so it is not playing. Banked and then actually paused,
         # rather than only reported: leaving the mixer's flag set would have the
         # next poll emit `playing_changed(True)` straight back and flicker the
@@ -335,11 +381,17 @@ class PlayerController(QObject):
         """
         try:
             self.engine.reopen()
-        except AudioDeviceError:
+        except AudioDeviceError as exc:
+            # Rate-limited: this is the *expected* answer for as long as the
+            # headphones are out, and at one attempt every 2 s an unattended
+            # evening would otherwise be the only thing in the file.
+            if log_mod.due("reconnect", RECONNECT_GAP_S):
+                _log.info("still no audio device: %s", exc)
             return
 
         self._reconnect_timer.stop()
         self._device_lost = False
+        _log.info("audio device back: %s", self.engine.device)
         if self._resume_on_reconnect:
             # Back where you left it, still going. `reopen` restored the
             # position; this restores the transport, and the fade in the mixer
@@ -360,7 +412,7 @@ class PlayerController(QObject):
         # a bug that looks like the app forgetting rather than like a missing
         # line.
         self._save_timer.stop()
-        settings_mod.save(
+        ok = settings_mod.save(
             Settings(
                 music_folder=self._folder,
                 volume=self.engine.volume,
@@ -368,6 +420,25 @@ class PlayerController(QObject):
                 theme=self._theme,
             )
         )
+
+        # `save` has always returned whether it worked and nothing has ever
+        # looked. A write that fails is experienced as the app forgetting your
+        # music folder for no reason -- which is the exact symptom the
+        # `utf-8-sig` decision was written about, and it was only ever found by
+        # hand-editing the file.
+        if ok:
+            if self._save_failed:
+                self._save_failed = False
+                _log.info("settings written again")
+            return
+
+        _log.error("could not write settings to %s", settings_mod.config_path())
+        if not self._save_failed:
+            # Edge-triggered. The same disk is going to fail the next write too,
+            # and `failed` also blips -- a message that re-announces itself every
+            # 800 ms of a volume drag is an alarm, not a notice.
+            self._save_failed = True
+            self.failed.emit(SAVE_FAILED_TEXT)
 
 
 def _clamp(value: float, low: float, high: float) -> float:

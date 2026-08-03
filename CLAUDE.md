@@ -45,11 +45,17 @@ legal text, and where the two disagree the licence wins.
 > Batch 10 (preset themes — 240 tests, 251 harness checks) ·
 > Batch 11 (licence, provenance and version — 244 tests, `.exe` rebuilt at 1.1.0) ·
 > Batch 12 (metadata and enforcement — 244 tests, 251 harness checks, ruff and
-> mypy clean)
+> mypy clean) ·
+> Batch 13 (diagnosability — 253 tests, 267 harness checks, and a log file)
 >
-> **v1 is shipped; Batches 8 through 12 landed on top of it.** Every box
-> through Batch 12 is ticked except the ones listed under *Open, and waiting on a
+> **v1 is shipped; Batches 8 through 13 landed on top of it.** Every box
+> through Batch 13 is ticked except the ones listed under *Open, and waiting on a
 > human* below.
+>
+> **The app now writes a log**, at `%APPDATA%/XMBPlayer/xmbplayer.log`, next to
+> `settings.json`. `core/log.py` owns it; `log.get("engine")` is how anything
+> gets a logger; `log.due(key, gap_s)` is how anything that can happen at frame
+> rate stays out of it. **Nothing prints — that discipline is unchanged.**
 >
 > **The repo is now pinned by tools, not just by habit.** `pyproject.toml` is the
 > single config for `[project]`, pytest, ruff and mypy; `ruff check .` and `mypy`
@@ -69,15 +75,16 @@ legal text, and where the two disagree the licence wins.
 > advance; it was raised with the user, who was indifferent to it. **It stands
 > — don't re-open it.**
 >
-> **Batches 13–15 remain, and none of them is started.** They came out of an
+> **Batches 14 and 15 remain, and neither is started.** They came out of an
 > audit run in one sitting (recorded in *The ship-prep audit* below, so nobody
-> re-derives it): somewhere for a crash to go, four specific defects, and a
-> download a stranger can actually use. **Batch 13 is next.** Note that Batch 11
-> found one of the audit's own claims to be wrong (see its writeup) — **the audit
-> is a record of one sitting, not a verified spec. Check a claim against the file
-> before acting on it.** Batch 12 is a milder version of the same lesson: its
-> predictions were right in kind and wrong in count, and two thirds of what the
-> tools found was nothing anyone had listed.
+> re-derives it): four specific defects, and a download a stranger can actually
+> use. **Batch 14 is next.** Note that Batch 11 found one of the audit's own
+> claims to be wrong (see its writeup) — **the audit is a record of one sitting,
+> not a verified spec. Check a claim against the file before acting on it.**
+> Batch 12 is a milder version of the same lesson, and **Batch 13 is the sharpest
+> yet: the audit's central claim about the crash path — that PySide6 terminates
+> the process on a slot exception — is not true of 6.11, and the truth is worse.
+> Check a claim against the *runtime*, not only against the file.**
 >
 > ### Open, and waiting on a human
 >
@@ -114,7 +121,10 @@ legal text, and where the two disagree the licence wins.
 >
 > ### State of the build
 >
-> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** It was rebuilt
+> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** Batch 13 did
+> not touch it either: a new pure-Python module in `core/` is collected by
+> PyInstaller without being told, and nothing about the build changed. It was
+> rebuilt
 > because Batch 11 changed the build itself — a version resource and the first
 > bundled data files — and a build-script change that is never run is a
 > build-script change that is never checked. It carries Batches 9 and 10's
@@ -128,7 +138,7 @@ legal text, and where the two disagree the licence wins.
 > build, or when you are cutting a release.
 >
 > Also: the `v1` git tag is **behind `HEAD`** and does not describe the current
-> code. Batches 8 through 12 all landed after it, and the version the code now
+> code. Batches 8 through 13 all landed after it, and the version the code now
 > declares is `1.1.0`. Retagging is Batch 15's job, not something to do in
 > passing.
 >
@@ -136,17 +146,16 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **250/251 with
+> position read, it predates Batch 9, and it passes on a re-run. **266/267 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
 >
-> **Batch 13 — diagnosability: logging and the crash path.** Then 14 and 15 in
-> order: they were sequenced so each one's output is available to the next, and
-> the ordering reasons are written into the batches themselves — 13 before 14
-> specifically because Batch 14's narrowed `refresh_devices` exception needs
-> somewhere to be logged to. **Confirm the batch with the user before starting
-> it** — one batch at a time, no building ahead.
+> **Batch 14 — the four design defects.** Then 15. **Batch 13 has already put
+> the log there**, which is what Batch 14's narrowed `refresh_devices` exception
+> was waiting for — the `except` in that function logs today and still catches
+> `Exception`; narrowing it is 14's line to write. **Confirm the batch with the
+> user before starting it** — one batch at a time, no building ahead.
 >
 > After 15 the app is shippable and the queue goes back to the post-v1 list in
 > the v1 scope section — shuffle/repeat, export, subfolders, multiple folders.
@@ -296,6 +305,11 @@ here and write down why.
 | **Qt event handlers keep their unannotated `event`** | `ANN001` off, globally, decided once rather than half-done — the parameter's type is fixed by the base class, PySide6's own stubs already state it, and annotating twenty-two overrides adds an import per widget to restate what Qt knows. The cost is real and worth knowing: with it off, ruff had nothing to say about `StreamWatch.__init__(..., clock=time.monotonic)` or `AudioEngine._callback`, **and mypy caught both**, because they are in `core/` where nothing is exempt. The two tools overlap exactly where the exemptions are. |
 | **mypy is strict everywhere; `ui/` gives up `attr-defined` and `name-defined`** | PySide6 supports the flattened enum names it documents — `Qt.AlignLeft`, `QPainter.Antialiasing`, `Qt.Key_F11` — while its generated stubs declare only the scoped ones. That was **140 of the first run's 183 errors**, across 58 distinct symbols, every one of them code that runs. The alternative is rewriting every paint call site to `Qt.AlignmentFlag.AlignLeft` and rewrapping most of the lines that touches. Everything else stays on in `ui/`, and that is where the value was: `arg-type`, `union-attr` and `return-value` between them found the wave's buffers typed `QImage | None` in front of six unguarded paint calls. |
 | **Dependency ranges get ceilings, and the four Qt pins stay `==`** | The DSP is `float32[n, 2]` by contract at every layer and the resampler indexes it with `int64`; a major version of numpy is entitled to change what either means, and the failure would be *audible* rather than loud. soundfile and sounddevice wrap the two C libraries that decode MP3 and open WASAPI, and the build pulls both in by name. The Qt four are exact because a shiboken6 that does not match its PySide6 is an ABI error at import. `requirements.txt` stays the file humans install from; `pyproject.toml` carries the same set as metadata. |
+| **The log is a sibling of `settings.json`** | `config_dir()` is already created, already owned by the app, already documented as redirected under Microsoft Store Python — and already the path someone gets told when they are asked to send a file in. A second location is a second thing to explain. One rotating handler, 256 KB × 3: a log that can grow without bound eventually costs more than it tells you. |
+| ~~An unhandled exception in a slot terminates the process~~ → **PySide6 6.11 reports it and carries on** | *Corrected in Batch 13, by running it.* The audit's reasoning was that `aboutToQuit` never fires and settings are lost, which would make the `try/finally` around `app.exec()` the fix. Measured: a slot exception and a `paintEvent` exception both go to `sys.excepthook` and the app keeps running — and that is the **worse** failure, because nothing stops, nothing is written, and under `pythonw.exe` the traceback goes to a stream that does not exist. So the excepthook is the batch, not the `finally`. The `finally` stays: it caught a real one the first time it ran, from a top-level exception outside any slot. |
+| **The crash dialog is one-shot, and posted rather than shown** | A broken `paintEvent` raises on *every frame*, so "tell the user" has to mean once per launch or the dialog is the crash. And it is handed to `QTimer.singleShot(0, ...)` instead of opened inside the hook: putting a modal dialog up part-way through somebody else's paint is how a crash report becomes a second crash. |
+| **The file is throttled; the console is not** | `log.due(key, gap_s)` gates anything that can repeat at frame rate — the same exception, a stream of xruns, a reconnect retry every 2 s all evening. Without it the rotation quietly deletes the interesting part of the file to make room for a hundred copies of one traceback. The hook still chains to the previous excepthook every time, because under `run.bat` the console is the fastest way to read one and nothing there rotates. |
+| **A failed settings write is edge-triggered on screen and written down every time** | `save()` has always returned a bool and nothing has ever looked at it — a failed write is experienced as the app forgetting your music folder for no reason, which is the exact symptom the `utf-8-sig` row was written about. It reaches the status line, so it is visible; but only on the *edge*, because `failed` also blips and the next write during a volume drag will fail for the same reason 800 ms later. A notice that re-announces itself is an alarm. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 ### Open questions
@@ -319,6 +333,8 @@ mp3player/
     library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
                          #   folder, volume, speed, theme (a bare name)
+    log.py               # the rotating log next to it; get(), due(),
+                         #   record_exception() -- never raises, never prints
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
       dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
@@ -534,6 +550,20 @@ don't invent a second way to do a thing we've already solved.
   handlers, which is right — and it means ruff is also silent about every *other*
   unannotated parameter, including two in `core/`. mypy caught both. Before
   turning a rule off in one tool, check what the other one still sees.
+- **Anything that can happen at frame rate is throttled *before* it reaches the
+  log, and its running total is kept outside the throttle.** `log.due()` is the
+  gate; the caller keeps counting either way. `_log_xruns` only advances its
+  mirror when a line is actually written, so the report covers every late block
+  since the last one rather than the few that happened to land in a window — a
+  rate limit that also discards is a rate limit that lies about the rate.
+- **A log is not a print, and this project still has no `print()` in shipped
+  code.** The hole Batch 13 filled was that nothing was *recorded*, not that
+  nothing was displayed. `tools/` prints because printing is the point there.
+- **Check the runtime, not just the file.** The conventions already say the
+  audit is one sitting's findings rather than a spec. Batch 13 extends that:
+  its central claim was about how PySide6 behaves, it was wrong, and thirty
+  seconds of a throwaway script in `scratchpad/` settled it. A claim about a
+  dependency's behaviour is a claim to run, not a claim to read.
 - **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
   `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
@@ -1105,7 +1135,7 @@ lives.
 | ~~No `pyproject.toml`, no pytest config, no lint/type/format config of any kind — the discipline is there, nothing pins it~~ *(done, Batch 12 — format config deliberately declined)* | 12 |
 | ~~Dependency ranges float with no upper bound, over dtype-sensitive DSP~~ *(done, Batch 12)* | 12 |
 | ~~No CI~~ *(written, Batch 12 — but never run; no remote until Batch 15)* | 12 |
-| No logging and no top-level exception handler: under `pythonw.exe` a slot exception is a silent process death and a failed settings write is invisible | 13 |
+| ~~No logging and no top-level exception handler: under `pythonw.exe` a slot exception is a silent process death and a failed settings write is invisible~~ *(done, Batch 13 — and it is not a process death; see there)* | 13 |
 | `theme._accent_text_mix` — a derived global cache with two writers and no invalidation guard | 14 |
 | The Settings rows are a hand-maintained parallel array | 14 |
 | `read_art` called straight from the widget layer — the one real leak past the controller seam | 14 |
@@ -1393,17 +1423,17 @@ driving it from PowerShell, not a defect — the exe *was* closed this way in Ba
 11, and the harness exercises the real `shutdown()` — but it means the exit path
 was not re-verified here. Nothing in this batch touches it.
 
-### Batch 13 — Diagnosability: logging and the crash path
+### Batch 13 — Diagnosability: logging and the crash path ✅
 
 Four things happen today and leave no trace anywhere. For a `pythonw.exe` build
 with no console, that means a user who hits any of them has nothing to send you.
 
-- [ ] A rotating, size-capped log next to `settings.json`
-- [ ] `sys.excepthook` + `try/finally` around `app.exec()`
-- [ ] A crash dialog naming the log file
-- [ ] Log the four invisible events
-- [ ] A failed settings write reaches the status line
-- [ ] Tests for the log path
+- [x] A rotating, size-capped log next to `settings.json`
+- [x] `sys.excepthook` + `try/finally` around `app.exec()`
+- [x] A crash dialog naming the log file
+- [x] Log the four invisible events
+- [x] A failed settings write reaches the status line
+- [x] Tests for the log path
 
 The log goes next to `settings.json` via the existing `config_dir()` — one
 place the app already owns, already created, already documented as redirected
@@ -1431,6 +1461,79 @@ forgetting your music folder for no reason, which is exactly the symptom the
 in shipped code at all — only in `tools/`, where printing is the point. That
 discipline is right and stays; the hole is that nothing is *recorded*, not that
 nothing is displayed.
+
+---
+
+**The batch's own premise was wrong, and finding that out took thirty seconds.**
+The audit said an unhandled exception in a slot terminates the process, which is
+what made the `try/finally` "the highest-value line in the batch". Three
+throwaway scripts in the scratchpad say otherwise for PySide6 6.11: a timer slot
+that raises, and a `paintEvent` that raises, both go to `sys.excepthook` and the
+app **carries straight on** — the paint one raising again on every single frame
+after that.
+
+That is worse, and it moves the batch's centre of gravity. If the process died
+you would at least know. Instead: nothing stops, nothing is written, the traceback
+goes to a `sys.stderr` that is `None` under `pythonw.exe`, and the app keeps
+running in whatever state the half-finished slot left it. So the excepthook *is*
+the batch, and two things follow from "carries on" that would not have been
+written otherwise — the dialog is **one-shot per launch**, and `record_exception`
+throttles the file by `(type, file, line)`, because a hundred copies of one
+traceback would rotate everything else out of a 256 KB file in about a second.
+Both are decisions-log rows.
+
+**The `try/finally` stayed, and justified itself immediately.** Not for the
+reason it was written: the first real run of the app after this batch went in
+crashed in the *scratchpad runner driving it*, outside any slot — and the log
+shows `shutting down`, then `exiting`, then the traceback. Settings flushed, the
+stream closed, and a report written, from a bug in a file that is not even part
+of the project. That is the whole batch working, by accident, before anyone
+tried to test it.
+
+**Four events, four different reasons they were invisible.** `engine.xruns` was
+incremented by the audio thread and read by nobody. `settings.save()` has
+returned a bool since Batch 1 and no caller has ever looked at it. Device loss
+and reconnect were deliberately quiet on screen — correctly, "an app that
+narrates its retries is noisier than one that simply starts working again" — and
+being quiet on screen had silently meant being quiet everywhere. And
+`refresh_devices` swallowed its exception whole; it still catches `Exception`,
+because narrowing it is Batch 14's line, but it no longer swallows it silently.
+
+**The failed settings write is the one the user sees**, and it is the one worth
+getting right: it reaches the status line as a short sentence (`Could not save
+settings` — rendered at 720 px and 980 px and looked at, because the status line
+is drawn in the small font at the right edge), and only on the *edge*. The next
+write 800 ms into a volume drag will fail for the same reason, and `failed` also
+blips; a notice that re-announces itself once a second is an alarm. The log gets
+every attempt, with the path.
+
+Also landed: `tools/render.py --status`, because looking at the new sentence
+needed exactly the flag the conventions say to add rather than another script;
+`log.due(key, gap_s)`, whose clock is injectable for the same reason
+`Sounds.clock` and `StreamWatch.clock` are; and three lines of context the log
+needs to be readable at all — the version at startup, the device and its latency
+when the stream opens, and the xrun total on the way out. A real launch writes
+exactly four lines and then stops.
+
+Verified: **253 tests green** (9 new, core-only as the convention requires — the
+log path, idempotent setup, a target it cannot open, the size cap, the throttle
+against a driven clock, and an exception written once and then recognised as the
+same one). `tools/shell_harness.py` **267/267**, 16 new: the failed write
+reaching the status line and blipping exactly once and not twice, the recovery
+being silent, an exception producing one log entry and one dialog however many
+times it repeats, the dialog naming the file, and the device-loss section from
+earlier in the same run turning up in the log where it should be. Rendered the
+status line at both sizes and the crash dialog itself with its real text, and
+looked at all three. Ran the app for real with a mapped window, exit 0, four
+clean lines in `%APPDATA%/XMBPlayer/xmbplayer.log` and `22.0 ms` of WASAPI in
+the second one.
+
+One thing the harness cannot do and does not pretend to: PySide6 lets an
+exception raised inside `processEvents()` propagate back out to whoever called
+*it*, so a `QTimer` probe takes the harness down instead of reaching the hook.
+Qt's half — that `exec()` routes to `sys.excepthook` — was checked directly in
+the scratchpad. What the harness checks is ours: what the hook does when it is
+handed one.
 
 ### Batch 14 — The four design defects
 
@@ -1479,7 +1582,10 @@ every 2 s and the "audio device lost" banner stays up. The failure is
 indistinguishable from the device genuinely being unplugged, which is the worst
 kind of silence and precisely the shape of bug Batch 7 wrote the reconnect path
 to avoid. Narrow it and log it — Batch 13 is what gives it somewhere to go,
-which is why it is sequenced first.
+which is why it is sequenced first. **The logging half is already done**: the
+`except` writes a warning with its traceback today, and still catches
+`Exception`. What is left here is the narrowing, which is one line and one
+argument about which exceptions are actually expected.
 
 ### Batch 15 — The download story
 
@@ -1554,8 +1660,11 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 250/251 with *that* line failing
+# predates Batch 9, and it passes on a re-run. 266/267 with *that* line failing
 # is the known one; anything else failing is yours.
+#
+# It writes its log to a temp file, not to yours -- and its crash-probe section
+# prints a real traceback to stderr on purpose. Both are meant to be there.
 
 # look at a screen instead of asserting on it -- real platform, real fonts
 venv/Scripts/python.exe tools/render.py out.png                     # Music, 3 speeds
@@ -1564,6 +1673,7 @@ venv/Scripts/python.exe tools/render.py out.png --what settings --speed 1.30
 venv/Scripts/python.exe tools/render.py out.png --theme all         # 5 palettes x 3 speeds
 venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
 venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
+venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
 
 # the Batch 6 harness -- audition the UI sounds; `m` is the one that matters
 venv/Scripts/python.exe tools/sfx_harness.py

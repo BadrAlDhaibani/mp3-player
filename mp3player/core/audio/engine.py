@@ -32,9 +32,12 @@ from typing import Any
 import numpy as np
 import sounddevice as sd
 
+from mp3player.core import log as log_mod
 from mp3player.core.audio import decode
 from mp3player.core.audio.dsp import Fader, fade_before_end, fade_frames, resample
 from mp3player.core.audio.sfx import SfxBank
+
+_log = log_mod.get("engine")
 
 # Measured in Batch 0: WASAPI at blocksize 512 is ~22 ms, against 186 ms for
 # PortAudio's default MME. Above ~50 ms a UI blip stops feeling connected to
@@ -119,12 +122,19 @@ def refresh_devices() -> None:
 
     Must be called with no stream open. Best-effort: if it fails we are no worse
     off than before, and the reopen that follows will fail with a real message.
+
+    Best-effort is not the same as unrecorded, though. Both calls are *private*
+    sounddevice API, so the day one of them is renamed this becomes an
+    `AttributeError` that stops reconnection working forever while the retry
+    timer keeps firing -- indistinguishable, from the outside, from the device
+    genuinely still being unplugged. Narrowing the `except` is Batch 14's; giving
+    it somewhere to be seen is this one's.
     """
     try:
         sd._terminate()
         sd._initialize()
     except Exception:
-        pass
+        _log.warning("could not re-enumerate audio devices", exc_info=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -565,6 +575,10 @@ class AudioEngine:
             raise AudioDeviceError(f"could not open {self.device}: {exc}") from exc
         self._stream = stream
         self._watch.reset(self.blocks)
+        # Which device, at what rate, with what latency -- the first three
+        # questions anyone asks about a machine that sounds wrong, and the ones
+        # no screenshot can answer.
+        _log.info("stream open: %s, %.1f ms", self.device, self.latency_ms)
 
     def close(self) -> None:
         stream, self._stream = self._stream, None

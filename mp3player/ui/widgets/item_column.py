@@ -258,7 +258,7 @@ class ItemColumn(QWidget):
         for ring in range(theme.GLOW_RINGS - 1, -1, -1):
             spread = (ring + 1) * theme.GLOW_STEP
             fade = (1.0 - ring / theme.GLOW_RINGS) ** theme.GLOW_FALLOFF
-            color = theme.faded(theme.ACCENT, theme.GLOW_ALPHA / 255 * fade * settled)
+            color = theme.faded(theme.accent(), theme.GLOW_ALPHA / 255 * fade * settled)
             # A hair wider than the step, so consecutive rings meet instead of
             # leaving a dark gap between them.
             painter.setPen(QPen(color, theme.GLOW_STEP + 1))
@@ -267,7 +267,7 @@ class ItemColumn(QWidget):
             )
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.faded(theme.ACCENT_SOFT, 0.55 + 0.45 * settled))
+        painter.setBrush(theme.faded(theme.accent_soft(), 0.55 + 0.45 * settled))
         painter.drawRoundedRect(plate, 4, 4)
         painter.setBrush(Qt.NoBrush)
 
@@ -307,7 +307,7 @@ class ItemColumn(QWidget):
 
         if value:
             painter.setPen(
-                theme.mix(theme.faded(theme.TEXT_FAINT, alpha), theme.ACCENT, focus)
+                theme.mix(theme.faded(theme.TEXT_FAINT, alpha), theme.accent_text(), focus)
             )
             # Inset so the readout doesn't sit flush against the selection
             # plate's rounded edge.
@@ -319,7 +319,7 @@ class ItemColumn(QWidget):
 
         if item.marker:
             painter.setFont(theme.font(11, family=theme.GLYPH_FAMILY))
-            painter.setPen(theme.faded(theme.ACCENT, max(alpha, 0.55)))
+            painter.setPen(theme.faded(theme.accent_text(), max(alpha, 0.55)))
             painter.drawText(
                 QRectF(
                     theme.ITEM_X - theme.ITEM_MARKER_GAP,

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import Property, QPoint, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QFontMetrics, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from mp3player.ui import theme
@@ -292,7 +292,7 @@ class NowPlayingPage(QWidget):
             # Too narrow to aim at -- show the number alone rather than a
             # slider nobody could hit.
             painter.setFont(theme.font(theme.ITEM_TEXT))
-            painter.setPen(theme.ACCENT)
+            painter.setPen(theme.accent_text())
             painter.drawText(box, Qt.AlignLeft | Qt.AlignVCenter, self._state.speed_text)
             return
 
@@ -324,12 +324,13 @@ class NowPlayingPage(QWidget):
             track.left(), y - theme.SLIDER_TRACK_H // 2, track.width(), theme.SLIDER_TRACK_H
         )
 
-        # Same colours as the transport stylesheet: there are two sliders in
-        # this app and they should look like one control.
+        # The same colours the transport stylesheet uses, and now literally the
+        # same constants: there are two sliders in this app and they should look
+        # like one control, including while the accent is travelling.
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 34))
+        painter.setBrush(theme.GROOVE)
         painter.drawRoundedRect(groove, 2, 2)
-        painter.setBrush(theme.ACCENT)
+        painter.setBrush(theme.accent())
         painter.drawRoundedRect(
             QRect(groove.left(), groove.top(), handle_x - groove.left(), groove.height()),
             2,
@@ -341,7 +342,7 @@ class NowPlayingPage(QWidget):
         painter.setBrush(Qt.NoBrush)
 
         painter.setFont(theme.font(theme.ITEM_TEXT))
-        painter.setPen(theme.ACCENT)
+        painter.setPen(theme.accent_text())
         painter.drawText(
             box.adjusted(0, 0, -12, 0), Qt.AlignRight | Qt.AlignVCenter, self._state.speed_text
         )

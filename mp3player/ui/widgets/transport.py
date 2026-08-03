@@ -57,6 +57,18 @@ class TransportBar(QWidget):
         self._build()
         self._connect()
 
+    def refresh_accent(self) -> None:
+        """Re-apply the stylesheet so the seek fill follows the speed slider.
+
+        This bar is the only part of the app coloured by stylesheet rather than
+        by a paintEvent, so it is the only part that doesn't pick a new accent
+        up on its own. Called from `MainWindow._on_speed`, and only when
+        `theme.set_accent_fraction` says the colour actually moved -- re-applying
+        a stylesheet re-polishes the whole widget tree, and a drag would
+        otherwise do that on every mouse-move.
+        """
+        self.setStyleSheet(theme.transport_qss())
+
     # -- construction ------------------------------------------------------
 
     def _build(self) -> None:

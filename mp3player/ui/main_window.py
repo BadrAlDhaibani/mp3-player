@@ -317,7 +317,15 @@ class MainWindow(ChromeWindow):
         self.set_body(body)
 
         self.stage.bar.set_categories(CATEGORIES)
+        # Both seeded from DEFAULT_SPEED, not from the saved one -- the real
+        # value arrives moments later on `controller.start()`, through
+        # `_on_speed`, which is what actually colours a launch. This exists
+        # because the accent is module state and a second window in the same
+        # process (the harness, the render tools) would otherwise inherit the
+        # last one's colour in a stylesheet built before anything set it.
         self.stage.wave.set_fraction(_speed_fraction(self._speed))
+        if theme.set_accent_fraction(_speed_fraction(self._speed)):
+            self.transport.refresh_accent()
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _connect(self) -> None:
@@ -448,14 +456,24 @@ class MainWindow(ChromeWindow):
 
     def _on_speed(self, speed: float) -> None:
         self._speed = speed
-        # The wave's hue is the speed: deep blue at daycore, violet at
-        # nightcore. It's the only part of the app that says what the effect is
-        # doing while you're looking at some other category.
-        self.stage.wave.set_fraction(_speed_fraction(speed))
-        # Nothing to push at the transport bar any more -- the slider that shows
-        # this lives in the Now Playing column, which `_refresh_column` repaints
-        # along with the subtitle that names it.
+        fraction = _speed_fraction(speed)
+        # The hue is the speed: deep blue at daycore, violet at nightcore. The
+        # wave has always said so; now the accent says it too, so the selection
+        # plate, the glow, both slider fills and every readout travel with the
+        # ribbons instead of sitting icy blue on top of a magenta background.
+        self.stage.wave.set_fraction(fraction)
+        restyle = theme.set_accent_fraction(fraction)
+        # Everything that paints itself picks the new accent up on its next
+        # repaint; the transport bar's colours live in a stylesheet and have to
+        # be told. `restyle` is what keeps that off the per-pixel drag path.
+        if restyle:
+            self.transport.refresh_accent()
         self._refresh_column()
+        # `_refresh_column` only touches whichever of the page and the column is
+        # showing, and the column's accent now depends on the speed rather than
+        # only on its contents. Cheap insurance: an update on a hidden widget
+        # costs nothing.
+        self.stage.column.update()
 
     def _on_slider_dragged(self, fraction: float) -> None:
         span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED

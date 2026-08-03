@@ -373,6 +373,92 @@ def main() -> int:
         f"night={night} day={day} normal={normal}",
     )
 
+    print("\n-- the accent tracks the speed")
+    # The whole batch in one line: whatever the ribbons are, the accent is. Note
+    # these compare the *live* accent against the wave's own fraction, so they
+    # fail if the plumbing in `_on_speed` stops running as much as if the ramp
+    # itself changed.
+    for name, speed in (
+        ("daycore", settings_mod.DAYCORE_SPEED),
+        ("1.00x", 1.0),
+        ("nightcore", settings_mod.NIGHTCORE_SPEED),
+    ):
+        controller.set_speed(speed)
+        app.processEvents()
+        check(
+            f"the accent is the wave's colour at {name}",
+            theme.accent().getRgb() == theme.wave_color(wave._fraction).getRgb(),
+            f"{theme.accent().getRgb()[:3]} vs {theme.wave_color(wave._fraction).getRgb()[:3]}",
+        )
+    controller.set_speed(1.0)
+    app.processEvents()
+    check(
+        "...and at 1.00x that colour is ACCENT",
+        max(
+            abs(theme.accent().red() - theme.ACCENT.red()),
+            abs(theme.accent().green() - theme.ACCENT.green()),
+            abs(theme.accent().blue() - theme.ACCENT.blue()),
+        )
+        <= 2,
+        f"{theme.accent().getRgb()[:3]} vs {theme.ACCENT.getRgb()[:3]}",
+    )
+    check(
+        "the plate's fill is the same colour at ACCENT_SOFT's opacity",
+        theme.accent_soft().hue() == theme.accent().hue()
+        and theme.accent_soft().alpha() == theme.ACCENT_SOFT.alpha(),
+        f"alpha={theme.accent_soft().alpha()}",
+    )
+    # The transport bar is the one thing coloured by stylesheet rather than by a
+    # paintEvent, so "did it follow?" is a different question there than
+    # everywhere else, and it is the half most likely to be forgotten.
+    controller.set_speed(settings_mod.NIGHTCORE_SPEED)
+    app.processEvents()
+    check(
+        "the transport bar's stylesheet followed to nightcore",
+        theme.rgba(theme.accent()) in transport.styleSheet(),
+        theme.rgba(theme.accent()),
+    )
+    check(
+        "...and no longer carries the 1.00x accent",
+        theme.rgba(theme.ACCENT) not in transport.styleSheet(),
+    )
+    # The gate that keeps a per-pixel drag off the restyle path.
+    theme.set_accent_fraction(0.5)
+    check("a nudge inside a bucket asks for no restyle", not theme.set_accent_fraction(0.502))
+    check("...and crossing one does", theme.set_accent_fraction(0.9))
+    controller.set_speed(1.0)
+    app.processEvents()
+    check("the accent came back to 1.00x", abs(theme.accent_fraction() - 0.4) < 1e-6)
+
+    # The accent as *text*. Fills can be as saturated as they like; a pen can't,
+    # because HSV value isn't lightness and the daycore blue came out dimmer
+    # than TEXT_FAINT -- which rendered as a selected row whose readout was
+    # fainter than the unselected ones around it. Contrast is arithmetic on
+    # theme constants, so unlike the question of whether it *reads*, this half
+    # belongs in an assertion.
+    check(
+        "at 1.00x the text accent is the accent, untouched",
+        theme.accent_text().getRgb() == theme.accent().getRgb(),
+    )
+    for name, fraction in (("daycore", 0.0), ("1.00x", 0.4), ("nightcore", 1.0)):
+        theme.set_accent_fraction(fraction)
+        contrast = theme._contrast(theme.accent_text(), theme.BG_MID)
+        check(
+            f"the text accent stays readable at {name}",
+            contrast >= theme._TEXT_CONTRAST_FLOOR,
+            f"{contrast:.1f}:1",
+        )
+    theme.set_accent_fraction(0.0)
+    check(
+        "...and a focused readout is never fainter than an unfocused one",
+        theme._contrast(theme.accent_text(), theme.BG_MID)
+        > theme._contrast(theme.TEXT_FAINT, theme.BG_MID),
+        f"{theme._contrast(theme.accent_text(), theme.BG_MID):.1f}:1 vs "
+        f"{theme._contrast(theme.TEXT_FAINT, theme.BG_MID):.1f}:1",
+    )
+    controller.set_speed(1.0)
+    app.processEvents()
+
     print("\n-- activation")
     press(window, Qt.Key_Home)
     press(window, Qt.Key_Return)

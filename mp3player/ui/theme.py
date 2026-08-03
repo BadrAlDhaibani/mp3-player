@@ -24,12 +24,18 @@ TEXT = QColor(255, 255, 255)
 TEXT_DIM = QColor(178, 196, 224)
 TEXT_FAINT = QColor(120, 140, 172)
 
+# The accent at 1.00x. Nothing paints with these any more -- `accent()` and
+# `accent_soft()` further down are what the widgets call, because the accent
+# now travels with the speed slider. These stay as the *anchor*: the wave's hue
+# knots were fitted so the ramp passes exactly through them at 1.00x, and that
+# invariant is only checkable against a value that holds still.
 ACCENT = QColor(126, 200, 255)
 ACCENT_SOFT = QColor(126, 200, 255, 70)
 
 LINE = QColor(255, 255, 255, 28)  # the crossbar rule
 PANEL = QColor(255, 255, 255, 18)  # art placeholder, chrome hover
 PANEL_EDGE = QColor(255, 255, 255, 46)
+GROOVE = QColor(255, 255, 255, 34)  # the unfilled part of any slider track
 
 WARN = QColor(255, 178, 120)
 
@@ -318,6 +324,116 @@ def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> 
     return color
 
 
+# -- the live accent -------------------------------------------------------
+#
+# The accent rides the same ramp as the wave, so the selection plate, the glow,
+# both slider fills and every readout turn violet along with the ribbons behind
+# them. At 1.00x this is ACCENT and the app looks exactly as it always did;
+# only the effect pulls it away.
+#
+# This is module state, which is worth being deliberate about: it works because
+# no widget captures a colour at construction -- every paintEvent reads from
+# this module afresh, so one assignment reaches everything that paints. The one
+# exception is the transport bar, whose colours come from a stylesheet applied
+# once (see `transport_qss` below), and that is what `set_accent_fraction`
+# returns a bool for.
+
+_accent_fraction = 0.4  # 1.00x, where ACCENT lives
+_QSS_STEPS = 48  # buckets across the range; ~2 degrees of hue each
+_accent_bucket = int(_accent_fraction * _QSS_STEPS)
+
+
+def set_accent_fraction(fraction: float) -> bool:
+    """Move the accent along the speed ramp. True if the stylesheet needs redoing.
+
+    Painted widgets get the exact colour and repaint anyway. The stylesheet is
+    the expensive one -- a drag emits on every mouse-move and re-applying a
+    stylesheet re-polishes the whole widget tree -- so it is told only when the
+    colour has moved a bucket, which is a step too small to see in a 4px fill.
+    """
+    global _accent_fraction, _accent_bucket, _accent_text_mix
+
+    _accent_fraction = max(0.0, min(1.0, float(fraction)))
+    # Computed here rather than per paint: it changes exactly when the accent
+    # does, and this is the one function that moves it.
+    _accent_text_mix = _text_mix()
+    bucket = int(_accent_fraction * _QSS_STEPS)
+    if bucket == _accent_bucket:
+        return False
+    _accent_bucket = bucket
+    return True
+
+
+def accent_fraction() -> float:
+    """Where the accent currently sits. For the harness, and for symmetry."""
+    return _accent_fraction
+
+
+def accent(alpha: int = 255) -> QColor:
+    """The accent right now. At 1.00x this is ACCENT to within a rounding step."""
+    return wave_color(_accent_fraction, alpha=alpha)
+
+
+def accent_soft() -> QColor:
+    """The selection plate's fill: the accent at ACCENT_SOFT's opacity.
+
+    Derived rather than a second literal -- the two used to be independent
+    QColors carrying the same RGB, which is a desync waiting for a palette edit.
+    """
+    return accent(ACCENT_SOFT.alpha())
+
+
+# -- the accent, as text ---------------------------------------------------
+#
+# HSV value is not lightness. Every colour off the ramp has V=1.0, but a
+# saturated blue at V=1.0 is far darker to the eye than a cyan at V=1.0 -- so
+# the daycore end came out at 4.9:1 against the background, *below* TEXT_FAINT's
+# 5.5:1. Rendered, that inverted the row: the selected track's artist was
+# fainter than the unselected ones above and below it, which is the opposite of
+# what focus is supposed to do. Fills were fine at every speed; it is only text.
+#
+# So text mixes toward white -- but only as far as it has to. A flat mix would
+# lift 1.00x too, and "at 1.00x the app looks exactly as it always did" is the
+# invariant the whole ramp is hung on. At 1.00x the accent already clears the
+# floor, the mix comes out zero, and nothing moves.
+
+_TEXT_CONTRAST_FLOOR = 7.0  # comfortably above TEXT_FAINT, below ACCENT's 10.4
+
+
+def _luminance(color: QColor) -> float:
+    def channel(value: int) -> float:
+        v = value / 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * channel(color.red())
+        + 0.7152 * channel(color.green())
+        + 0.0722 * channel(color.blue())
+    )
+
+
+def _contrast(first: QColor, second: QColor) -> float:
+    high, low = sorted((_luminance(first), _luminance(second)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def _text_mix() -> float:
+    """How far toward white this hue has to go to stay readable. 0 at 1.00x."""
+    base = accent()
+    amount = 0.0
+    while amount < 1.0 and _contrast(mix(base, TEXT, amount), BG_MID) < _TEXT_CONTRAST_FLOOR:
+        amount += 0.05
+    return amount
+
+
+_accent_text_mix = _text_mix()
+
+
+def accent_text() -> QColor:
+    """The accent for anything drawn with a pen: readouts, the marker, glyphs."""
+    return mix(accent(), TEXT, _accent_text_mix) if _accent_text_mix else accent()
+
+
 # -- stylesheet ------------------------------------------------------------
 #
 # Only the transport bar is stock Qt widgets; everything else is painted. These
@@ -330,6 +446,13 @@ def rgba(color: QColor) -> str:
 
 
 def transport_qss() -> str:
+    """The bottom bar's colours. Rebuilt whenever the accent moves a bucket.
+
+    Everything else in the app paints itself and so picks the accent up on its
+    next repaint for free. These are stock Qt widgets, so their colour is baked
+    into a stylesheet at `setStyleSheet` time and someone has to re-apply it --
+    `TransportBar.refresh_accent`.
+    """
     return f"""
     QLabel {{ color: {rgba(TEXT_DIM)}; background: transparent; }}
 
@@ -339,12 +462,12 @@ def transport_qss() -> str:
     QSlider::groove:horizontal {{ height: 4px; background: transparent; }}
     QSlider::add-page:horizontal {{
         height: 4px;
-        background: {rgba(QColor(255, 255, 255, 34))};
+        background: {rgba(GROOVE)};
         border-radius: 2px;
     }}
     QSlider::sub-page:horizontal {{
         height: 4px;
-        background: {rgba(ACCENT)};
+        background: {rgba(accent())};
         border-radius: 2px;
     }}
     /* The handle's height is the groove's plus its own margins: 4 + 2*4 = 12,
@@ -355,11 +478,11 @@ def transport_qss() -> str:
         border-radius: 6px;
         background: {rgba(TEXT)};
     }}
-    QSlider::handle:horizontal:hover {{ background: {rgba(ACCENT)}; }}
+    QSlider::handle:horizontal:hover {{ background: {rgba(accent())}; }}
     /* Subcontrol first, pseudo-state second. Get that order wrong and Qt drops
        the malformed rule *and everything after it* -- silently. */
     QSlider::sub-page:horizontal:disabled {{
-        background: {rgba(QColor(255, 255, 255, 34))};
+        background: {rgba(GROOVE)};
     }}
     QSlider::handle:horizontal:disabled {{ background: {rgba(TEXT_FAINT)}; }}
 
@@ -370,5 +493,5 @@ def transport_qss() -> str:
         padding: 0;
     }}
     QPushButton:hover {{ color: {rgba(TEXT)}; }}
-    QPushButton:pressed {{ color: {rgba(ACCENT)}; }}
+    QPushButton:pressed {{ color: {rgba(accent_text())}; }}
     """

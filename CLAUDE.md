@@ -15,32 +15,76 @@ If a box below isn't ticked, it isn't done.
 > Batch 5 (motion & atmosphere) ·
 > Batch 6 (sound & feel — **all but the ear pass**) ·
 > Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run) ·
-> Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks)
+> Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks) ·
+> Batch 9 (the accent tracks the speed — 231 tests, 193 harness checks)
 >
-> **v1 is shipped and Batch 8 landed on top of it.** Everything on the roadmap
-> is ticked except one box that can't be ticked from this side of the screen:
-> *"tune the synthesized sounds by ear"*. Shipping without it was decided with
-> the user — the instrument exists and the numbers are unverified, not wrong.
-> Run `tools/sfx_harness.py`, listen — especially `m` (a held arrow key) and
-> `p` (blips over music) — and say what to change. It's `_PEAKS` in
-> `core/audio/sfx.py` for the mix and `_MIN_GAP_MS` in `ui/sounds.py` for how
-> often; neither needs a code change to try.
+> **v1 is shipped; Batches 8 and 9 landed on top of it.** Every roadmap box is
+> ticked except the ones listed under *Open, and waiting on a human* below.
 >
-> **Next** is whatever comes off the post-v1 list in the v1 scope section — a
-> visualizer, shuffle/repeat, export, subfolders, multiple folders. None of it
-> is started. Confirm with the user before beginning any of it.
+> ### Open, and waiting on a human
 >
-> Before writing any of it, read the note in the conventions about
-> `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
-> Batch 4 was found by rendering a PNG and looking at it; none by an assertion —
-> in Batch 5 the glow took two goes to stop looking like a border, in Batch 6
-> the easing durations were halved on the evidence of a filmstrip after feel had
-> called them fine twice, and in Batch 7 the "folder is gone" line passed every
-> assertion while running off the right edge mid-word at 720 px.
+> Neither of these is a bug or a missing feature. Both are judgements that can
+> only be made by someone looking at or listening to the running app, so they
+> cannot be closed from inside a session. **Raise them; don't silently sit on
+> them, and don't treat them as blocking.**
 >
-> Starting a fresh session? Read the decisions log and conventions below before
-> writing anything — they're the accumulated agreements, not suggestions.
-> Then confirm the batch with the user before starting it.
+> 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
+>    unticked roadmap box. Shipping without it was decided with the user — the
+>    numbers are unverified, not known wrong. Run `tools/sfx_harness.py` and
+>    listen, especially `m` (a held arrow key) and `p` (blips over music). The
+>    levers are `_PEAKS` in `core/audio/sfx.py` for the mix and `_MIN_GAP_MS` in
+>    `ui/sounds.py` for how often. Neither needs a code change to try.
+> 2. **Does the accent's travel feel right while dragging?** *(open since Batch
+>    9)*. The colour ramp was verified as three stills via `tools/render.py` and
+>    measured for contrast, but nobody has held ↑ on Now Playing and watched it
+>    move. If it feels like it lags or jumps, the lever is `_QSS_STEPS` in
+>    `ui/theme.py` (how finely the transport bar's stylesheet follows — 48 now,
+>    higher is smoother and costs 2 ms a step). The painted half is already
+>    continuous and has no step to tune.
+>
+> ### State of the build
+>
+> **The `.exe` has not been rebuilt since Batch 8.** Batch 9 is UI-only and adds
+> no dependency and no bundled asset, so `dist/` is one batch behind on purpose
+> rather than by accident. Rebuild (`tools/build_exe.py`) before distributing
+> anything; it is not needed for development, which runs live source.
+>
+> ### Known flake — don't debug it
+>
+> `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
+> five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
+> position read, it predates Batch 9, and it passes on a re-run. **192/193 with
+> that one line failing is the known state. Anything else failing is yours.**
+>
+> ### Next
+>
+> Whatever comes off the post-v1 list in the v1 scope section — shuffle/repeat,
+> export, subfolders, multiple folders. **None of it is started.** A spectrum
+> visualizer was offered and **declined** in Batch 9 (the accent ramp was wanted
+> instead), so don't re-offer it as though it were untouched.
+> **Confirm the batch with the user before starting it** — one batch at a time,
+> no building ahead.
+>
+> ### Before writing any of it
+>
+> Read the note in the conventions about `tools/shell_harness.py` running
+> offscreen with no font database. **The split that keeps being true: assertions
+> catch *position*, renders catch *width, colour and motion*.** The harness
+> genuinely found Batch 4's column overlapping the category icons and Batch 8's
+> third info line colliding with the slider — both arithmetic on `theme.py`
+> constants. It was blind to every one of these: Batch 5's glow reading as a
+> border (twice), Batch 6's easing being double what anyone could see, Batch 7's
+> "folder is gone" line running off the right edge mid-word at 720 px, Batch 8's
+> long artist drawing straight through its own title, and Batch 9's daycore
+> readout coming out fainter than the unselected rows around it — that last one
+> with all 178 checks green.
+>
+> So: if the question is "does this box clear that box", write the assertion. If
+> it is "does this read", **`tools/render.py` is how you look** — give it a flag
+> rather than writing another one.
+>
+> Then read the decisions log and the conventions below before writing anything.
+> They are the accumulated agreements, not suggestions.
 
 ---
 
@@ -53,7 +97,8 @@ speed slider running Daycore → Nightcore · XMB look · synthesized UI sounds.
 two presets became the ends of the slider itself. See the decisions log.)
 
 **Deliberately out of v1** — good ideas, parked until v1 actually ships:
-~~ID3 tags & album art~~ (landed in Batch 8) · spectrum visualizer ·
+~~ID3 tags & album art~~ (landed in Batch 8) ·
+~~spectrum visualizer~~ (offered and declined in Batch 9) ·
 shuffle/repeat/queue · export to file · subfolder recursion ·
 multiple library folders.
 
@@ -137,6 +182,10 @@ here and write down why.
 | **`core` hands up image *bytes*; `ui` makes pixels** | Same seam as `MISSING`/`UNREADABLE` versus `empty_reason`. `core/tags.read_art` returns whatever sat in the APIC frame and has no opinion about whether it decodes — it has no image library and isn't allowed one. `ui/main_window._cover_image` is the other half, and a frame Qt can't decode becomes `None`, i.e. the note glyph, because that beats a black square. |
 | **The artist is the Music row's right-aligned readout** | `Item` already had `label`/`value` for Settings rows, so this cost no widget change — and one consequence was worth taking rather than avoiding: a row with a value gets the full-width selection plate, so the Music list now wears the same plate Settings does. Rendered at 1600 before believing it; it reads as a proper XMB cursor, not the banner the code comment warns about. |
 | **A readout gets at most 45% of its row, elided** | Settings values are short words and never came close. An artist tag has no length at all, and `_paint_item` measured the label against an *unelided* value: at 720 px "Boards of Canada featuring Somebody Else Entirely" claimed the whole row, left the title a 40 px stub, and then drew itself right-aligned straight over it. The value is elided first, then the label gets what's left. The label always keeps the majority. |
+| **The accent tracks the speed, exactly like the wave** | Chosen with the user in Batch 9. The ribbons had hue-shifted since Batch 5 and nothing else did, so at nightcore the background was magenta and the selection plate, both slider fills and every readout were still icy blue — the atmosphere read out the effect and the interface on top of it contradicted the atmosphere. Scope was settled as **accent only**: the navy gradient and the white/grey text hold still, so the frame stays put and the shift reads as deliberate rather than as the app changing skin. |
+| **`ACCENT` stops being painted with and becomes the anchor** | The constant stays exactly as it was and nothing reads it any more; `accent()` is what widgets call. Keeping a fixed 1.00x reference is what makes the invariant *checkable* — the wave's hue knots were fitted so the ramp passes through `ACCENT` at 1.00x, and a constant that moved would turn the harness check guarding that into a tautology. Also why the calls are functions rather than a mutated `theme.ACCENT`: `theme.accent()` says out loud that the value is live, where a constant-looking name would quietly become a lie. |
+| **Fills take the ramp straight; text is lightened to a contrast floor** | **HSV value is not lightness.** Every colour off the ramp has `V=1.0`, but a saturated blue at `V=1.0` is far darker to the eye than a cyan at `V=1.0` — so the daycore accent measured **4.9:1 against the background, below `TEXT_FAINT`'s 5.5:1**. Rendered, that inverted the row: the *selected* track's artist was fainter than the unselected ones around it, which is the opposite of what focus means. Fills were fine at every speed. So `accent_text()` mixes toward white — and only as far as it has to, targeting 7:1: daycore 4.9→7.1, nightcore 6.2→7.0, and **1.00x needs zero mix and is byte-identical to before**, which is the invariant the whole ramp hangs on. A flat mix would have lifted 1.00x too. |
+| **Only the transport bar has to be *told* the accent moved** | Everything else paints itself and picks the new colour up on its next repaint, because no widget captures a colour at construction. The bottom bar is stock Qt widgets coloured by stylesheet, so `TransportBar.refresh_accent()` re-applies it — gated on a 48-bucket quantisation of the fraction, because a drag emits on every mouse-move and re-applying a stylesheet re-polishes the whole widget tree. **Measured: 2.0 ms per drag step, about 30% of the drag path's total cost** — the gate stays. A bucket is ~2° of hue, invisible in a 4 px fill. |
 | **The Now Playing info block is three fixed slots, not a flowing list** | Artist · Album, then the length, then where you are. Most of this library is untagged, so a block that closed up when there was no credit would jump on nearly every track change — and things staying put is most of what makes an XMB feel like one. An empty first line is drawn as nothing and keeps its space. Three lines needed the offsets tightened from 54/78 to 46/68/90: a third at the old spacing lands 1 px off the slider's box, which is not clearance. |
 
 ### Open questions
@@ -329,6 +378,20 @@ don't invent a second way to do a thing we've already solved.
 - **A field whose text comes from a file has no length.** Tags, filenames,
   folder names. Anything laid out against one needs a bound that holds at
   720 px, and the bound is a share of the row rather than a pixel count.
+- **HSV value is not lightness, and a pen has a floor a fill doesn't.**
+  A saturated blue at `V=1.0` is far darker to the eye than a cyan at the same
+  value, so any colour picked by rotating a hue will be readable at some angles
+  and not others. Fills don't care; text does. Anything drawn with a pen off a
+  hue ramp needs a contrast floor against the background, and the floor should
+  be applied *only as far as needed* — a flat correction changes the colours
+  that were already fine, which is how an invariant elsewhere gets broken.
+- **Contrast is arithmetic, so it belongs in an assertion — whether it
+  *reads* still needs a render.** Same split as the vertical offsets below.
+  The harness can prove the daycore readout is no fainter than `TEXT_FAINT`;
+  only a PNG showed that it had been, and only a PNG says whether the result
+  looks like the app or like a different app. **`tools/render.py` is the thing
+  to render with** — don't write another one, and if it can't show what you need,
+  give it a flag.
 - **Vertical positions are fixed numbers, so the offscreen harness *can*
   check those.** It cannot judge width, but "this line's box clears that
   control's box" is arithmetic on `theme.py` constants and belongs in an
@@ -701,6 +764,63 @@ frozen app. `qjpeg.dll` ships in the bundled `imageformats` plugins, which is
 what real covers need and the one packaging risk here — mutagen itself has no
 native code to leave behind.
 
+### Batch 9 — The accent tracks the speed ✅
+
+- [x] `theme.accent()` / `accent_soft()` / `accent_text()` off the wave's own ramp
+- [x] Selection plate, glow, ▶ marker, row readout, speed slider, transport sliders
+- [x] `TransportBar.refresh_accent()` — the one thing coloured by stylesheet
+- [x] Harness checks, renders at three speeds, a perf pass on the gate
+- [x] `tools/render.py` — the render step, promoted out of a scratch file
+
+The ribbons had hue-shifted with the speed since Batch 5 and nothing else did.
+At nightcore that meant a magenta background under an icy-blue interface, which
+is the atmosphere reading out the effect and the interface disagreeing with it.
+
+**Two earlier decisions made this a two-hour job instead of a rewrite.** No
+widget captures a colour at construction — every `paintEvent` reads `theme.X`
+fresh — so one module-level value reaches everything that paints. And the ramp
+already existed as `theme.wave_color(fraction)`, with knots deliberately fitted
+so 1.00x *is* `ACCENT`. The accent became the same function; seven paint sites
+changed a word each. `PlayerController` and `core/` were untouched — the
+**seventh** batch running.
+
+**The renders found the bug, again, and it was the opposite of the predicted
+one.** The risk everyone expected was magenta text at nightcore. What actually
+broke was daycore: a saturated blue at `V=1.0` measures 4.9:1 against the
+background, *below* `TEXT_FAINT`, so the selected row's artist came out fainter
+than the unselected rows above and below it — focus making a thing harder to
+read. Invisible to all 178 existing checks, obvious in one PNG. The fix
+distinguishes fills from pens and lifts only what needs lifting, so 1.00x is
+byte-identical to Batch 8 and the two ends are 7:1. Both a decisions-log row and
+two conventions.
+
+**The gate was measured rather than assumed.** The plan said to delete it if it
+turned out to be free; a 300-step drag costs 4.70 ms/step gated and 6.70
+ungated, so it stays and the number is written down.
+
+Verified: **231 tests green** (unchanged — `tests/` is core-only by convention
+and this batch is entirely `ui/`, which is a deliberate omission rather than a
+gap), `tools/shell_harness.py` **193/193** including 15 new checks — the accent
+equals the wave's colour at all three speeds, the plate derives from it, the
+transport stylesheet follows, the bucket gate fires and doesn't, and the text
+floor holds at every speed. Rendered Music (selected row with a long artist) and
+Now Playing at 0.80x / 1.00x / 1.30x, at 720x480 and 980x640, and looked at
+them. Startup verified at all three saved speeds against an independently
+computed colour — the seed in `__init__` runs at `DEFAULT_SPEED` and it is
+`controller.start()` firing `speed_changed` that actually colours a launch,
+which is worth knowing before trusting that line.
+
+**The render step became a tool.** Four batches have now said "the assertions
+passed and the picture didn't", and each one rendered its PNGs from a throwaway
+script that was then deleted. `tools/render.py` is that script kept:
+`--what now|music|settings`, `--size`, repeatable `--speed`, stacked and
+captioned. It writes no settings and plays no sound, and it is where the next
+"but does it read?" question gets answered.
+
+Not done: the `.exe` was not rebuilt (see the resume block), and nobody has sat
+and dragged the slider by hand yet — the renders are stills of three points on a
+continuous move.
+
 ---
 
 ## Running it
@@ -722,6 +842,16 @@ venv/Scripts/python.exe -m pytest
 
 # the Batch 4 harness -- drives the real widgets offscreen, no display
 venv/Scripts/python.exe tools/shell_harness.py
+
+# Known flake, not a regression: `...resuming where it left off` fails maybe one
+# run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
+# predates Batch 9, and it passes on a re-run. 192/193 with *that* line failing
+# is the known one; anything else failing is yours.
+
+# look at a screen instead of asserting on it -- real platform, real fonts
+venv/Scripts/python.exe tools/render.py out.png                     # Music, 3 speeds
+venv/Scripts/python.exe tools/render.py out.png --what now --size 720x480
+venv/Scripts/python.exe tools/render.py out.png --what settings --speed 1.30
 
 # the Batch 6 harness -- audition the UI sounds; `m` is the one that matters
 venv/Scripts/python.exe tools/sfx_harness.py

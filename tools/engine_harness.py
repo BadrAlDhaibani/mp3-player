@@ -6,7 +6,7 @@ keypress each. If it feels right here, the Qt layer in Batch 3 has nothing left
 to prove about the audio.
 
     venv/Scripts/python.exe tools/engine_harness.py                 # saved folder
-    venv/Scripts/python.exe tools/engine_harness.py "D:/Music"
+    venv/Scripts/python.exe tools/engine_harness.py "path/to/folder"
     venv/Scripts/python.exe tools/engine_harness.py "song.mp3"
 """
 

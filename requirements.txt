@@ -5,7 +5,9 @@ shiboken6==6.11.1
 numpy>=2.0
 sounddevice>=0.5
 soundfile>=0.13
-# ID3 tags and cover art. GPL-2.0 -- see the decisions log in CLAUDE.md.
+# ID3 tags and cover art. GPL-2.0-or-later, which is why this project is too --
+# see THIRD_PARTY_NOTICES.md, which ships in the release zip. CLAUDE.md's
+# decisions log has the argument; the notices file has the terms.
 mutagen>=1.47
 
 # dev

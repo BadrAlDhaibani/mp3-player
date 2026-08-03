@@ -14,6 +14,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from mp3player import __version__
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
 from mp3player.ui.controller import PlayerController
@@ -42,6 +43,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("XMB Player")
+    app.setApplicationVersion(__version__)
     app.setOrganizationName(settings_mod.APP_NAME)
 
     saved = settings_mod.load()

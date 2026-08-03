@@ -193,6 +193,20 @@ vertical edge in the waveform and that edge is the click.
 ## Dependencies
 
 PySide6, numpy, sounddevice (PortAudio), soundfile (libsndfile), and
-[mutagen](https://mutagen.readthedocs.io/) for ID3 tags. **mutagen is GPL-2.0**,
-so a build that bundles it — which the `.exe` does — carries that licence with
-it. Worth knowing before handing the zip to anyone.
+[mutagen](https://mutagen.readthedocs.io/) for ID3 tags. `requirements.txt` is
+the authority on versions.
+
+## Licence
+
+**GPL-2.0-or-later** — the full text is in [`LICENSE`](LICENSE).
+
+It is GPL because mutagen is, and `core/tags.py` links it directly. Every
+third-party component, what it is used for and how the packaged `.exe` affects
+each one is set out in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), which ships inside the zip
+along with [`licenses/`](licenses/) — the texts for the two components that do
+not carry one themselves.
+
+No Sony asset is included or derived from. The XMB look is an original
+reimplementation in Qt, and the UI sounds are synthesized in numpy at startup
+rather than shipped as files.

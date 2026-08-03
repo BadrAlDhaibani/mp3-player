@@ -7,6 +7,31 @@ browse the `.mp3` files in it, play them — and warp the audio into **nightcore
 This file is the project's memory and **the single source of truth for status**.
 If a box below isn't ticked, it isn't done.
 
+### If you have just arrived
+
+**You probably want [`README.md`](README.md), not this.** That one is for people
+who want to run the app; this one is a working notebook, and it is long because
+it is cumulative rather than because the project is complicated.
+
+It is written for whoever picks the work up next — including Claude, which is
+what the filename means. Four things live here and nowhere else:
+
+- **The decisions log** — every settled choice with the reason it was settled.
+  Rows are not re-litigated; a row that needs to change is edited *in place*
+  with the new reasoning, which is why a few of them read as strikethroughs.
+- **The conventions** — patterns that have already earned their keep. Most were
+  written the day a bug proved they were needed, and several name that bug.
+- **The roadmap** — one batch at a time, each ending in something runnable, each
+  stopping for sign-off. Ticked boxes are done and verified; unticked ones are
+  not started, whatever the surrounding prose sounds like.
+- **The measurements** — latency, frame costs, scan times, contrast ratios. If a
+  number appears here it was measured on real hardware, and the machine it was
+  measured on is named.
+
+Licensing is in [`LICENSE`](LICENSE) (GPL-2.0-or-later) and
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Nothing in this file is
+legal text, and where the two disagree the licence wins.
+
 > ## ▶ Resume here
 >
 > **Done:** Batch 0 (spike) · Batch 1 (core library & settings) ·
@@ -17,17 +42,35 @@ If a box below isn't ticked, it isn't done.
 > Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run) ·
 > Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks) ·
 > Batch 9 (the accent tracks the speed — 231 tests, 193 harness checks) ·
-> Batch 10 (preset themes — 240 tests, 251 harness checks)
+> Batch 10 (preset themes — 240 tests, 251 harness checks) ·
+> Batch 11 (licence, provenance and version — 244 tests, `.exe` rebuilt at 1.1.0)
 >
-> **v1 is shipped; Batches 8, 9 and 10 landed on top of it.** Every roadmap box
-> is ticked except the ones listed under *Open, and waiting on a human* below.
+> **v1 is shipped; Batches 8, 9, 10 and 11 landed on top of it.** Every box
+> through Batch 11 is ticked except the ones listed under *Open, and waiting on a
+> human* below.
+>
+> **The app now has a licence and a version number.** GPL-2.0-or-later
+> (`LICENSE`), the dependency picture in `THIRD_PARTY_NOTICES.md`, three
+> third-party texts in `licenses/`, and `__version__ = "1.1.0"` in
+> `mp3player/__init__.py` — which names the zip, stamps the exe's Windows version
+> resource and is what `QApplication` reports. **Bump it in that one file and
+> nowhere else.**
+>
+> **Batches 12–15 remain, and none of them is started.** They came out of an
+> audit run in one sitting (recorded in *The ship-prep audit* below, so nobody
+> re-derives it): packaging metadata and CI, somewhere for a crash to go, four
+> specific defects, and a download a stranger can actually use. **Batch 12 is
+> next.** Note that Batch 11 found one of the audit's own claims to be wrong (see
+> its writeup) — **the audit is a record of one sitting, not a verified spec.
+> Check a claim against the file before acting on it.**
 >
 > ### Open, and waiting on a human
 >
-> Neither of these is a bug or a missing feature. Both are judgements that can
+> None of these is a bug or a missing feature. All three are judgements that can
 > only be made by someone looking at or listening to the running app, so they
 > cannot be closed from inside a session. **Raise them; don't silently sit on
-> them, and don't treat them as blocking.**
+> them, and don't treat them as blocking** — in particular they do not block the
+> ship-prep batches, none of which touches a sound, a curve or a palette.
 >
 > 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
 >    unticked roadmap box. Shipping without it was decided with the user — the
@@ -54,11 +97,22 @@ If a box below isn't ticked, it isn't done.
 >
 > ### State of the build
 >
-> **The `.exe` has not been rebuilt since Batch 8.** Batches 9 and 10 are
-> UI-only and add no dependency and no bundled asset, so `dist/` is two batches
-> behind on purpose rather than by accident. Rebuild (`tools/build_exe.py`)
-> before distributing anything; it is not needed for development, which runs
-> live source.
+> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** It was rebuilt
+> because Batch 11 changed the build itself — a version resource and the first
+> bundled data files — and a build-script change that is never run is a
+> build-script change that is never checked. It carries Batches 9 and 10's
+> UI work along with it. **Batch 15 still owns the release rebuild**, because
+> Batches 12–15 change the build again (an icon, a smoke test); this one proves
+> the mechanism, not the artifact.
+>
+> Rebuilding is still not part of development, which runs live source, and
+> **still isn't something to do to catch up**: rebuild when you have changed the
+> build, or when you are cutting a release.
+>
+> Also: the `v1` git tag is **behind `HEAD`** and does not describe the current
+> code. Batches 8 through 11 all landed after it, and the version the code now
+> declares is `1.1.0`. Retagging is Batch 15's job, not something to do in
+> passing.
 >
 > ### Known flake — don't debug it
 >
@@ -69,12 +123,16 @@ If a box below isn't ticked, it isn't done.
 >
 > ### Next
 >
-> Whatever comes off the post-v1 list in the v1 scope section — shuffle/repeat,
-> export, subfolders, multiple folders. **None of it is started.** A spectrum
-> visualizer was offered and **declined** in Batch 9 (the accent ramp was wanted
-> instead), so don't re-offer it as though it were untouched.
-> **Confirm the batch with the user before starting it** — one batch at a time,
-> no building ahead.
+> **Batch 12 — project metadata and enforcement.** Then 13, 14, 15 in order:
+> they were sequenced so each one's output is available to the next, and the
+> ordering reasons are written into the batches themselves. **Confirm the batch
+> with the user before starting it** — one batch at a time, no building ahead.
+>
+> After 15 the app is shippable and the queue goes back to the post-v1 list in
+> the v1 scope section — shuffle/repeat, export, subfolders, multiple folders.
+> **None of that is started.** A spectrum visualizer was offered and **declined**
+> in Batch 9 (the accent ramp was wanted instead), so don't re-offer it as though
+> it were untouched.
 >
 > ### Before writing any of it
 >
@@ -208,6 +266,9 @@ here and write down why.
 | **The mode has three explicit exits and three that are just leaving** | A mode you can enter and not leave is worse than no mode. Enter, Esc and Backspace step out by name. Everything else that gets you out does it by *moving the cursor off the row* — ↑↓, Home, End, the wheel, a click on another row — and that is **one** connection to `index_changed`, not five branches. `index_changed` is the signal this project had deliberately never wired anything to, because it also fires when the app moves the cursor itself; that is precisely why it works here, since whoever moved the cursor, the user is no longer on that row. Ctrl and Shift arrows stay transport throughout: you may well be listening while you pick, and the mode is about one row's value, not about the whole keyboard. |
 | **The Settings rows have names now** | `ItemColumn` activates by index and has no notion of an id, so a list and an if-chain of bare integers were held together by counting. Batch 10 inserted a row in the *middle* of that list, which without names is a silent misfire rather than a rename — `Full screen` would have quit. `SET_FOLDER … SET_QUIT` in `main_window.py`, plus a harness check that the label at each index is the one its branch expects. |
 | **The Now Playing info block is three fixed slots, not a flowing list** | Artist · Album, then the length, then where you are. Most of this library is untagged, so a block that closed up when there was no credit would jump on nearly every track change — and things staying put is most of what makes an XMB feel like one. An empty first line is drawn as nothing and keeps its space. Three lines needed the offsets tightened from 54/78 to 46/68/90: a third at the old spacing lands 1 px off the slider's box, which is not clearance. |
+| **The project is GPL-2.0-or-later, and `__version__` lives in `mp3player/__init__.py`** | Chosen with the user in Batch 11. mutagen is GPL-2.0 and `core/tags.py` links it directly, so the distributed zip has been a combined work since Batch 8 — writing that down costs nothing and is the honest option. The version starts at **1.1.0**: `v1` was a git tag and nothing else, so two builds were indistinguishable by filename, by file properties and from inside the app. One owner, three consumers — the zip name, the exe's Windows version resource, and `QApplication.setApplicationVersion`. |
+| **Licence texts are checked in, never fetched at build time** | A release must not depend on gnu.org being reachable, and a licence file that is downloaded is a licence file that can silently change under you between two builds of the same version. `licenses/` holds only what does not already ship inside a dependency's own package — Qt's LGPLv3+GPLv3 and PortAudio's MIT — because duplicating libsndfile's `COPYING`, which PyInstaller already collects, creates two copies that can disagree. `licenses/README.md` exists to say which are deliberately absent. |
+| **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 ### Open questions
 
@@ -793,8 +854,9 @@ Verified: 231 tests green (29 new, core-only as the convention requires),
 `tools/shell_harness.py` 178/178 including 24 new checks. Renders at 720x480,
 980x640 and 1600x900 of the Music list with a long title *and* a long artist,
 Now Playing with a real cover, and Now Playing with nothing tagged. Ran against
-the real library — `Don Toliver - Italy.mp3` reads as **"Like It Or Leave"**,
-which is the batch justifying itself — 20 of 31 tracks tagged, cover on screen,
+the real library — a file whose *name* is one song and whose `TIT2` is a
+different one now lists under the tag, which is the batch justifying itself —
+20 of 31 tracks tagged, cover on screen,
 exit 0. Rebuilt the exe (150 MB unpacked, 60 MB zipped, 102 s) and launched it:
 it scans and lists 31 tracks, which *is* mutagen running 31 times inside the
 frozen app. `qjpeg.dll` ships in the bundled `imageformats` plugins, which is
@@ -955,6 +1017,394 @@ dependency, no new bundled asset.
 
 ---
 
+## The ship-prep audit
+
+Run in one sitting before Batches 11–15 were written, in two sweeps: one over
+the repo's distribution surface, one over the source's design health. **Recorded
+here so it is not re-derived** — the findings are what the five batches are made
+of, and a batch that re-audits before starting is spending its budget twice.
+
+Line numbers are as of `d663345` and will drift. The claims are what matter.
+
+### What holds up — don't go looking for these again
+
+- **`core/` imports no Qt.** Zero hits, and *proven* rather than asserted:
+  `core/models.py` keeps its `Tags` import under `TYPE_CHECKING`, and
+  `core/tags.py` returns raw cover bytes precisely so it never needs an image
+  library. The full import set for `core/` is stdlib plus numpy, soundfile,
+  sounddevice and mutagen.
+- **No bare `except:` anywhere.** All seven `except Exception` sites either
+  re-raise as a typed error (`DecodeError`, `AudioDeviceError`) or are
+  documented best-effort with a reason. Every "never raises" docstring claim —
+  `settings.load`, `tags.read_tags`, `tags.read_art`, `library.scan_folder` —
+  was checked and holds.
+- **The threading discipline stated in `engine.py`'s header is honoured
+  clause-for-clause.** The callback allocates nothing on the steady path, takes
+  no locks and touches no Qt; `speed`/`volume` are single-attribute assignments;
+  the seek request is a single tuple publish; end-of-track is a flag the UI
+  polls. There is one thread in the whole app and this code did not create it.
+- **Type hints are near-complete and modern.** `from __future__ import
+  annotations` everywhere, `str | None`, `frozen=True, slots=True` dataclasses.
+- **No file is oversized.** ~10k lines over 43 files, median ~180. The largest
+  shipped file is `ui/main_window.py`. The largest file in the repo is
+  `tools/shell_harness.py`, which is not shipped.
+- **`.gitignore` is correct** and nothing personal is tracked: no music, no
+  `settings.json`, no build output, no absolute paths beyond two `"D:/Music"`
+  docstring examples (Batch 11 scrubs those).
+- **Settings writes are atomic** (temp file + `os.replace`) and `engine.close()`
+  is idempotent.
+
+### What doesn't — this is the batch list
+
+Each of these is claimed by a batch below; the batch is where the reasoning
+lives.
+
+| Finding | Batch |
+|---|---|
+| No `LICENSE`, and mutagen is GPL-2.0, linked directly and bundled into the exe — the zip already carries copyleft with nothing in the repo saying so | 11 |
+| No `__version__` anywhere, so every zip is named identically and two releases are indistinguishable by filename | 11 |
+| No `pyproject.toml`, no pytest config, no lint/type/format config of any kind — the discipline is there, nothing pins it | 12 |
+| Dependency ranges float with no upper bound, over dtype-sensitive DSP | 12 |
+| No CI | 12 |
+| No logging and no top-level exception handler: under `pythonw.exe` a slot exception is a silent process death and a failed settings write is invisible | 13 |
+| `theme._accent_text_mix` — a derived global cache with two writers and no invalidation guard | 14 |
+| The Settings rows are a hand-maintained parallel array | 14 |
+| `read_art` called straight from the widget layer — the one real leak past the controller seam | 14 |
+| `refresh_devices` swallows every exception around *private* sounddevice API | 14 |
+| No icon; no automated smoke test of the built exe; nothing in the README for someone who just wants to download it | 15 |
+
+### One finding deliberately not in a batch
+
+**`ui/` has no automated tests** — 3,805 lines whose only coverage is a
+1,308-line print-and-assert script that CI cannot run. That is a real gap and it
+is *known and declined*: the scope chosen for this set was hygiene plus targeted
+fixes, not a UI test suite. Several pure functions in `main_window.py` and the
+whole `theme.py` contrast pipeline are testable today with no widget at all, so
+this is cheap whenever it is wanted. **Don't treat it as an oversight and don't
+quietly start it inside another batch.**
+
+---
+
+## Roadmap — ship prep
+
+Batches 11–15. Same working agreement as everything above: **one batch at a
+time, each ending in something runnable, tick the boxes, report, and stop for
+sign-off before starting the next.**
+
+Ordered so each is independently shippable and each one's output is available to
+the next: **legal first** (it blocks release), then **enforcement** (so
+everything after it is checked as it lands), then **diagnosability** (so the
+defect work has somewhere to report), then **the defects**, then **cut the
+release**.
+
+### Batch 11 — Licence, provenance and version ✅
+
+The legal blocker, plus a single source of truth for "which build is this".
+
+- [x] `LICENSE` — GPL-2.0-or-later, full text
+- [x] `THIRD_PARTY_NOTICES.md` — the six dependencies and their licences
+- [x] `mp3player/__init__.py` gains `__version__` (it is an empty file today)
+- [x] `tools/build_exe.py` reads it: version-stamped zip name, `--version-file`
+- [x] `--add-data` the two licence files into the bundle
+- [x] Scrub the two `"D:/Music"` examples and the personal track name; add a
+      header framing `CLAUDE.md` for outside readers
+- [x] `README.md` points at `LICENSE` instead of explaining the licence inline
+- [x] **Beyond the original list:** `licenses/` — the three third-party texts
+      that do not ship themselves, bundled too (see below)
+
+**The licence choice is settled: GPL-2.0-or-later throughout.** Chosen with the
+user. mutagen is GPL-2.0 and is linked directly by `core/tags.py`, and the
+PyInstaller bundle statically incorporates it — so the zip *is already* a
+combined work under GPL-2.0 and has been since Batch 8. The alternatives were
+MIT-source-with-a-GPL-binary (defensible, muddier, needs a NOTICE explaining the
+split) and dropping mutagen for a hand-rolled ID3 reader (~200 lines, rejected
+once already in Batch 8 — this library is YouTube rips and the failure mode is
+mojibake titles). Writing down what is true costs nothing and is the honest one.
+
+The dependency list for `THIRD_PARTY_NOTICES.md`: mutagen (GPL-2.0),
+PySide6/PySide6_Addons/PySide6_Essentials/shiboken6 (LGPLv3 — and LGPL normally
+wants either dynamic linking or relinkable objects, which a onedir PyInstaller
+bundle generally satisfies, but say so rather than leave it to chance), numpy
+(BSD-3), sounddevice (MIT), soundfile (BSD-3, bundling libsndfile under
+LGPL-2.1), pytest (MIT, dev only). **State the PyInstaller interaction in the
+file**, not in a code comment — `requirements.txt` currently defers to "the
+decisions log in CLAUDE.md", which is not where anyone unzipping a release will
+look.
+
+Note that the two licence files are the build's **first bundled data**. ~~The
+comment above `COLLECT_BINARIES` in `build_exe.py` says there are no data files
+because the UI sounds are synthesized; that stops being true here, and the
+comment needs to stop saying it.~~ *There is no such comment* — the audit
+misremembered `COLLECT_BINARIES`'s comment, which is about `soundfile` and
+`sounddevice` shipping DLLs that nothing in the bytecode points at. Nothing to
+correct. **The audit is a record of one sitting's findings, not a verified
+spec; check a claim against the file before acting on it.**
+
+**The version is `1.1.0`, and that is the first number this project has ever
+had.** `v1` was a git tag and nothing else, so the exe built in Batch 8 and the
+exe built today would have had identical filenames and identical (empty) file
+properties. 1.1.0 rather than 1.0.1 because Batches 8, 9 and 10 are features —
+tags and art, the accent ramp, five themes — and rather than 2.0 because
+nothing about the app got taken away. It is deliberately set *now*, at the start
+of the ship-prep set, so 12–15 land inside a version rather than bumping it
+again; the release Batch 15 cuts is 1.1.0.
+
+**Three places carry it and one owns it.** `mp3player/__init__.py` is the owner
+and is otherwise still empty of imports, which is not laziness — `core/` imports
+that module transitively, so anything with a dependency in it would put a crack
+in the no-Qt seam from *above*, where nobody is looking for one. `app.py` hands
+it to `QApplication.setApplicationVersion`, and `build_exe.py` imports it for
+both the zip name and a generated Windows version resource.
+
+**The version resource is generated, not checked in.** PyInstaller's
+`--version-file` takes a file containing a `VSVersionInfo(...)` literal, which
+is four 16-bit integers plus a string table; a checked-in one is a second copy
+of the version number waiting to disagree with the first. `write_version_resource`
+writes it into a **temp directory** rather than `build/`, because `--clean`
+empties the work path and this file has to survive until PyInstaller reads it.
+`version_quad` truncates a pre-release suffix (`1.2.0rc1` → `(1, 2, 0, 0)`)
+because the binary field cannot hold one, while the string fields keep the real
+value — which is the half anyone actually reads.
+
+**The licence files are added twice, on purpose.** `--add-data` puts them in the
+bundle, which under PyInstaller 6 means `_internal/` — a folder with four
+hundred DLLs in it, where nobody will ever see them. So `copy_licences` also
+drops both at the top of `dist/XMB Player/`, next to the exe. The GPL asks that
+the licence travel with the binary; one copy satisfies the letter and the other
+satisfies the point, and 36 KB in a 150 MB folder is not a trade worth thinking
+about.
+
+Also landed: `main()` deletes stale `XMB-Player-*windows.zip` files before
+building, since `1.0.0` sitting beside `1.1.0` in `dist/` is precisely the
+confusion the version stamp exists to end; and four core tests
+(`tests/test_version.py`) hold `__version__` to a shape the Windows resource can
+actually take, plus one that reads `__init__.py` back and asserts it still
+imports nothing. Neither failure mode is loud on its own — a non-numeric version
+yields `(0, 0, 0, 0)` in the file properties and ships happily.
+
+**What the notices file says that a code comment could not.** The audit's
+instruction was to state the PyInstaller interaction *in the file*, and the
+substance is that a onedir bundle is not a static link: every Qt DLL and
+libsndfile sit beside the exe as replaceable files, which is what LGPLv3 and
+LGPL-2.1 are asking for. Written out, with the licence-text locations verified
+rather than assumed — and verifying them is what turned up the one thing this
+batch found that nobody had listed.
+
+**The zip was missing two licences, and neither was ours.** Checking what a
+built zip *actually contains* rather than what the dependency table says it
+should: libsndfile's LGPL-2.1 is in there (`_internal/_soundfile_data/COPYING`)
+and so is numpy's BSD, because those packages carry their licence inside their
+own directory and PyInstaller collects it along with everything else. **Qt's and
+PortAudio's are not.** The PySide6 wheels ship only
+`LicenseRef-Qt-Commercial.txt` — the side of Qt's dual licence that is *not* in
+use here — and the PortAudio binaries inside `sounddevice` ship a `README.md`
+and nothing else. Both are licences that ask for a **copy**, not a citation:
+LGPLv3 §4(b) wants the combined work accompanied by the LGPL and the GPL it
+incorporates, and MIT wants its notice in all copies. So the first draft, which
+linked to gnu.org and portaudio.com, was not sufficient. `licenses/` holds the
+three texts verbatim, the build copies the folder in beside the exe, and
+`licenses/README.md` says which is which and why the rest are absent — because a
+folder of licences with no index invites the next person to add the ones that
+were deliberately left out.
+
+This is the batch's one piece of scope beyond its own checklist, and it is here
+rather than deferred because the batch is the release blocker: a Batch 15 zip
+built from the original checklist would have shipped incomplete.
+
+Verified: **244 tests green** (4 new, core-only as the convention requires),
+`tools/shell_harness.py` **251/251** — unchanged, and unchanged is the right
+answer, because nothing in this batch touches a widget. The one code change
+outside the build script is `app.py` gaining
+`setApplicationVersion`. **The `.exe` was rebuilt twice and run**, which is where
+the real verification is: the first build proved the version resource and
+`--add-data` work, and inspecting *its zip* is what turned up the two missing
+licences; the second carries `licenses/` and was checked at both destinations.
+Windows file properties read `1.1.0` / `XMB Player` / the GPL copyright line.
+Launched the built exe with a real window, confirmed the title, closed it
+through `CloseMainWindow` and **got exit 0** — which means the bootloader found
+libsndfile and PortAudio, `aboutToQuit` fired, and settings flushed.
+
+Not done, deliberately: the exe is *not* the release artifact. Batches 12–15
+change the build again, and Batch 15 owns the tag, the icon, the automated smoke
+test and the zip anyone downloads.
+
+### Batch 12 — Project metadata and enforcement
+
+The sharpest structural gap in the repo. The annotation and formatting
+discipline is already good enough to pass these tools — it just isn't pinned, so
+it decays the moment a second person contributes.
+
+- [ ] `pyproject.toml` — `[project]`, `[tool.pytest.ini_options]`,
+      `[tool.ruff]`, `[tool.mypy]`
+- [ ] Cap the floating dependency ranges
+- [ ] Fix what the tools flag
+- [ ] `.github/workflows/ci.yml` — Windows: ruff + mypy + pytest
+- [ ] `README.md` — the badge, and what CI does *not* cover
+
+**Windows-only, declared.** Chosen with the user. The README currently hedges —
+"nothing is Windows-specific by design" — and that claim has never been run.
+Every measurement in this project is Windows (WASAPI at 22 ms, the `%APPDATA%`
+path, `run.bat`, `make_shortcut.ps1`). The classifiers and the README say
+Windows and stop apologising for it. Claiming portability nobody has tested is
+worse than not claiming it.
+
+`pytest` today works only because `tests/__init__.py` plus rootdir insertion
+happen to resolve `mp3player`. That is luck, it is fragile for an outside
+contributor, and it is a blocker for CI as-is — which is most of why
+`pyproject.toml` is here rather than being a nice-to-have.
+
+The floaters need caps because the DSP is dtype-sensitive throughout (`float32`
+assumed at every layer), and `numpy>=2.0` with no ceiling is an open door to a
+3.x. The four Qt pins are `==` already and must stay that way — shiboken6 and
+PySide6 mismatched is an import-time ABI error.
+
+Expect the tool fixes to be small: three missing return annotations, two
+over-length lines, and ~22 Qt event-handler overrides taking an unannotated
+`event`. **Decide the `event` question once and write the decision down** —
+annotate them all or exclude the pattern in config. Doing half is how a linter
+starts getting ignored.
+
+**CI runs ruff, mypy and pytest, and not `tools/shell_harness.py`.** Chosen with
+the user, and the reason is physical rather than philosophical: the harness
+opens a real WASAPI stream and GitHub's runners have no audio device. Making it
+device-optional means auditing 1,308 lines for device assumptions and living
+with a permanently split pass count, which is a batch of its own if it is ever
+wanted. So the harness stays a local pre-release step, which is what it already
+effectively is — and **the README must say the badge covers `core/` only**, or a
+green badge reads as "the UI is tested" when the UI is the part with no tests.
+
+### Batch 13 — Diagnosability: logging and the crash path
+
+Four things happen today and leave no trace anywhere. For a `pythonw.exe` build
+with no console, that means a user who hits any of them has nothing to send you.
+
+- [ ] A rotating, size-capped log next to `settings.json`
+- [ ] `sys.excepthook` + `try/finally` around `app.exec()`
+- [ ] A crash dialog naming the log file
+- [ ] Log the four invisible events
+- [ ] A failed settings write reaches the status line
+- [ ] Tests for the log path
+
+The log goes next to `settings.json` via the existing `config_dir()` — one
+place the app already owns, already created, already documented as redirected
+under Microsoft Store Python. Don't invent a second location.
+
+**The `try/finally` is the highest-value line in the batch.** `app.py` ends in a
+bare `return app.exec()`. Under PySide6 an unhandled exception in a slot
+terminates the process, `aboutToQuit` never fires, and `controller.shutdown()`
+— which is what flushes settings and closes the stream — never runs. So the
+current failure mode for any unanticipated bug is: the window vanishes, nothing
+is written anywhere, and the user's last 800 ms of settings changes are gone.
+`shutdown()` is already idempotent, so the `finally` costs nothing and cannot
+double-fire.
+
+The four events, all of which are currently silent:
+`engine.xruns` is incremented by the audio callback and read by nothing;
+`settings.save()` returns `False` on failure and `controller._save_now`
+discards it; `refresh_devices` swallows its exception whole; and every device
+loss and reconnect cycle passes without record. The settings one is the worst
+of the four from the user's side — a failed write is experienced as the app
+forgetting your music folder for no reason, which is exactly the symptom the
+`utf-8-sig` decision was written about.
+
+**This is a logging batch, not a print batch.** There is currently no `print()`
+in shipped code at all — only in `tools/`, where printing is the point. That
+discipline is right and stays; the hole is that nothing is *recorded*, not that
+nothing is displayed.
+
+### Batch 14 — The four design defects
+
+Targeted fixes, no restructuring. Each one deletes a *class* of bug rather than
+an instance — which is the bar for being in this batch at all.
+
+- [ ] `theme._accent_text_mix` becomes lazy: compute on read, invalidate on write
+- [ ] The Settings rows become one table of `(label, value_fn, action)`
+- [ ] `read_art` moves behind the controller
+- [ ] `refresh_devices`'s `except` is narrowed and logged
+- [ ] Harness checks and core tests for whatever is testable without a display
+
+**1. The accent-text cache.** Two writers, `set_palette` and
+`set_accent_fraction`, both of which must recompute it, neither of which is
+forced to. Both do the right thing today and the comment in `set_palette` names
+the risk in its own words: *"forgetting this is exactly the Batch 9 bug with a
+new way in."* A third writer of `_palette` or `_accent_fraction` — or any future
+input the accent depends on — silently desyncs it, and the symptom is unreadable
+text, which is a colour and not an error. Computing on read removes the
+possibility instead of documenting it. This is the conventions' own *"a gate
+keyed on one input is a hole the moment a second input can change the same
+output"* rule applied to the value living next door to the gate it was written
+about.
+
+**2. The Settings rows.** `_settings_items` and `_activate_settings` are a
+parallel array held together by counting. Batch 10 already hit this: inserting
+`Theme` in the middle shifted `Full screen` and `Quit`, and without names that
+is `Full screen` quitting the app. The `SET_FOLDER … SET_QUIT` constants were
+the mitigation, and they name the indices without removing the requirement that
+two lists stay in the same order. One list of tuples removes it.
+
+**3. `read_art`.** `main_window` calls `core.tags.read_art` directly — file I/O
+and full ID3 parsing performed by a widget, in the one project whose entire
+architecture rule is that widgets do not do that. The controller owns "when a
+track changes" and never sees this happen. **The `core` hands up bytes / `ui`
+makes pixels split stays exactly as it is** — that seam is right and is not what
+is being fixed. Only the call site moves. Note the timing comment while you are
+there: it justifies *when* the read happens (it disappears into a decode that
+was going to block anyway) and that reasoning survives the move unchanged.
+
+**4. `refresh_devices`.** `except Exception: pass` around `sd._terminate()` and
+`sd._initialize()` — both **private** sounddevice API. A rename in a future
+sounddevice release turns that into an `AttributeError`, silently caught, and
+device reconnection stops working forever while the reconnect timer keeps firing
+every 2 s and the "audio device lost" banner stays up. The failure is
+indistinguishable from the device genuinely being unplugged, which is the worst
+kind of silence and precisely the shape of bug Batch 7 wrote the reconnect path
+to avoid. Narrow it and log it — Batch 13 is what gives it somewhere to go,
+which is why it is sequenced first.
+
+### Batch 15 — The download story
+
+Everything between "the code is fine" and "a stranger can download this and run
+it".
+
+- [ ] An icon, generated at build time from `theme.py`
+- [ ] `build_exe.py` smoke-tests the exe it just built
+- [ ] `README.md` — a Download section, and the SmartScreen warning explained
+- [ ] `docs/RELEASING.md` — the checklist
+- [ ] Rebuild the exe (three batches behind, and 11–14 change the build)
+- [ ] Tag, push, attach the zip, cut the release
+
+**Generate the `.ico` rather than checking one in.** The app has no icon
+anywhere — not in the build, not in the shortcut, which admits as much in a
+comment. Drawing it at build time from `theme.py`'s own colours keeps the
+project's standing streak of synthesizing assets in code rather than shipping
+binaries (which is why there are no `.wav` files for the UI sounds), and it
+means the icon cannot drift from the palette it came from.
+
+**The smoke test is the one failure this build can actually have.**
+`build_exe.py` currently ends by printing *"Run it once before shipping it — a
+missing DLL only shows up then"* and automating nothing. libsndfile and PortAudio
+are pulled in by `--collect-binaries` because nothing in the bytecode points at
+them; if that ever stops working the build still succeeds and the exe dies on
+first import. Launch it offscreen, confirm it starts and exits 0.
+
+**The README's Download section is not optional politeness.** An unsigned exe
+downloaded from the internet gets "Windows protected your PC" from SmartScreen,
+and the most likely outcome of a stranger downloading this zip today is that
+they don't run it. Say what the warning is, why it appears (no code-signing
+certificate — they cost money and this is a novelty app), and what to click.
+Distribution was settled with the user as **GitHub Release + the zip**: no
+installer, no PyPI, no winget. Those were considered — an Inno Setup installer
+gets a Start-menu entry and an uninstaller but still trips SmartScreen, PyPI
+serves developers and not the person who wants an app, and winget's community
+repo effectively expects a signed installer.
+
+`docs/RELEASING.md` is where the local-only steps live, and it exists because CI
+deliberately doesn't run them: bump `__version__`, pytest, **the shell harness
+locally** (the only `ui/` coverage there is), render the screens, build,
+smoke-test, tag, push the tag, attach the zip.
+
+---
+
 ## Running it
 
 ```bash
@@ -998,7 +1448,7 @@ venv/Scripts/python.exe tools/filmstrip.py out.png --what appear --ms 220
 
 # the Batch 2 harness -- keyboard-driven audio engine, no Qt
 venv/Scripts/python.exe tools/engine_harness.py            # the saved folder
-venv/Scripts/python.exe tools/engine_harness.py "D:/Music"
+venv/Scripts/python.exe tools/engine_harness.py "path/to/folder"
 venv/Scripts/python.exe tools/engine_harness.py "song.mp3"
 
 # the Batch 0 spike -- 23s of normal -> nightcore -> daycore

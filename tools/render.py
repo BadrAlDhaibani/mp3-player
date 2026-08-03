@@ -32,14 +32,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtGui import QColor, QPainter, QPixmap  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtWidgets import QApplication
 
-from mp3player.core import settings as settings_mod  # noqa: E402
-from mp3player.core.audio.engine import AudioEngine  # noqa: E402
-from mp3player.ui import theme  # noqa: E402
-from mp3player.ui.controller import PlayerController  # noqa: E402
-from mp3player.ui.main_window import (  # noqa: E402
+from mp3player.core import settings as settings_mod
+from mp3player.core.audio.engine import AudioEngine
+from mp3player.ui import theme
+from mp3player.ui.controller import PlayerController
+from mp3player.ui.main_window import (
     CAT_MUSIC,
     CAT_NOW,
     CAT_SETTINGS,

@@ -10,7 +10,7 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32  # enough to be distinguishable
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
 
-def tagged(path, **frames) -> "object":
+def tagged(path, **frames) -> object:
     """Write a real ID3v2.4 tag onto `path`, creating the file if need be."""
     tag = ID3()
     if "title" in frames:

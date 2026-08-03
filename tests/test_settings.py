@@ -90,7 +90,7 @@ def test_speed_is_clamped(path, stored, expected) -> None:
 
 @pytest.mark.parametrize("junk", ["nan", "null", '""', "{}"])
 def test_nonsense_numbers_fall_back(path, junk) -> None:
-    path.write_text('{"speed": %s}' % junk)
+    path.write_text(f'{{"speed": {junk}}}')
     assert s.load(path).speed == s.DEFAULT_SPEED
 
 

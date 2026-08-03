@@ -2,6 +2,11 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# `pip install -e .` leaves this behind; the metadata lives in pyproject.toml
+*.egg-info/
 
 # PyInstaller output -- tools/build_exe.py rebuilds all of it
 build/

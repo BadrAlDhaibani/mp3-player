@@ -1,0 +1,58 @@
+# Windows only, and that is the honest description rather than a limitation of
+# the runner: every measurement in this project is a Windows one, and the app
+# has never been run anywhere else.
+#
+# Three checks, and one deliberate omission. `tools/shell_harness.py` -- the
+# only coverage `ui/` has -- is NOT here, because it opens a real WASAPI stream
+# and a GitHub runner has no audio device. Making it device-optional means
+# auditing 1,300 lines for device assumptions and living with a permanently
+# split pass count. It stays a local pre-release step, which is what it already
+# was. So a green badge means `core/` is tested and the whole tree lints and
+# type-checks -- it does not mean the UI was exercised.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # Ordered cheapest-first so a style failure does not wait behind a
+      # 100 MB Qt import. Each step runs even if an earlier one failed --
+      # one push should report every problem it has, not the first.
+      - name: ruff
+        run: python -m ruff check .
+
+      - name: mypy
+        if: '!cancelled()'
+        run: python -m mypy
+
+      - name: pytest
+        if: '!cancelled()'
+        run: python -m pytest

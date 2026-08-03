@@ -10,6 +10,7 @@ draws itself from the controller's signals, so it must be connected before
 
 from __future__ import annotations
 
+import contextlib
 import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -32,10 +33,13 @@ def _make_console_utf8_safe() -> None:
     """
     for stream in (sys.stdout, sys.stderr):
         if stream is not None:
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except (AttributeError, OSError):
-                pass
+            with contextlib.suppress(AttributeError, OSError):
+                # Duck-typed on purpose, which is what the AttributeError above
+                # is for: typeshed calls these `TextIO`, and only the concrete
+                # `TextIOWrapper` declares `reconfigure`. Narrowing to that type
+                # instead would skip anything else that supports it -- pytest's
+                # capture, PyInstaller's console shim -- to please the stub.
+                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 def main() -> int:

@@ -274,7 +274,10 @@ class NowPlayingPage(QWidget):
         # nearly every track change -- and things staying put is most of what
         # makes an XMB feel like one.
         offsets = (theme.NP_INFO_FIRST, theme.NP_INFO_SECOND, theme.NP_INFO_THIRD)
-        for line, offset in zip(self._state.lines, offsets):
+        # strict=False on purpose: `lines` defaults to empty and is whatever the
+        # window last handed over, so a short tuple must draw what it has rather
+        # than raise -- inside a paintEvent, at startup.
+        for line, offset in zip(self._state.lines, offsets, strict=False):
             if line:
                 painter.drawText(
                     QRect(theme.ITEM_X, self.row_y() + offset, available, 18),
@@ -319,7 +322,7 @@ class NowPlayingPage(QWidget):
         )
 
         fraction = min(1.0, max(0.0, self._state.fraction))
-        handle_x = track.left() + int(round(fraction * (track.width() - 1)))
+        handle_x = track.left() + round(fraction * (track.width() - 1))
         groove = QRect(
             track.left(), y - theme.SLIDER_TRACK_H // 2, track.width(), theme.SLIDER_TRACK_H
         )

@@ -152,7 +152,7 @@ class TransportBar(QWidget):
 
     def set_volume(self, volume: float) -> None:
         self.volume_value.setText(f"{volume * 100:.0f}%")
-        _silently(self.volume, int(round(volume * 100)))
+        _silently(self.volume, round(volume * 100))
 
     # -- seek --------------------------------------------------------------
 
@@ -178,7 +178,7 @@ class _ElidingLabel(QLabel):
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
-    def setText(self, text: str) -> None:  # noqa: N802 -- Qt's name
+    def setText(self, text: str) -> None:
         self._full = text
         super().setText(text)
         self.update()

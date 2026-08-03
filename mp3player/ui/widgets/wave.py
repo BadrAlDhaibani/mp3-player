@@ -88,8 +88,13 @@ class WaveBackground(QWidget):
 
         self._fraction = 0.4  # 1.00x, so the wave starts on the accent colour
         self._phase = 0.0
-        self._buffer: QImage | None = None
-        self._glow: QImage | None = None
+        # Null images rather than None. `_resize_buffers` replaces both before
+        # anything paints into them, and a null QImage is 0x0 -- so the size
+        # comparison there rebuilds them on the first frame exactly as a None
+        # check did. What it buys is that the six paint sites below stop being
+        # `QImage | None`, which was an Optional nobody could ever hit.
+        self._buffer = QImage()
+        self._glow = QImage()
         self._clock = QElapsedTimer()
 
         self._frames = 0
@@ -206,11 +211,7 @@ class WaveBackground(QWidget):
         return image
 
     def _resize_buffers(self, width: int, height: int) -> None:
-        if (
-            self._buffer is None
-            or self._buffer.width() != width
-            or self._buffer.height() != height
-        ):
+        if self._buffer.width() != width or self._buffer.height() != height:
             self._buffer = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
             # The halo is specified in screen pixels and divided back through
             # each axis's own scale, so it comes out round rather than as wide

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from mp3player.ui import theme
 
+
 def _cursor_for(edges: Qt.Edges) -> Qt.CursorShape:
     """The resize cursor for a set of edges. Corners get the right diagonal.
 
@@ -153,9 +154,7 @@ class ChromeWindow(QWidget):
     # -- window state ------------------------------------------------------
 
     def toggle_maximised(self) -> None:
-        if self.isFullScreen():
-            self.showNormal()
-        elif self.isMaximized():
+        if self.isFullScreen() or self.isMaximized():
             self.showNormal()
         else:
             self.showMaximized()

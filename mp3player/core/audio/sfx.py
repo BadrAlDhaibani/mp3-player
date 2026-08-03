@@ -46,7 +46,9 @@ def _sine(t: np.ndarray, freq: float) -> np.ndarray:
     return np.sin(TWO_PI * freq * t, dtype=np.float32)
 
 
-def _glide(t: np.ndarray, start: float, end: float, over: float, sample_rate: int):
+def _glide(
+    t: np.ndarray, start: float, end: float, over: float, sample_rate: int
+) -> np.ndarray:
     """Phase of a tone sliding `start` -> `end` Hz over the first `over` seconds.
 
     Returns phase, not a sine, so callers can build harmonics on top of it.

@@ -24,17 +24,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import numpy as np  # noqa: E402
+import numpy as np
+from engine_harness import Keyboard
 
-from mp3player.core import settings as settings_mod  # noqa: E402
-from mp3player.core.audio import sfx  # noqa: E402
-from mp3player.core.audio.decode import DecodeError  # noqa: E402
-from mp3player.core.audio.engine import AudioDeviceError, AudioEngine  # noqa: E402
-from mp3player.core.library import scan_folder  # noqa: E402
-from mp3player.core.models import Track  # noqa: E402
-from mp3player.ui.sounds import Sounds  # noqa: E402
-
-from engine_harness import Keyboard  # noqa: E402  -- same tools/ directory
+from mp3player.core import settings as settings_mod
+from mp3player.core.audio import sfx
+from mp3player.core.audio.decode import DecodeError
+from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
+from mp3player.core.library import scan_folder
+from mp3player.core.models import Track
+from mp3player.ui.sounds import Sounds
 
 # Windows repeats a held key about this often. The burst is the case the
 # throttle exists for, so it is simulated at the rate that produces it.

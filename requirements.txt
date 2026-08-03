@@ -1,14 +1,31 @@
+# The file to install from. `pyproject.toml` carries the same set as project
+# metadata; if you change one, change the other.
+#
+# The four Qt pins are `==` and must stay that way: a shiboken6 that does not
+# match its PySide6 is an ABI error at import, not a deprecation warning.
 PySide6==6.11.1
 PySide6_Addons==6.11.1
 PySide6_Essentials==6.11.1
 shiboken6==6.11.1
-numpy>=2.0
-sounddevice>=0.5
-soundfile>=0.13
+
+# Upper bounds are not superstition here. Every buffer in `core/audio` is
+# float32[n, 2] by contract and the resampler indexes it with int64 -- a major
+# version of numpy is entitled to change what those mean, and the failure would
+# be audible rather than loud. Same reasoning for the two that wrap C libraries:
+# soundfile's libsndfile is what decodes MP3, sounddevice's PortAudio is what
+# opens WASAPI, and both are pulled into the exe by name.
+numpy>=2.0,<3.0
+sounddevice>=0.5,<0.6
+soundfile>=0.13,<0.15
+
 # ID3 tags and cover art. GPL-2.0-or-later, which is why this project is too --
 # see THIRD_PARTY_NOTICES.md, which ships in the release zip. CLAUDE.md's
 # decisions log has the argument; the notices file has the terms.
-mutagen>=1.47
+mutagen>=1.47,<2.0
 
-# dev
-pytest>=8.0
+# dev -- what CI runs, plus what builds the exe. `pip install -e .[dev]` is the
+# same set through pyproject.
+pytest>=8.0,<10.0
+ruff>=0.14,<0.17
+mypy>=1.11,<3.0
+pyinstaller>=6.0,<7.0

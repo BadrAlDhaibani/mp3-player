@@ -5,6 +5,8 @@ folder, browse the tracks, play them — and warp the audio into **nightcore**
 (sped up, pitched up) or **daycore** (slowed down, pitched down) live, with a
 slider, while it plays.
 
+[![CI](https://github.com/badraldhaibani/xmb-player/actions/workflows/ci.yml/badge.svg)](https://github.com/badraldhaibani/xmb-player/actions/workflows/ci.yml)
+
 Windows · Python 3.13 · PySide6 · numpy · sounddevice · soundfile
 
 ---
@@ -129,22 +131,31 @@ volume, speed and theme, in `%APPDATA%/XMBPlayer/settings.json`.
 - **Tags are trusted over filenames.** If a rip is tagged `Track 01`, that is
   what the list will say. There is no toggle; renaming or retagging the file is
   the fix.
-- **Windows only in practice.** Nothing is Windows-specific by design — the
-  device picker falls back to whatever PortAudio offers — but it has only been
-  run and measured there.
+- **Windows only.** Not "portable in principle": every measurement here is a
+  Windows one — WASAPI at 22 ms, `%APPDATA%`, `run.bat`, the shortcut script —
+  and it has never been run anywhere else. The device picker does fall back to
+  whatever PortAudio offers, so it might work elsewhere; nobody has checked, and
+  claiming portability nobody has tested is worse than not claiming it.
 
 ---
 
 ## Developing
 
 ```bash
+venv/Scripts/python.exe -m ruff check .           # lint
+venv/Scripts/python.exe -m mypy                   # types
 venv/Scripts/python.exe -m pytest                 # core only: no display, no Qt
 venv/Scripts/python.exe tools/shell_harness.py    # the real widgets, offscreen
 ```
 
-`tests/` covers `core/` and never needs a display. The shell is checked by
-`tools/shell_harness.py`, which drives the actual widgets through synthesized
-key and mouse events with a real audio stream open.
+The first three are what CI runs, on Windows, on every push. `pyproject.toml`
+configures all of them and says why each rule is off where it is off.
+
+**The badge does not mean the UI is tested.** `tests/` covers `core/` and never
+needs a display; the shell is checked by `tools/shell_harness.py`, which drives
+the actual widgets through synthesized key and mouse events **with a real audio
+stream open** — and a CI runner has no audio device, so that is a local step and
+always will be. Run it before you ship anything.
 
 Neither can judge how wide text is — the offscreen platform has no font
 database, and `QFontMetrics` there returns fallback widths about 2.5x too large.

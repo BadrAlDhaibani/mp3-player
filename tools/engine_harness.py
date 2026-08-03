@@ -16,17 +16,18 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import ClassVar
 
 # This file lives outside the package, so running it by path puts `tools/` on
 # sys.path rather than the repo root. Put the root back before importing.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mp3player.core import settings as settings_mod  # noqa: E402
-from mp3player.core.audio import sfx  # noqa: E402
-from mp3player.core.audio.decode import DecodeError  # noqa: E402
-from mp3player.core.audio.engine import AudioDeviceError, AudioEngine  # noqa: E402
-from mp3player.core.library import scan_folder  # noqa: E402
-from mp3player.core.models import Track  # noqa: E402
+from mp3player.core import settings as settings_mod
+from mp3player.core.audio import sfx
+from mp3player.core.audio.decode import DecodeError
+from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
+from mp3player.core.library import scan_folder
+from mp3player.core.models import Track
 
 SEEK_STEP = 5.0
 SPEED_STEP = 0.05
@@ -54,7 +55,12 @@ class Keyboard:
     a traceback anywhere else.
     """
 
-    ARROWS = {b"H": "up", b"P": "down", b"K": "left", b"M": "right"}
+    ARROWS: ClassVar[dict[bytes, str]] = {
+        b"H": "up",
+        b"P": "down",
+        b"K": "left",
+        b"M": "right",
+    }
 
     def __init__(self) -> None:
         try:

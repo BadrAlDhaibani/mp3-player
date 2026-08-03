@@ -7,6 +7,7 @@ every value is clamped to a range the rest of the app can rely on.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass
@@ -144,8 +145,6 @@ def save(settings: Settings, path: Path | None = None) -> bool:
         os.replace(temp, target)
         return True
     except OSError:
-        try:
+        with contextlib.suppress(OSError):
             temp.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False

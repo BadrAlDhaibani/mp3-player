@@ -442,9 +442,7 @@ def test_a_stream_that_keeps_rendering_is_never_stalled() -> None:
     clock = FakeClock()
     watch = StreamWatch(stall_s=0.5, clock=clock)
     watch.reset(0)
-    blocks = 0
-    for _ in range(200):
-        blocks += 1
+    for blocks in range(1, 201):
         clock.advance(0.01)
         assert not watch.stalled(blocks)
 

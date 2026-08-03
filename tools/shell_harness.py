@@ -48,8 +48,7 @@ from mp3player.core.audio.engine import (  # noqa: E402
 )
 from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.core.models import Track  # noqa: E402
-from mp3player.ui import theme  # noqa: E402
-from mp3player.ui import main_window  # noqa: E402
+from mp3player.ui import main_window, theme  # noqa: E402
 from mp3player.ui.controller import PlayerController  # noqa: E402
 from mp3player.ui.main_window import (  # noqa: E402
     CAT_MUSIC,
@@ -333,7 +332,10 @@ def main() -> int:
 
     bar.set_index(CAT_SETTINGS)
     check("the crossbar slides too", bar._display != bar.index, f"{bar._display:.2f}")
-    check("...without moving where a click lands", bar.hit(QPoint(theme.FOCUS_X, row)) == bar.index)
+    check(
+        "...without moving where a click lands",
+        bar.hit(QPoint(theme.FOCUS_X, row)) == bar.index,
+    )
     bar.settle()
     check("and it settles", bar._display == float(bar.index))
 
@@ -606,8 +608,15 @@ def main() -> int:
     # The cursor deliberately doesn't move here, so the index comparison in
     # `keyPressEvent` can't earn this one -- the branch has to sound it itself.
     check("...blipping every time, because every press did something", all(blipped))
-    check("...without moving the cursor either", column.index == resting, f"index={column.index}")
-    check("...and the row followed each time", seen[-1] in column._items[SET_THEME].value)
+    check(
+        "...without moving the cursor either",
+        column.index == resting,
+        f"index={column.index}",
+    )
+    check(
+        "...and the row followed each time",
+        seen[-1] in column._items[SET_THEME].value,
+    )
     press(window, Qt.Key_Right)
     app.processEvents()
     check("...and the last one wraps back to the first", theme.palette().name == started_on)
@@ -1122,8 +1131,15 @@ def main() -> int:
         check("the page takes the cover", page.art is image)
         size = page.art_rect().size()
         cover = page._cover(size)
-        check("...and scales it to the art rect exactly", cover.size() == size, f"{cover.size()}")
-        check("...caching the result rather than rescaling per paint", page._cover(size) is cover)
+        check(
+            "...and scales it to the art rect exactly",
+            cover.size() == size,
+            f"{cover.size()}",
+        )
+        check(
+            "...caching the result rather than rescaling per paint",
+            page._cover(size) is cover,
+        )
         window.resize(1600, 900)
         app.processEvents()
         bigger = page.art_rect().size()

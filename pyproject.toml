@@ -1,0 +1,181 @@
+# Project metadata and the tools that keep it honest.
+#
+# The version is NOT here. `mp3player/__init__.py` owns it and everything else
+# reads it -- see the decisions log in CLAUDE.md. `dynamic = ["version"]` below
+# is what points setuptools at that one line rather than making a second copy of
+# it that can drift.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xmb-player"
+description = "A desktop MP3 player with a PlayStation 3 XMB skin and a live nightcore/daycore slider."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE", "licenses/*.txt"]
+authors = [{ name = "Badr Al-Dhaibani" }]
+keywords = ["mp3", "player", "nightcore", "daycore", "xmb", "pyside6"]
+dynamic = ["version"]
+
+# Windows, declared rather than hedged. Every measurement in this project is a
+# Windows one -- WASAPI at 22 ms, %APPDATA%, run.bat, make_shortcut.ps1 -- and
+# nothing else has ever been run. Claiming portability nobody has tested is
+# worse than not claiming it.
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+    "Private :: Do Not Upload",
+]
+
+# Kept in step with requirements.txt, which stays the file humans install from.
+# The upper bounds are not superstition: every buffer in core/audio is float32
+# by contract, and the four Qt pins are `==` because a shiboken6 that does not
+# match its PySide6 is an ABI error at import.
+dependencies = [
+    "PySide6==6.11.1",
+    "PySide6_Addons==6.11.1",
+    "PySide6_Essentials==6.11.1",
+    "shiboken6==6.11.1",
+    "numpy>=2.0,<3.0",
+    "sounddevice>=0.5,<0.6",
+    "soundfile>=0.13,<0.15",
+    "mutagen>=1.47,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10.0",
+    "ruff>=0.14,<0.17",
+    "mypy>=1.11,<3.0",
+    "pyinstaller>=6.0,<7.0",
+]
+
+[project.gui-scripts]
+xmb-player = "mp3player.app:main"
+
+[project.urls]
+Homepage = "https://github.com/badraldhaibani/xmb-player"
+
+[tool.setuptools]
+packages = ["mp3player", "mp3player.core", "mp3player.core.audio", "mp3player.ui", "mp3player.ui.widgets"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mp3player.__version__" }
+
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+# `pythonpath` is the whole reason this section exists. Until now `pytest`
+# resolved `mp3player` only because rootdir insertion happened to put the repo
+# on sys.path -- which works here and is not something to hand a contributor or
+# a CI runner.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+xfail_strict = true
+
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+# 96 is where this code already lives: everything is written to about 88, and
+# the handful that runs past it does so by a few characters. It is a ceiling the
+# linter enforces, not a target.
+#
+# `ruff format` is deliberately NOT part of CI. Run it if you like, but its only
+# complaint here is line-joining preference -- it would rewrite 17 files to say
+# the same things, including hand-wrapped signatures and comment blocks that were
+# broken where they read best. Pinning the linter catches defects; pinning the
+# formatter would only relitigate layout.
+line-length = 96
+target-version = "py313"
+extend-exclude = ["venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "C4",        # comprehensions
+    "SIM",       # simplify
+    "RET",       # returns
+    "ANN",       # annotations -- the gap this batch was written to close
+    "RUF",
+]
+ignore = [
+    # Qt event handlers are overrides: the parameter type is fixed by the base
+    # class, PySide6 ships stubs that already state it, and annotating ~22 of
+    # them adds an import per widget to restate what Qt already knows. Decided
+    # once, here, rather than half-done -- see CLAUDE.md, Batch 12.
+    "ANN001",
+    "ANN401",  # `**kwargs: Any` in the two places that forward to Qt
+    "RET504",  # a named result before `return` is often the comment
+    "SIM108",  # a ternary is not always clearer than the if/else
+    # The UI is made of glyphs: `·` between artist and album, `▸` in every
+    # "Settings ▸ Music folder", `‹ ›` on a stepped-into row, `→` in half the
+    # docstrings. They are the characters intended, not lookalikes for ASCII.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # `__slots__` is written in the order the fields are assigned and read, which
+    # in `engine.py` is the order the callback touches them. Alphabetising it
+    # trades a real reading order for a fake one; the tuple has no other meaning.
+    "RUF023",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Harnesses and tests are print-and-assert scripts; a `-> None` on every local
+# helper in them is noise, and their asserts are the point.
+"tools/*.py" = ["ANN"]
+"tests/*.py" = ["ANN"]
+"spike/*.py" = ["ANN", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mp3player"]
+
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.13"
+files = ["mp3player"]
+strict = true
+# PySide6 ships stubs, but they are generated and lossy in places; numpy,
+# soundfile and sounddevice are typed to varying degrees. Untyped bits of a
+# dependency are not a defect in this code, so they do not fail the build.
+disallow_untyped_calls = false
+disallow_subclassing_any = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["sounddevice.*", "soundfile.*", "mutagen.*"]
+ignore_missing_imports = true
+
+# `ui/` is checked, but two error codes are switched off in it, and both are the
+# same thing: PySide6 supports the flattened enum names it has always
+# documented -- `Qt.AlignLeft`, `QPainter.Antialiasing`, `Qt.Key_F11` -- while
+# its generated stubs declare only the scoped ones. That accounted for 140 of
+# the 183 errors on the first run, across 58 distinct symbols, every one of them
+# code that runs correctly today. The alternative is rewriting every paint call
+# site to `Qt.AlignmentFlag.AlignLeft` to please a stub, which would also
+# rewrap most of the lines it touched.
+#
+# What stays on in `ui/` is the half that found something: `arg-type`,
+# `union-attr`, `return-value` and `type-arg` between them turned up the wave's
+# buffers being typed `QImage | None` when they can never be None once
+# `_resize_buffers` has run.
+#
+# `disallow_untyped_defs` is off here for the same reason ruff ignores ANN001:
+# ~22 Qt event handlers take an `event` whose type the base class already fixes.
+[[tool.mypy.overrides]]
+module = ["mp3player.ui.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disable_error_code = ["attr-defined", "name-defined"]

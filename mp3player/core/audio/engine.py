@@ -22,9 +22,12 @@ Threading rules (CLAUDE.md, conventions):
 
 from __future__ import annotations
 
+import contextlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import sounddevice as sd
@@ -54,6 +57,13 @@ _SWAP_TIMEOUT_S = 0.05
 STALL_S = 0.5
 
 
+# What `sd.query_devices` hands back: a mapping of PortAudio's own field
+# names to whatever type each one happens to be. `Any` rather than `object`
+# because the values are read straight into `int()` and `str()` -- narrowing
+# them would mean asserting a shape sounddevice does not promise.
+DeviceInfo = dict[str, Any]
+
+
 class AudioDeviceError(RuntimeError):
     """No usable output device, or the stream refused to open."""
 
@@ -74,7 +84,9 @@ class StreamWatch:
 
     __slots__ = ("stall_s", "clock", "_blocks", "_since")
 
-    def __init__(self, stall_s: float = STALL_S, clock=time.monotonic) -> None:
+    def __init__(
+        self, stall_s: float = STALL_S, clock: Callable[[], float] = time.monotonic
+    ) -> None:
         self.stall_s = float(stall_s)
         self.clock = clock
         self._blocks = -1
@@ -164,7 +176,7 @@ def pick_output_device() -> OutputDevice:
     return candidate
 
 
-def _describe(index: int | None, info: dict | None = None) -> OutputDevice | None:
+def _describe(index: int | None, info: DeviceInfo | None = None) -> OutputDevice | None:
     """Build an `OutputDevice` for `index`, or None if it won't take our format."""
     try:
         if info is None:
@@ -354,7 +366,9 @@ class Mixer:
 
     # -- transport ---------------------------------------------------------
 
-    def set_track(self, samples: np.ndarray, file_rate: int, *, autoplay: bool = True):
+    def set_track(
+        self, samples: np.ndarray, file_rate: int, *, autoplay: bool = True
+    ) -> None:
         """Swap in a decoded track, immediately.
 
         Immediately means *without* a fade, so callers with a live stream should
@@ -557,14 +571,10 @@ class AudioEngine:
         if stream is not None:
             # A stream whose device has been pulled will raise on the way out.
             # We are closing it either way; there is nothing left to salvage.
-            try:
+            with contextlib.suppress(Exception):
                 stream.stop()
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 stream.close()
-            except Exception:
-                pass
 
     # -- the device going away --------------------------------------------
 
@@ -628,7 +638,9 @@ class AudioEngine:
     def sample_rate(self) -> int:
         return self.device.sample_rate
 
-    def _callback(self, outdata, frames, _time_info, status) -> None:
+    def _callback(
+        self, outdata: np.ndarray, frames: int, _time_info: object, status: object
+    ) -> None:
         if status:
             self.xruns += 1
         # The heartbeat `stalled` watches. First thing, so a mixer that somehow
@@ -639,7 +651,7 @@ class AudioEngine:
 
     # -- tracks ------------------------------------------------------------
 
-    def load(self, samples: np.ndarray, file_rate: int, *, autoplay: bool = True):
+    def load(self, samples: np.ndarray, file_rate: int, *, autoplay: bool = True) -> None:
         """Swap in an already-decoded track, click-free.
 
         Drops the music gain and waits -- briefly, and only while the stream is

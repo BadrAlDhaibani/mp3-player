@@ -43,11 +43,22 @@ legal text, and where the two disagree the licence wins.
 > Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks) ·
 > Batch 9 (the accent tracks the speed — 231 tests, 193 harness checks) ·
 > Batch 10 (preset themes — 240 tests, 251 harness checks) ·
-> Batch 11 (licence, provenance and version — 244 tests, `.exe` rebuilt at 1.1.0)
+> Batch 11 (licence, provenance and version — 244 tests, `.exe` rebuilt at 1.1.0) ·
+> Batch 12 (metadata and enforcement — 244 tests, 251 harness checks, ruff and
+> mypy clean)
 >
-> **v1 is shipped; Batches 8, 9, 10 and 11 landed on top of it.** Every box
-> through Batch 11 is ticked except the ones listed under *Open, and waiting on a
+> **v1 is shipped; Batches 8 through 12 landed on top of it.** Every box
+> through Batch 12 is ticked except the ones listed under *Open, and waiting on a
 > human* below.
+>
+> **The repo is now pinned by tools, not just by habit.** `pyproject.toml` is the
+> single config for `[project]`, pytest, ruff and mypy; `ruff check .` and `mypy`
+> are both clean over the whole tree and are expected to stay that way.
+> **Every rule that is switched off has its reason written next to it in that
+> file — read the comment before re-enabling anything.** `ruff format` is
+> deliberately not part of this; see the decisions log. There is a CI workflow at
+> `.github/workflows/ci.yml` and **it has never run**, because there is no GitHub
+> remote until Batch 15.
 >
 > **The app now has a licence and a version number.** GPL-2.0-or-later
 > (`LICENSE`), the dependency picture in `THIRD_PARTY_NOTICES.md`, three
@@ -58,13 +69,15 @@ legal text, and where the two disagree the licence wins.
 > advance; it was raised with the user, who was indifferent to it. **It stands
 > — don't re-open it.**
 >
-> **Batches 12–15 remain, and none of them is started.** They came out of an
+> **Batches 13–15 remain, and none of them is started.** They came out of an
 > audit run in one sitting (recorded in *The ship-prep audit* below, so nobody
-> re-derives it): packaging metadata and CI, somewhere for a crash to go, four
-> specific defects, and a download a stranger can actually use. **Batch 12 is
-> next.** Note that Batch 11 found one of the audit's own claims to be wrong (see
-> its writeup) — **the audit is a record of one sitting, not a verified spec.
-> Check a claim against the file before acting on it.**
+> re-derives it): somewhere for a crash to go, four specific defects, and a
+> download a stranger can actually use. **Batch 13 is next.** Note that Batch 11
+> found one of the audit's own claims to be wrong (see its writeup) — **the audit
+> is a record of one sitting, not a verified spec. Check a claim against the file
+> before acting on it.** Batch 12 is a milder version of the same lesson: its
+> predictions were right in kind and wrong in count, and two thirds of what the
+> tools found was nothing anyone had listed.
 >
 > ### Open, and waiting on a human
 >
@@ -106,15 +119,16 @@ legal text, and where the two disagree the licence wins.
 > bundled data files — and a build-script change that is never run is a
 > build-script change that is never checked. It carries Batches 9 and 10's
 > UI work along with it. **Batch 15 still owns the release rebuild**, because
-> Batches 12–15 change the build again (an icon, a smoke test); this one proves
-> the mechanism, not the artifact.
+> Batches 13–15 change the build again (an icon, a smoke test); this one proves
+> the mechanism, not the artifact. Batch 12 did not touch it: metadata, config
+> and CI are all outside what PyInstaller reads.
 >
 > Rebuilding is still not part of development, which runs live source, and
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
 > Also: the `v1` git tag is **behind `HEAD`** and does not describe the current
-> code. Batches 8 through 11 all landed after it, and the version the code now
+> code. Batches 8 through 12 all landed after it, and the version the code now
 > declares is `1.1.0`. Retagging is Batch 15's job, not something to do in
 > passing.
 >
@@ -127,10 +141,12 @@ legal text, and where the two disagree the licence wins.
 >
 > ### Next
 >
-> **Batch 12 — project metadata and enforcement.** Then 13, 14, 15 in order:
-> they were sequenced so each one's output is available to the next, and the
-> ordering reasons are written into the batches themselves. **Confirm the batch
-> with the user before starting it** — one batch at a time, no building ahead.
+> **Batch 13 — diagnosability: logging and the crash path.** Then 14 and 15 in
+> order: they were sequenced so each one's output is available to the next, and
+> the ordering reasons are written into the batches themselves — 13 before 14
+> specifically because Batch 14's narrowed `refresh_devices` exception needs
+> somewhere to be logged to. **Confirm the batch with the user before starting
+> it** — one batch at a time, no building ahead.
 >
 > After 15 the app is shippable and the queue goes back to the post-v1 list in
 > the v1 scope section — shuffle/repeat, export, subfolders, multiple folders.
@@ -273,6 +289,13 @@ here and write down why.
 | **The project is GPL-2.0-or-later** | Chosen with the user before Batch 11. mutagen is GPL-2.0 and `core/tags.py` links it directly, so the distributed zip has been a combined work since Batch 8 — writing that down costs nothing and is the honest option. The alternatives (MIT source with a GPL binary; dropping mutagen for a hand-rolled ID3 reader) are argued out in the Batch 11 section. |
 | **`__version__` lives in `mp3player/__init__.py`, and starts at `1.1.0`** | `v1` was a git tag and nothing else, so two builds were indistinguishable by filename, by file properties and from inside the app. `1.1.0` because Batches 8–10 are features and nothing was removed. The number was proposed in-session rather than settled in advance, put to the user, and left to stand — so it is settled, not merely unchallenged. One owner, three consumers: the zip name, the exe's Windows version resource, and `QApplication.setApplicationVersion`. |
 | **Licence texts are checked in, never fetched at build time** | A release must not depend on gnu.org being reachable, and a licence file that is downloaded is a licence file that can silently change under you between two builds of the same version. `licenses/` holds only what does not already ship inside a dependency's own package — Qt's LGPLv3+GPLv3 and PortAudio's MIT — because duplicating libsndfile's `COPYING`, which PyInstaller already collects, creates two copies that can disagree. `licenses/README.md` exists to say which are deliberately absent. |
+| **The project declares Windows and stops hedging** | Chosen with the user before Batch 12. The README used to say "nothing is Windows-specific by design", which had never been run anywhere to find out. Every number in this file is a Windows one — WASAPI at 22 ms, `%APPDATA%`, `run.bat`, `make_shortcut.ps1` — so the classifiers say `Microsoft :: Windows`, the README says it might work elsewhere and nobody has checked, and CI runs on `windows-latest` only. Untested portability is a claim, not a feature. |
+| **CI runs ruff, mypy and pytest — and never `tools/shell_harness.py`** | Chosen with the user. The reason is physical rather than philosophical: the harness opens a real WASAPI stream and a GitHub runner has no audio device. Making it device-optional means auditing 1,300 lines for device assumptions and living with a permanently split pass count — a batch of its own, if it is ever wanted. So it stays the local pre-release step it already was, and **the README says out loud that the badge covers `core/` only**, because a green badge otherwise reads as "the UI is tested" and the UI is the half with no tests. |
+| **The linter is pinned; the formatter is declined** | `ruff format`'s entire quarrel with this repo is line-joining — 290 changed lines across 17 files, every one a hand-wrapped signature or comment block it would rejoin because it fits inside the limit. The linter catches defects and the formatter would only relitigate layout, and a batch whose job is to pin the discipline that already exists should not spend its diff rewriting it into a different one. Run it locally if you like; CI does not, and `pyproject.toml` says why next to the setting. |
+| **`line-length` is 96 because that is where the code already lives** | Written to about 88 throughout, with a handful running a few characters past. 96 made four lines violations; 88 would have meant rewrapping forty-six, and adopting the formatter at either width means several hundred lines of churn. It is a ceiling the linter enforces, not a width to write to. |
+| **Qt event handlers keep their unannotated `event`** | `ANN001` off, globally, decided once rather than half-done — the parameter's type is fixed by the base class, PySide6's own stubs already state it, and annotating twenty-two overrides adds an import per widget to restate what Qt knows. The cost is real and worth knowing: with it off, ruff had nothing to say about `StreamWatch.__init__(..., clock=time.monotonic)` or `AudioEngine._callback`, **and mypy caught both**, because they are in `core/` where nothing is exempt. The two tools overlap exactly where the exemptions are. |
+| **mypy is strict everywhere; `ui/` gives up `attr-defined` and `name-defined`** | PySide6 supports the flattened enum names it documents — `Qt.AlignLeft`, `QPainter.Antialiasing`, `Qt.Key_F11` — while its generated stubs declare only the scoped ones. That was **140 of the first run's 183 errors**, across 58 distinct symbols, every one of them code that runs. The alternative is rewriting every paint call site to `Qt.AlignmentFlag.AlignLeft` and rewrapping most of the lines that touches. Everything else stays on in `ui/`, and that is where the value was: `arg-type`, `union-attr` and `return-value` between them found the wave's buffers typed `QImage | None` in front of six unguarded paint calls. |
+| **Dependency ranges get ceilings, and the four Qt pins stay `==`** | The DSP is `float32[n, 2]` by contract at every layer and the resampler indexes it with `int64`; a major version of numpy is entitled to change what either means, and the failure would be *audible* rather than loud. soundfile and sounddevice wrap the two C libraries that decode MP3 and open WASAPI, and the build pulls both in by name. The Qt four are exact because a shiboken6 that does not match its PySide6 is an ABI error at import. `requirements.txt` stays the file humans install from; `pyproject.toml` carries the same set as metadata. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 ### Open questions
@@ -500,6 +523,17 @@ don't invent a second way to do a thing we've already solved.
   control's box" is arithmetic on `theme.py` constants and belongs in an
   assertion. Batch 8's third info line got both: an assertion for the collision
   and a render for whether it reads.
+- **A rule you switch off gets its reason written where the switch is.**
+  Every `ignore` in `pyproject.toml` carries the argument for it in a comment
+  above it, because a bare rule code in a config file is indistinguishable from
+  someone silencing a finding they did not want to read. It is the same habit as
+  the decisions log, one directory down: the next person needs to be able to
+  disagree with the reasoning rather than guess at it.
+- **The linter and the type checker are not redundant, and they overlap
+  exactly where the exemptions are.** Ruff's `ANN001` is off for Qt event
+  handlers, which is right — and it means ruff is also silent about every *other*
+  unannotated parameter, including two in `core/`. mypy caught both. Before
+  turning a rule off in one tool, check what the other one still sees.
 - **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
   `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
@@ -1068,9 +1102,9 @@ lives.
 |---|---|
 | No `LICENSE`, and mutagen is GPL-2.0, linked directly and bundled into the exe — the zip already carries copyleft with nothing in the repo saying so | 11 |
 | No `__version__` anywhere, so every zip is named identically and two releases are indistinguishable by filename | 11 |
-| No `pyproject.toml`, no pytest config, no lint/type/format config of any kind — the discipline is there, nothing pins it | 12 |
-| Dependency ranges float with no upper bound, over dtype-sensitive DSP | 12 |
-| No CI | 12 |
+| ~~No `pyproject.toml`, no pytest config, no lint/type/format config of any kind — the discipline is there, nothing pins it~~ *(done, Batch 12 — format config deliberately declined)* | 12 |
+| ~~Dependency ranges float with no upper bound, over dtype-sensitive DSP~~ *(done, Batch 12)* | 12 |
+| ~~No CI~~ *(written, Batch 12 — but never run; no remote until Batch 15)* | 12 |
 | No logging and no top-level exception handler: under `pythonw.exe` a slot exception is a silent process death and a failed settings write is invisible | 13 |
 | `theme._accent_text_mix` — a derived global cache with two writers and no invalidation guard | 14 |
 | The Settings rows are a hand-maintained parallel array | 14 |
@@ -1233,18 +1267,18 @@ Not done, deliberately: the exe is *not* the release artifact. Batches 12–15
 change the build again, and Batch 15 owns the tag, the icon, the automated smoke
 test and the zip anyone downloads.
 
-### Batch 12 — Project metadata and enforcement
+### Batch 12 — Project metadata and enforcement ✅
 
 The sharpest structural gap in the repo. The annotation and formatting
 discipline is already good enough to pass these tools — it just isn't pinned, so
 it decays the moment a second person contributes.
 
-- [ ] `pyproject.toml` — `[project]`, `[tool.pytest.ini_options]`,
+- [x] `pyproject.toml` — `[project]`, `[tool.pytest.ini_options]`,
       `[tool.ruff]`, `[tool.mypy]`
-- [ ] Cap the floating dependency ranges
-- [ ] Fix what the tools flag
-- [ ] `.github/workflows/ci.yml` — Windows: ruff + mypy + pytest
-- [ ] `README.md` — the badge, and what CI does *not* cover
+- [x] Cap the floating dependency ranges
+- [x] Fix what the tools flag
+- [x] `.github/workflows/ci.yml` — Windows: ruff + mypy + pytest
+- [x] `README.md` — the badge, and what CI does *not* cover
 
 **Windows-only, declared.** Chosen with the user. The README currently hedges —
 "nothing is Windows-specific by design" — and that claim has never been run.
@@ -1277,6 +1311,87 @@ with a permanently split pass count, which is a batch of its own if it is ever
 wanted. So the harness stays a local pre-release step, which is what it already
 effectively is — and **the README must say the badge covers `core/` only**, or a
 green badge reads as "the UI is tested" when the UI is the part with no tests.
+
+**The prediction was right about the shape and wrong about the size.** The audit
+guessed "three missing return annotations, two over-length lines and ~22
+unannotated `event` parameters". It was exactly three return annotations
+(`Mixer.set_track`, `AudioEngine.load`, `sfx._glide`) and four over-length lines,
+all four in the harness. The rest of the 67 findings were things nobody had
+listed: 31 dead `# noqa` directives, a percent-format in a test, a mutable class
+attribute, four `int(round(...))` where `round` already returns an int, and one
+`zip(knots, knots[1:])` that is spelled `itertools.pairwise`. None of it was a
+bug. That is the point — **the tools were adopted because the discipline is
+already there, and the job was pinning it, not repairing it.**
+
+**The `event` question was decided rather than half-done**, as the batch asked.
+`ANN001` is off, globally, with the reason written next to it in
+`pyproject.toml`: a Qt override's parameter type is fixed by the base class,
+PySide6 already states it in its own stubs, and annotating twenty-two of them
+adds an import per widget to restate what Qt knows. What that costs is visible
+one layer down, and worth knowing: with `ANN001` off, ruff had nothing to say
+about `StreamWatch.__init__(self, stall_s, clock=time.monotonic)` or
+`AudioEngine._callback(self, outdata, frames, _time_info, status)` — **both of
+which mypy caught, because they are in `core/` where nothing is exempt.** The two
+tools are not redundant, and the overlap is exactly where the exemptions are.
+
+**mypy came back with 183 errors and 140 of them were one thing.** PySide6
+supports the flattened enum names it has always documented — `Qt.AlignLeft`,
+`QPainter.Antialiasing`, `Qt.Key_F11` — and its *generated stubs* declare only
+the scoped spellings. 58 distinct symbols across every painting file, all of them
+code that runs correctly. The alternative to switching `attr-defined` off in
+`ui/` is rewriting every paint call site to `Qt.AlignmentFlag.AlignLeft`, which
+would also rewrap most of the lines it touched. It is a decisions-log row, and
+`ui/` keeps every other check — which is not a token concession, because **the
+half that stayed on is the half that found something**: `wave.py`'s two buffers
+were typed `QImage | None` and dereferenced without a guard in six places. Not a
+live bug — `_resize_buffers` runs first and always assigns — but an `Optional`
+nobody could ever hit, standing in front of six real paint calls. They are null
+`QImage`s now, which the existing size comparison rebuilds on the first frame
+exactly as the `None` check did.
+
+**`ruff format` is configured out, not in.** It is the one tool here that was
+declined, and the reason is that its entire quarrel with this repo is
+line-joining: 290 changed lines across 17 files, every one of them a
+hand-wrapped signature or a comment block that the formatter would rejoin
+because it fits. A batch whose job is to pin the discipline that already exists
+should not spend its diff rewriting that discipline into a different one. The
+linter is pinned; layout stays a judgement. `line-length` is 96 for the same
+reason — it is where this code already lives, so it is a ceiling rather than a
+target, and only four lines had ever crossed it.
+
+Also landed: `pythonpath = ["."]` in the pytest config, which is the whole
+reason `[tool.pytest.ini_options]` was on the list — `pytest` had been resolving
+`mp3player` by rootdir insertion, which is luck, and luck a CI runner does not
+have. `.gitignore` picked up `.ruff_cache/`, `.mypy_cache/` and `*.egg-info/`.
+
+Verified: **244 tests green** (unchanged, and unchanged is right — this batch
+adds no behaviour), `tools/shell_harness.py` **251/251** with the known flake
+passing on the first run, and `ruff check .` and `mypy` both clean over the whole
+tree. `pip install -e . --no-deps` resolves the dynamic version to `1.1.0` out of
+`mp3player/__init__.py`, which is the check that matters for `[project]`: the
+version keeps one owner and the metadata reads it rather than copying it.
+Rendered Now Playing at three speeds and looked at it, because the fixes touched
+four paint sites (`theme.mix`, the wave's buffers, the info block's `zip`, the
+volume readout). Launched the app for real under both `python.exe` and
+`pythonw.exe`: it starts, paints, holds a live WASAPI stream and writes nothing
+to stderr.
+
+Two things not done, both deliberate:
+
+**The CI workflow has never run.** There is no GitHub remote yet — Batch 15 is
+what pushes one. It targets `windows-latest` and Python 3.13 and its three
+commands are the three that pass locally, but **a workflow that has not gone
+green has not been checked.** Expect to fix it on the first push; the likeliest
+failure is `import sounddevice` on a runner with no audio device, which
+`tests/test_engine.py` performs at import time.
+
+**The app was not closed by hand at the end of the real run.** `CloseMainWindow`,
+`taskkill` and a posted `WM_CLOSE` all fail to reach this window: it is
+frameless and sets no title, so Windows reports no main window handle for the
+process and the graceful paths have nothing to address. That is a property of
+driving it from PowerShell, not a defect — the exe *was* closed this way in Batch
+11, and the harness exercises the real `shutdown()` — but it means the exit path
+was not re-verified here. Nothing in this batch touches it.
 
 ### Batch 13 — Diagnosability: logging and the crash path
 
@@ -1424,8 +1539,15 @@ powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .ln
 # the standalone build -- distribution only, never the edit-run loop
 venv/Scripts/python.exe tools/build_exe.py    # -> dist/XMB Player/ + a zip
 
-# tests
+# the three checks CI runs, in the order it runs them. All configured in
+# pyproject.toml, which also says why each disabled rule is disabled.
+venv/Scripts/python.exe -m ruff check .
+venv/Scripts/python.exe -m ruff check . --fix     # the mechanical half
+venv/Scripts/python.exe -m mypy
 venv/Scripts/python.exe -m pytest
+
+# `ruff format` is NOT part of this -- see the decisions log. It is not wrong,
+# it just wants to rejoin ~290 hand-wrapped lines to say the same things.
 
 # the Batch 4 harness -- drives the real widgets offscreen, no display
 venv/Scripts/python.exe tools/shell_harness.py

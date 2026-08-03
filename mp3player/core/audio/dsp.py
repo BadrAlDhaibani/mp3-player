@@ -17,7 +17,7 @@ FADE_MS = 10.0
 
 def fade_frames(sample_rate: int, ms: float = FADE_MS) -> int:
     """How many frames a full 0 -> 1 fade spans at `sample_rate`."""
-    return max(1, int(round(sample_rate * ms / 1000.0)))
+    return max(1, round(sample_rate * ms / 1000.0))
 
 
 def resample(

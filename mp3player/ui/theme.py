@@ -12,6 +12,7 @@ painted *over* `background_brush`; the gradient is what shows through it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QFont, QLinearGradient
@@ -72,7 +73,7 @@ def mix(first: QColor, second: QColor, amount: float) -> QColor:
     amount = max(0.0, min(1.0, amount))
 
     def channel(a: int, b: int) -> int:
-        return int(round(a + (b - a) * amount))
+        return round(a + (b - a) * amount)
 
     return QColor(
         channel(first.red(), second.red()),
@@ -98,7 +99,7 @@ def font(
     pixels: int,
     *,
     family: str = UI_FAMILY,
-    weight: int = QFont.Normal,
+    weight: QFont.Weight = QFont.Normal,
     letter_spacing: bool = False,
 ) -> QFont:
     """A cached font. Pixel-sized so metrics don't move with the DPI setting.
@@ -421,7 +422,7 @@ def set_palette(name: str) -> bool:
 def _along(knots: Knots, fraction: float) -> float:
     """Piecewise-linear lookup through `knots`, clamped at both ends."""
     fraction = max(0.0, min(1.0, fraction))
-    for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
+    for (x0, y0), (x1, y1) in pairwise(knots):
         if fraction <= x1:
             span = x1 - x0
             return y0 if span <= 0 else lerp(y0, y1, (fraction - x0) / span)

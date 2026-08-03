@@ -21,7 +21,8 @@ from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 
-from mp3player.core import library, settings as settings_mod
+from mp3player.core import library
+from mp3player.core import settings as settings_mod
 from mp3player.core.library import ScanResult
 from mp3player.core.tags import read_art
 from mp3player.ui import theme
@@ -851,9 +852,7 @@ class MainWindow(ChromeWindow):
             self.stage.bar.step(-1)  # XMB's "back" is a step left
         elif key == Qt.Key_Space:
             self._toggle()
-        elif key == Qt.Key_F11:
-            self._fullscreen()
-        elif key == Qt.Key_Escape and self.isFullScreen():
+        elif key == Qt.Key_F11 or (key == Qt.Key_Escape and self.isFullScreen()):
             self._fullscreen()
         else:
             return False

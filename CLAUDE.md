@@ -54,7 +54,9 @@ legal text, and where the two disagree the licence wins.
 > third-party texts in `licenses/`, and `__version__ = "1.1.0"` in
 > `mp3player/__init__.py` — which names the zip, stamps the exe's Windows version
 > resource and is what `QApplication` reports. **Bump it in that one file and
-> nowhere else.**
+> nowhere else.** The number was picked in-session rather than settled in
+> advance; it was raised with the user, who was indifferent to it. **It stands
+> — don't re-open it.**
 >
 > **Batches 12–15 remain, and none of them is started.** They came out of an
 > audit run in one sitting (recorded in *The ship-prep audit* below, so nobody
@@ -73,7 +75,9 @@ legal text, and where the two disagree the licence wins.
 > ship-prep batches, none of which touches a sound, a curve or a palette.
 >
 > 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
->    unticked roadmap box. Shipping without it was decided with the user — the
+>    unticked box in a batch that is otherwise finished — everything else
+>    unticked belongs to 12–15, which have not started. Shipping without it was
+>    decided with the user — the
 >    numbers are unverified, not known wrong. Run `tools/sfx_harness.py` and
 >    listen, especially `m` (a held arrow key) and `p` (blips over music). The
 >    levers are `_PEAKS` in `core/audio/sfx.py` for the mix and `_MIN_GAP_MS` in
@@ -266,7 +270,8 @@ here and write down why.
 | **The mode has three explicit exits and three that are just leaving** | A mode you can enter and not leave is worse than no mode. Enter, Esc and Backspace step out by name. Everything else that gets you out does it by *moving the cursor off the row* — ↑↓, Home, End, the wheel, a click on another row — and that is **one** connection to `index_changed`, not five branches. `index_changed` is the signal this project had deliberately never wired anything to, because it also fires when the app moves the cursor itself; that is precisely why it works here, since whoever moved the cursor, the user is no longer on that row. Ctrl and Shift arrows stay transport throughout: you may well be listening while you pick, and the mode is about one row's value, not about the whole keyboard. |
 | **The Settings rows have names now** | `ItemColumn` activates by index and has no notion of an id, so a list and an if-chain of bare integers were held together by counting. Batch 10 inserted a row in the *middle* of that list, which without names is a silent misfire rather than a rename — `Full screen` would have quit. `SET_FOLDER … SET_QUIT` in `main_window.py`, plus a harness check that the label at each index is the one its branch expects. |
 | **The Now Playing info block is three fixed slots, not a flowing list** | Artist · Album, then the length, then where you are. Most of this library is untagged, so a block that closed up when there was no credit would jump on nearly every track change — and things staying put is most of what makes an XMB feel like one. An empty first line is drawn as nothing and keeps its space. Three lines needed the offsets tightened from 54/78 to 46/68/90: a third at the old spacing lands 1 px off the slider's box, which is not clearance. |
-| **The project is GPL-2.0-or-later, and `__version__` lives in `mp3player/__init__.py`** | Chosen with the user in Batch 11. mutagen is GPL-2.0 and `core/tags.py` links it directly, so the distributed zip has been a combined work since Batch 8 — writing that down costs nothing and is the honest option. The version starts at **1.1.0**: `v1` was a git tag and nothing else, so two builds were indistinguishable by filename, by file properties and from inside the app. One owner, three consumers — the zip name, the exe's Windows version resource, and `QApplication.setApplicationVersion`. |
+| **The project is GPL-2.0-or-later** | Chosen with the user before Batch 11. mutagen is GPL-2.0 and `core/tags.py` links it directly, so the distributed zip has been a combined work since Batch 8 — writing that down costs nothing and is the honest option. The alternatives (MIT source with a GPL binary; dropping mutagen for a hand-rolled ID3 reader) are argued out in the Batch 11 section. |
+| **`__version__` lives in `mp3player/__init__.py`, and starts at `1.1.0`** | `v1` was a git tag and nothing else, so two builds were indistinguishable by filename, by file properties and from inside the app. `1.1.0` because Batches 8–10 are features and nothing was removed. The number was proposed in-session rather than settled in advance, put to the user, and left to stand — so it is settled, not merely unchallenged. One owner, three consumers: the zip name, the exe's Windows version resource, and `QApplication.setApplicationVersion`. |
 | **Licence texts are checked in, never fetched at build time** | A release must not depend on gnu.org being reachable, and a licence file that is downloaded is a licence file that can silently change under you between two builds of the same version. `licenses/` holds only what does not already ship inside a dependency's own package — Qt's LGPLv3+GPLv3 and PortAudio's MIT — because duplicating libsndfile's `COPYING`, which PyInstaller already collects, creates two copies that can disagree. `licenses/README.md` exists to say which are deliberately absent. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
@@ -1370,7 +1375,7 @@ it".
 - [ ] `build_exe.py` smoke-tests the exe it just built
 - [ ] `README.md` — a Download section, and the SmartScreen warning explained
 - [ ] `docs/RELEASING.md` — the checklist
-- [ ] Rebuild the exe (three batches behind, and 11–14 change the build)
+- [ ] Rebuild the exe (current as of Batch 11, but 12–15 change the build again)
 - [ ] Tag, push, attach the zip, cut the release
 
 **Generate the `.ico` rather than checking one in.** The app has no icon

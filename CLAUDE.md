@@ -46,10 +46,12 @@ legal text, and where the two disagree the licence wins.
 > Batch 11 (licence, provenance and version — 244 tests, `.exe` rebuilt at 1.1.0) ·
 > Batch 12 (metadata and enforcement — 244 tests, 251 harness checks, ruff and
 > mypy clean) ·
-> Batch 13 (diagnosability — 253 tests, 267 harness checks, and a log file)
+> Batch 13 (diagnosability — 253 tests, 267 harness checks, and a log file) ·
+> Batch 14 (the four design defects — 256 tests, 286 harness checks, nothing
+> moved on screen)
 >
-> **v1 is shipped; Batches 8 through 13 landed on top of it.** Every box
-> through Batch 13 is ticked except the ones listed under *Open, and waiting on a
+> **v1 is shipped; Batches 8 through 14 landed on top of it.** Every box
+> through Batch 14 is ticked except the ones listed under *Open, and waiting on a
 > human* below.
 >
 > **The app now writes a log**, at `%APPDATA%/XMBPlayer/xmbplayer.log`, next to
@@ -75,16 +77,29 @@ legal text, and where the two disagree the licence wins.
 > advance; it was raised with the user, who was indifferent to it. **It stands
 > — don't re-open it.**
 >
-> **Batches 14 and 15 remain, and neither is started.** They came out of an
-> audit run in one sitting (recorded in *The ship-prep audit* below, so nobody
-> re-derives it): four specific defects, and a download a stranger can actually
-> use. **Batch 14 is next.** Note that Batch 11 found one of the audit's own
-> claims to be wrong (see its writeup) — **the audit is a record of one sitting,
-> not a verified spec. Check a claim against the file before acting on it.**
-> Batch 12 is a milder version of the same lesson, and **Batch 13 is the sharpest
-> yet: the audit's central claim about the crash path — that PySide6 terminates
-> the process on a slot exception — is not true of 6.11, and the truth is worse.
-> Check a claim against the *runtime*, not only against the file.**
+> **The four design defects are gone.** `theme`'s accent-text mix is keyed on
+> its inputs rather than refreshed by its writers; the Settings rows are one
+> table of `(label, value, action)`; the cover is read by the controller and
+> handed up as `art_changed`; `refresh_devices` catches `PortAudioError` and lets
+> a renamed private call reach the excepthook. **Nothing on screen moved**, which
+> was the intended result and was checked with renders rather than assumed. Batch
+> 14 is also the first batch since 4 whose writeup has no "and then the renders
+> found this" section — see there for why that is a property of the work rather
+> than luck.
+>
+> **Only Batch 15 remains, and it is not started.** It came out of an audit run
+> in one sitting (recorded in *The ship-prep audit* below, so nobody re-derives
+> it): a download a stranger can actually use. Note that Batch 11 found one of
+> the audit's own claims to be wrong (see its writeup) — **the audit is a record
+> of one sitting, not a verified spec. Check a claim against the file before
+> acting on it.** Batch 12 is a milder version of the same lesson, and **Batch 13
+> is the sharpest yet: the audit's central claim about the crash path — that
+> PySide6 terminates the process on a slot exception — is not true of 6.11, and
+> the truth is worse. Check a claim against the *runtime*, not only against the
+> file.** Batch 14, for the record, found the audit's four defect descriptions
+> accurate — the only place it departed from the brief is the accent cache, where
+> "invalidate on write" would have relocated the requirement rather than removed
+> it.
 >
 > ### Open, and waiting on a human
 >
@@ -96,7 +111,7 @@ legal text, and where the two disagree the licence wins.
 >
 > 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
 >    unticked box in a batch that is otherwise finished — everything else
->    unticked belongs to 12–15, which have not started. Shipping without it was
+>    unticked belongs to Batch 15, which has not started. Shipping without it was
 >    decided with the user — the
 >    numbers are unverified, not known wrong. Run `tools/sfx_harness.py` and
 >    listen, especially `m` (a held arrow key) and `p` (blips over music). The
@@ -121,24 +136,23 @@ legal text, and where the two disagree the licence wins.
 >
 > ### State of the build
 >
-> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** Batch 13 did
-> not touch it either: a new pure-Python module in `core/` is collected by
-> PyInstaller without being told, and nothing about the build changed. It was
-> rebuilt
+> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** Batches 12,
+> 13 and 14 all left it alone, and all for the same reason: metadata, config, CI,
+> a new pure-Python module in `core/` and four targeted source fixes are every
+> one of them outside what PyInstaller reads. It was rebuilt at 11
 > because Batch 11 changed the build itself — a version resource and the first
 > bundled data files — and a build-script change that is never run is a
 > build-script change that is never checked. It carries Batches 9 and 10's
-> UI work along with it. **Batch 15 still owns the release rebuild**, because
-> Batches 13–15 change the build again (an icon, a smoke test); this one proves
-> the mechanism, not the artifact. Batch 12 did not touch it: metadata, config
-> and CI are all outside what PyInstaller reads.
+> UI work along with it. **Batch 15 owns the release rebuild**, because
+> Batch 15 changes the build again (an icon, a smoke test); the Batch 11 one
+> proves the mechanism, not the artifact.
 >
 > Rebuilding is still not part of development, which runs live source, and
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
 > Also: the `v1` git tag is **behind `HEAD`** and does not describe the current
-> code. Batches 8 through 13 all landed after it, and the version the code now
+> code. Batches 8 through 14 all landed after it, and the version the code now
 > declares is `1.1.0`. Retagging is Batch 15's job, not something to do in
 > passing.
 >
@@ -146,16 +160,17 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **266/267 with
+> position read, it predates Batch 9, and it passes on a re-run. **285/286 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
 >
-> **Batch 14 — the four design defects.** Then 15. **Batch 13 has already put
-> the log there**, which is what Batch 14's narrowed `refresh_devices` exception
-> was waiting for — the `except` in that function logs today and still catches
-> `Exception`; narrowing it is 14's line to write. **Confirm the batch with the
-> user before starting it** — one batch at a time, no building ahead.
+> **Batch 15 — the download story**, and it is the last one on the list: an
+> icon generated from `theme.py`, a smoke test of the exe the build just made, a
+> README section explaining the SmartScreen warning, `docs/RELEASING.md`, the
+> rebuild, and the tag and release. It is also the batch that finally *runs* the
+> CI workflow, since it is what pushes a GitHub remote. **Confirm it with the
+> user before starting** — one batch at a time, no building ahead.
 >
 > After 15 the app is shippable and the queue goes back to the post-v1 list in
 > the v1 scope section — shuffle/repeat, export, subfolders, multiple folders.
@@ -310,6 +325,10 @@ here and write down why.
 | **The crash dialog is one-shot, and posted rather than shown** | A broken `paintEvent` raises on *every frame*, so "tell the user" has to mean once per launch or the dialog is the crash. And it is handed to `QTimer.singleShot(0, ...)` instead of opened inside the hook: putting a modal dialog up part-way through somebody else's paint is how a crash report becomes a second crash. |
 | **The file is throttled; the console is not** | `log.due(key, gap_s)` gates anything that can repeat at frame rate — the same exception, a stream of xruns, a reconnect retry every 2 s all evening. Without it the rotation quietly deletes the interesting part of the file to make room for a hundred copies of one traceback. The hook still chains to the previous excepthook every time, because under `run.bat` the console is the fastest way to read one and nothing there rotates. |
 | **A failed settings write is edge-triggered on screen and written down every time** | `save()` has always returned a bool and nothing has ever looked at it — a failed write is experienced as the app forgetting your music folder for no reason, which is the exact symptom the `utf-8-sig` row was written about. It reaches the status line, so it is visible; but only on the *edge*, because `failed` also blips and the next write during a volume drag will fail for the same reason 800 ms later. A notice that re-announces itself is an alarm. |
+| **A derived cache is keyed on its inputs, not refreshed by whoever moved one** | `_accent_text_mix` was a bare global that `set_palette` and `set_accent_fraction` each had to remember to recompute. Both did, and the comment in the first of them named the risk in its own words — which is documenting a hole rather than closing it. `_text_mix()` now caches against `(palette name, fraction)` and recomputes when the key changes, so a third writer of either input, or a third input entirely, is noticed for free. **Cost measured so nobody re-derives it as the reason: 0.051 → 0.033 ms per drag step, against a step that costs 4.70 ms.** That is 0.4%, so it is not a perf change; correctness is the whole of it. |
+| **A best-effort `except` names the failure it is being lenient about** | `refresh_devices` caught `Exception` around two *private* sounddevice calls. The lenient case is real — PortAudio refusing to come down or go back up is what an unplugged device does, on a 2 s timer, for as long as the headphones are out — and it is exactly `sd.PortAudioError`, because both calls route their return codes through `sd._check`. What the same clause also caught was a rename of `_terminate` or `_initialize`: an `AttributeError` that stopped reconnection working *forever* while the retry timer went on firing and the "audio device lost" line stayed up, indistinguishable from the device still being unplugged. Loose, it reaches `sys.excepthook` — one log entry, one dialog, and the retries continue exactly as they would have. Batch 13 is what made that a sane outcome rather than a crash. |
+| **The cover is read by the controller and handed up as a signal** | `main_window` called `core.tags.read_art` directly: file I/O and a full ID3 parse performed by a widget, in the project whose one architectural rule is that widgets don't do that. A signal (`art_changed`, carrying `bytes \| None`) rather than a property the window asks for, because *when* a track changes is the controller's to know and a property leaves the widget deciding when to hit the disk. **The `core` hands up bytes / `ui` makes pixels seam did not move** — `_cover_image` still turns them into a `QImage` or into `None`, and `core.tags` still has no image library. Only the read moved, and it moved to the one place that was already paying 70–210 ms for a decode. |
+| **The Settings rows are one table of `(label, value, action)`** | `_settings_items` and `_activate_settings` were two lists held in the same order by counting. Batch 10 already hit it — inserting `Theme` in the middle shifted `Full screen` and `Quit`, so activating one would have run the other — and the `SET_FOLDER … SET_QUIT` constants named the indices without removing the requirement that two lists agree. `_settings_rows()` removes it: the label and what activating it does are the same tuple. The constants stay, demoted to what outside callers (the harness) use to talk about a row without counting. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 ### Open questions
@@ -559,6 +578,21 @@ don't invent a second way to do a thing we've already solved.
 - **A log is not a print, and this project still has no `print()` in shipped
   code.** The hole Batch 13 filled was that nothing was *recorded*, not that
   nothing was displayed. `tools/` prints because printing is the point there.
+- **A cache that has to be refreshed is a cache keyed on the wrong thing.**
+  If the answer is a function of two module-level values, key it on those two
+  values and recompute on a miss. Refreshing it from the setters means every
+  present *and future* writer has to know, and the way you find out one didn't
+  is by looking at the screen. This is the previous convention — a gate keyed
+  on one input is a hole the moment a second input can change the same output —
+  one step further: the gate at least fails loudly the day someone reads it,
+  where a stale derived colour just looks slightly wrong.
+- **An `except` that is being lenient should name what it is lenient about.**
+  "Best-effort" is a claim about one expected failure, not about every exception
+  the block can raise. `except Exception` around a call you do not control also
+  swallows the day that call is renamed, and the symptom is not an error — it is
+  a feature that quietly stopped working while everything around it kept
+  retrying. Narrow to the expected type and let the rest reach the excepthook;
+  that is what Batch 13 built it for.
 - **Check the runtime, not just the file.** The conventions already say the
   audit is one sitting's findings rather than a spec. Batch 13 extends that:
   its central claim was about how PySide6 behaves, it was wrong, and thirty
@@ -1136,10 +1170,10 @@ lives.
 | ~~Dependency ranges float with no upper bound, over dtype-sensitive DSP~~ *(done, Batch 12)* | 12 |
 | ~~No CI~~ *(written, Batch 12 — but never run; no remote until Batch 15)* | 12 |
 | ~~No logging and no top-level exception handler: under `pythonw.exe` a slot exception is a silent process death and a failed settings write is invisible~~ *(done, Batch 13 — and it is not a process death; see there)* | 13 |
-| `theme._accent_text_mix` — a derived global cache with two writers and no invalidation guard | 14 |
-| The Settings rows are a hand-maintained parallel array | 14 |
-| `read_art` called straight from the widget layer — the one real leak past the controller seam | 14 |
-| `refresh_devices` swallows every exception around *private* sounddevice API | 14 |
+| ~~`theme._accent_text_mix` — a derived global cache with two writers and no invalidation guard~~ *(done, Batch 14 — keyed on its inputs rather than invalidated)* | 14 |
+| ~~The Settings rows are a hand-maintained parallel array~~ *(done, Batch 14)* | 14 |
+| ~~`read_art` called straight from the widget layer — the one real leak past the controller seam~~ *(done, Batch 14 — a signal, not a method; see there)* | 14 |
+| ~~`refresh_devices` swallows every exception around *private* sounddevice API~~ *(done, Batch 14)* | 14 |
 | No icon; no automated smoke test of the built exe; nothing in the README for someone who just wants to download it | 15 |
 
 ### One finding deliberately not in a batch
@@ -1535,16 +1569,16 @@ Qt's half — that `exec()` routes to `sys.excepthook` — was checked directly 
 the scratchpad. What the harness checks is ours: what the hook does when it is
 handed one.
 
-### Batch 14 — The four design defects
+### Batch 14 — The four design defects ✅
 
 Targeted fixes, no restructuring. Each one deletes a *class* of bug rather than
 an instance — which is the bar for being in this batch at all.
 
-- [ ] `theme._accent_text_mix` becomes lazy: compute on read, invalidate on write
-- [ ] The Settings rows become one table of `(label, value_fn, action)`
-- [ ] `read_art` moves behind the controller
-- [ ] `refresh_devices`'s `except` is narrowed and logged
-- [ ] Harness checks and core tests for whatever is testable without a display
+- [x] `theme._accent_text_mix` becomes lazy: compute on read, invalidate on write
+- [x] The Settings rows become one table of `(label, value_fn, action)`
+- [x] `read_art` moves behind the controller
+- [x] `refresh_devices`'s `except` is narrowed and logged
+- [x] Harness checks and core tests for whatever is testable without a display
 
 **1. The accent-text cache.** Two writers, `set_palette` and
 `set_accent_fraction`, both of which must recompute it, neither of which is
@@ -1586,6 +1620,105 @@ which is why it is sequenced first. **The logging half is already done**: the
 `except` writes a warning with its traceback today, and still catches
 `Exception`. What is left here is the narrowing, which is one line and one
 argument about which exceptions are actually expected.
+
+---
+
+**The batch found nothing, and that is the first time.** Every batch since 4 has
+had a section here about what the renders caught or what the audit got wrong.
+This one has no such section: four fixes were specified, four fixes landed, and
+the renders at the end were checked against the expectation that *nothing moved*
+— which is what they showed. Worth saying out loud rather than leaving as an
+absence, because the pattern of the previous ten batches would have the next
+person looking for the twist.
+
+There is a reason it went that way, and it is not luck. All four are the same
+shape of change: **each one removes something somebody has to remember**, and
+none of them changes a pixel, a sound, a curve or a number. The audit's own bar
+for this batch — "deletes a *class* of bug rather than an instance" — is also
+the property that makes them safe, because a fix that only removes a requirement
+cannot introduce a behaviour.
+
+**The accent-text cache is the one worth reading the diff of.** The brief said
+"compute on read, invalidate on write", and invalidate-on-write is still two
+writers who have to remember — the same requirement one level down. Keying the
+cache on `(palette name, fraction)` and recomputing on a miss removes the
+requirement instead of relocating it: any future writer of either value, or any
+third input, is noticed without being told. The harness check is the bug itself,
+written down — set XMB Blue at 1.00x (which needs no lift), assign
+`theme._palette = Ember` **directly, straight past the setter**, and demand the
+result still clears 7:1. Ember at 1.00x measures 6.99:1 raw and takes exactly one
+0.05 step, so a stale mix of zero lands it just *under* the floor. One
+comparison, and it is the whole defect.
+
+**The performance argument for that change is real and does not matter**, which
+is worth recording because it is the kind of number this file collects and
+somebody will otherwise re-derive it as a justification. The contrast loop used
+to run on every `set_accent_fraction`, i.e. once per mouse-move of a drag; behind
+the key it runs when the answer can have changed. Measured over a 300-step drag:
+**0.051 ms/step down to 0.033**, against a drag step that costs 4.70 ms in total.
+0.4%. The reason for the change is that the old one could be silently wrong.
+
+**`refresh_devices` was the one with an actual decision in it.** Narrowing
+`except Exception` means saying which exceptions are expected, and the answer
+turned out to be exactly one: both `sd._terminate` and `sd._initialize` route
+their return codes through `sd._check`, so `PortAudioError` is the whole of the
+lenient case — and it is genuinely lenient, being what an unplugged device does
+every 2 s for as long as the headphones are out. The interesting half is what
+happens to the *other* one. An `AttributeError` from a renamed private call now
+propagates, out of `reopen`, out of the reconnect slot, into `sys.excepthook`:
+one log entry, one dialog, and the retry timer carries on exactly as before. That
+is only a sane outcome because Batch 13 exists, which is why the audit sequenced
+it first — and it is the sequencing paying off rather than merely being tidy.
+Three core tests pin it, and none of them touch the real PortAudio: both calls
+are replaced, because the live stream is still open and the function is
+documented as needing it closed.
+
+**`read_art` moved as a signal rather than as a method**, and the distinction is
+the point of the finding. A `controller.current_art()` the window calls would
+satisfy the letter — nothing above the seam imports `core.tags` any more — while
+leaving the widget deciding when to hit the disk, which is the actual complaint.
+`art_changed(bytes | None)` puts *when* on the side that already owns it: it is
+emitted next to `track_changed`, in the two places that exist, one of which is
+immediately after the 70–210 ms decode the timing comment was always about. The
+`core` hands up bytes / `ui` makes pixels seam is untouched and was never the
+problem; `_cover_image` just takes bytes now instead of a path.
+
+**The Settings table is the smallest change and closes the oldest hole.** Batch
+10 hit this defect for real and mitigated it with names; the names were right and
+were never sufficient, because two lists in one order is a requirement whatever
+the indices are called. `_settings_rows()` is now the only place the order is
+stated, `_settings_items()` is derived from it, and `_activate_settings` is a
+lookup. The `SET_*` constants stay, demoted: nothing inside the file counts with
+them any more, and the harness uses them to name a row. The check that earns its
+keep pins each *action* to its index, not just each label — which is the half
+that was never checkable before, because the actions were branch bodies.
+
+Verified: **256 tests green** (3 new, core-only as the convention requires — the
+`refresh_devices` split, both directions, plus the ordering of the two calls).
+`tools/shell_harness.py` **286/286** on one run and 285/286 on another with the
+known WASAPI flake, 19 new: the accent floor holding when either input is written
+behind the setter's back and across all five presets at three speeds, 1.00x still
+taking no lift at all, the five rows and each row's action, the painted items
+being derived from that same table, an out-of-range activation being a no-op, the
+controller handing a cover up on a track change as bytes and never as a `QImage`,
+`_cover_image` on nothing and on bytes that aren't an image, and the two
+`refresh_devices` outcomes. `ruff check .` and `mypy` clean. Rendered Settings at
+720x480, the stepped-into row, Now Playing with a real cover and Music, all at
+three speeds, and looked at them: nothing moved, which is the result this batch
+wanted. Ran the app for real with a mapped window — played a track (the cover
+reached the page through the new signal), stepped into the Theme row and walked
+it in both directions, stepped out, and quit **through the Quit row**, which is
+the table's own action running: exit 0, four clean lines in the log, zero late
+audio blocks.
+
+`core/audio/engine.py` is the only file below the seam this batch touched, and
+what it touched is one `except` clause. `wave.py`, `item_column.py`,
+`now_playing.py`, `transport.py`, `crossbar.py`, `chrome.py`, `sounds.py`,
+`motion.py` and every module in `core/` besides that one are untouched.
+
+Not done: the `.exe`, for the same reason as Batches 9, 10, 12 and 13 — nothing
+here changes what PyInstaller reads. **Batch 15 owns the release rebuild**, and
+it is the batch that changes the build again.
 
 ### Batch 15 — The download story
 

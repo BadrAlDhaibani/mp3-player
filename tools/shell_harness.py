@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from mp3player import app as app_mod  # noqa: E402
 from mp3player.core import log as log_mod  # noqa: E402
 from mp3player.core import settings as settings_mod  # noqa: E402
+from mp3player.core.audio import engine as engine_mod  # noqa: E402
 from mp3player.core.audio import sfx  # noqa: E402
 from mp3player.core.audio.engine import (  # noqa: E402
     AudioDeviceError,
@@ -50,6 +51,7 @@ from mp3player.core.audio.engine import (  # noqa: E402
 )
 from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.core.models import Track  # noqa: E402
+from mp3player.core.tags import read_art  # noqa: E402
 from mp3player.ui import main_window, theme  # noqa: E402
 from mp3player.ui.controller import SAVE_FAILED_TEXT, PlayerController  # noqa: E402
 from mp3player.ui.main_window import (  # noqa: E402
@@ -211,6 +213,10 @@ def main() -> int:
     # Installed before the window exists, because the window sounds the startup
     # swell in its constructor -- the same place it starts the entrance.
     log = SoundLog(controller)
+    # Every cover the controller hands up, in order. The read used to be done by
+    # the widget; what this records is that it is the controller's now.
+    art_seen: list[object] = []
+    controller.art_changed.connect(art_seen.append)
 
     window = MainWindow(controller)
     launched_with = log.take()
@@ -1123,16 +1129,26 @@ def main() -> int:
         )
         check("paints a list of tagged rows", not window.grab().isNull())
 
-        # The other half of the core/ui seam: `read_art` hands up bytes and has
-        # no idea what they are, and this is where they become pixels.
-        image = main_window._cover_image(tagged_path)
+        # The other half of the core/ui seam: `core.tags` hands up bytes and has
+        # no idea what they are, and this is where they become pixels. That half
+        # did not move in Batch 14 -- only the *reading* did, which is what the
+        # `art_changed` checks below are about.
+        image = main_window._cover_image(read_art(tagged_path))
         check("the embedded cover decodes to an image", image is not None)
         check(
             "...at the size it was written",
             image is not None and (image.width(), image.height()) == (64, 64),
             "" if image is None else f"{image.width()}x{image.height()}",
         )
-        check("a file with no tag has no cover", main_window._cover_image(bare_path) is None)
+        check(
+            "a file with no tag has no cover",
+            main_window._cover_image(read_art(bare_path)) is None,
+        )
+        check("...and neither has nothing at all", main_window._cover_image(None) is None)
+        check(
+            "a frame Qt cannot decode is the same as no frame",
+            main_window._cover_image(b"not an image, but definitely bytes") is None,
+        )
 
         bar.set_index(CAT_NOW)
         app.processEvents()
@@ -1183,8 +1199,25 @@ def main() -> int:
         credit(Track(Path("x.mp3"), "t")) == "",
     )
     bar.set_index(CAT_NOW)
+    art_seen.clear()
     controller.play_index(0)
     app.processEvents()
+    # The controller reads the cover, not the widget. Whether *this* file has one
+    # is the library's business, so what is checked is that a track change hands
+    # one up at all, and that its type is the raw bytes the seam promises.
+    check("playing a track hands a cover up from the controller", len(art_seen) == 1,
+          f"{len(art_seen)} emission(s)")
+    check(
+        "...as bytes or nothing, never a QImage",
+        all(item is None or isinstance(item, bytes) for item in art_seen),
+        str([type(item).__name__ for item in art_seen]),
+    )
+    check(
+        "...and the page is holding whatever that decoded to",
+        (page.art is None) == (main_window._cover_image(art_seen[0]) is None)
+        if art_seen
+        else False,
+    )
     check("a loaded track fills all three info slots", len(page.state.lines) == 3)
     check(
         "...with the credit first and the length under it",
@@ -1386,6 +1419,126 @@ def main() -> int:
     check("...and so is getting it back", "audio device back:" in text)
     check("...and the retry that failed in between", "still no audio device" in text)
     check("a failed settings write is written down", "could not write settings" in text)
+
+    print("\n-- the accent-text mix has no writer left to forget it")
+    # The defect was a derived global that two functions each had to remember to
+    # refresh. Both did; a third writer would not have, and the symptom is
+    # unreadable text -- a colour, not an error. So the check writes the input
+    # *directly*, which is the thing that used to desync it and now cannot.
+    theme.set_palette("XMB Blue")
+    theme.set_accent_fraction(0.4)
+    check("XMB Blue at 1.00x needs no lift toward white", theme._text_mix() == 0.0,
+          f"{theme._text_mix():.2f}")
+    theme._palette = theme.PALETTES[1]  # Ember, straight past `set_palette`
+    check(
+        "a palette set behind the setter's back still gets its own lift",
+        theme._contrast(theme.accent_text(), theme.BG_MID) >= theme._TEXT_CONTRAST_FLOOR,
+        f"{theme._contrast(theme.accent_text(), theme.BG_MID):.2f}:1",
+    )
+    # Ember at 1.00x is the tight one: 6.99:1 raw against a 7.0 floor, so a mix
+    # left over from a palette that needed none lands it just under. That is the
+    # whole bug, in one comparison.
+    check("...which for Ember is one step and not zero", theme._text_mix() > 0.0,
+          f"{theme._text_mix():.2f}")
+    theme._accent_fraction = 0.0  # the other input, also written directly
+    check(
+        "a fraction set the same way is noticed too",
+        theme._contrast(theme.accent_text(), theme.BG_MID) >= theme._TEXT_CONTRAST_FLOOR,
+        f"{theme._contrast(theme.accent_text(), theme.BG_MID):.2f}:1",
+    )
+    # Every palette, every end, however the state got there.
+    theme.set_palette(settings_mod.DEFAULT_THEME)
+    theme.set_accent_fraction(0.4)
+    floor_held = True
+    for preset in theme.PALETTES:
+        theme._palette = preset
+        for fraction in (0.0, 0.4, 1.0):
+            theme._accent_fraction = fraction
+            floor_held &= (
+                theme._contrast(theme.accent_text(), theme.BG_MID)
+                >= theme._TEXT_CONTRAST_FLOOR
+            )
+    check("the floor holds across all five presets at three speeds", floor_held)
+    # And the invariant the whole ramp hangs on, re-checked after all that.
+    theme.set_palette(settings_mod.DEFAULT_THEME)
+    theme.set_accent_fraction(0.4)
+    # "To within a rounding step", the same tolerance the checks further up use:
+    # `wave_color` recomputes the anchor through HSV and lands a unit off in red.
+    # What matters here is that it takes *no lift* -- a stale mix would move it
+    # by 0.05 of the way to white, which is 6 or 7 units, not one.
+    check("1.00x on the default is still ACCENT after all that",
+          theme._text_mix() == 0.0
+          and max(abs(theme.accent_text().red() - theme.ACCENT.red()),
+                  abs(theme.accent_text().green() - theme.ACCENT.green()),
+                  abs(theme.accent_text().blue() - theme.ACCENT.blue())) <= 1,
+          f"{theme.accent_text().getRgb()[:3]} vs {theme.ACCENT.getRgb()[:3]}")
+    controller.set_theme(saved.theme)
+    app.processEvents()
+
+    print("\n-- the Settings rows are one table")
+    rows = window._settings_rows()
+    check("five rows, in the order the constants name",
+          [r.label for r in rows] == ["Music folder", "Rescan folder", "Theme",
+                                      "Full screen", "Quit"],
+          str([r.label for r in rows]))
+    # The point of the fix: the label and what activating it does are the same
+    # tuple, so inserting a row cannot shift one without the other. These pin
+    # each named index to the action it is supposed to carry.
+    check("...and each one carries its own action", all(
+        rows[index].action == expected
+        for index, expected in (
+            (main_window.SET_FOLDER, window._choose_folder),
+            (main_window.SET_RESCAN, controller.rescan),
+            (main_window.SET_THEME, window._start_stepping),
+            (main_window.SET_FULLSCREEN, window.toggle_fullscreen),
+            (main_window.SET_QUIT, window.close),
+        )
+    ))
+    items = window._settings_items()
+    check("the painted items are derived from that same table",
+          [(i.label, i.value) for i in items] == [(r.label, r.value) for r in rows])
+    before_folder = controller.folder
+    rows[main_window.SET_RESCAN].action()
+    app.processEvents()
+    check("...and an action off the table really runs", controller.folder == before_folder
+          and bool(controller.tracks))
+    # Out of range does nothing rather than raising: `activate` fires on whatever
+    # the cursor is on, and the two lists are rebuilt independently.
+    window._activate_settings(len(rows))
+    window._activate_settings(-1)
+    check("an index off the end of the table is a no-op", True)
+
+    print("\n-- re-enumerating devices fails loudly when it fails wrongly")
+    # Never the real PortAudio: the stream is still open and `refresh_devices`
+    # is documented as needing it closed. Both private calls are replaced, so
+    # this exercises the `except` and nothing else.
+    sd = engine_mod.sd
+    real_terminate, real_initialize = sd._terminate, sd._initialize
+
+    def _port_audio_error() -> None:
+        raise sd.PortAudioError("harness: no device to terminate")
+
+    def _renamed() -> None:
+        raise AttributeError("module 'sounddevice' has no attribute '_terminate'")
+
+    sd._terminate, sd._initialize = _port_audio_error, lambda: None
+    engine_mod.refresh_devices()
+    check("a PortAudio failure is still swallowed -- it is the expected one", True)
+    logged = log_file.read_text(encoding="utf-8") if log_file else ""
+    check("...and written down", "could not re-enumerate" in logged)
+
+    sd._terminate = _renamed
+    try:
+        engine_mod.refresh_devices()
+    except AttributeError:
+        renamed_escaped = True
+    else:
+        renamed_escaped = False
+    check(
+        "a renamed private API is no longer swallowed into a dead reconnect",
+        renamed_escaped,
+    )
+    sd._terminate, sd._initialize = real_terminate, real_initialize
 
     controller.shutdown()
     log_mod.close()

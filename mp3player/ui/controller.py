@@ -32,6 +32,7 @@ from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
 from mp3player.core.library import scan_folder
 from mp3player.core.models import Track
 from mp3player.core.settings import Settings
+from mp3player.core.tags import read_art
 from mp3player.ui import theme
 
 _log = log_mod.get("controller")
@@ -73,6 +74,17 @@ class PlayerController(QObject):
     library_changed = Signal(object)  # ScanResult
     folder_changed = Signal(object)  # Path | None
     track_changed = Signal(int)  # index into `tracks`, -1 for none
+    # The playing track's embedded cover, as the bytes that sat in the frame --
+    # `None` when there is no track or it named no art. Raw bytes because the
+    # `core` hands up bytes / `ui` makes pixels seam is the right one and is not
+    # what moved: `core.tags` has no image library and is not allowed one, and
+    # `ui` is where a frame Qt cannot decode becomes the note glyph.
+    #
+    # A signal rather than a property the window asks for, because *when* a track
+    # changes is this object's to know. It used to be the widget that decided,
+    # by calling `core.tags.read_art` itself -- file I/O and a full ID3 parse
+    # performed above the one seam this project is built around.
+    art_changed = Signal(object)  # bytes | None
     position_changed = Signal(float, float)  # position, duration (seconds)
     playing_changed = Signal(bool)
     speed_changed = Signal(float)
@@ -174,6 +186,7 @@ class PlayerController(QObject):
         self.folder_changed.emit(self._folder)
         self.library_changed.emit(result)
         self.track_changed.emit(-1)
+        self.art_changed.emit(None)
         self.position_changed.emit(0.0, 0.0)
         self._set_playing(False)
 
@@ -226,6 +239,13 @@ class PlayerController(QObject):
 
         self.index = index
         self.track_changed.emit(index)
+        # The one place a cover is read, and the reason it is cheap is the line
+        # above it: the decode has just cost 70-210 ms on this library and the
+        # art costs 0.2-11 ms, so it disappears into a wait that already
+        # existed. That is why it belongs on the track change rather than on
+        # anything that merely repaints -- and why `Track` still does not carry
+        # one (decisions log: art is fetched, never carried).
+        self.art_changed.emit(read_art(track.path))
         self.position_changed.emit(self.engine.position, self.engine.duration)
         self._set_playing(self.engine.is_playing)
 

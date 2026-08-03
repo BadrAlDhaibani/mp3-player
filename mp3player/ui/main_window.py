@@ -15,6 +15,8 @@ Three categories, decided with the user: Now Playing, Music, Settings.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
@@ -24,7 +26,6 @@ from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 from mp3player.core import library
 from mp3player.core import settings as settings_mod
 from mp3player.core.library import ScanResult
-from mp3player.core.tags import read_art
 from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
 from mp3player.ui.controller import SEEK_STEP, PlayerController
@@ -38,10 +39,30 @@ from mp3player.ui.widgets.wave import WaveBackground
 CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
 
 # The Settings rows, by position. `ItemColumn` activates by index and has no
-# notion of an id, so these are what keep the list and the dispatch in step --
-# Batch 10 inserted a row in the middle and every branch below it shifted, which
-# without names is a silent misfire rather than a rename.
+# notion of an id, so anything outside this file that wants to talk about a
+# particular row -- the harness does -- says so by name rather than by counting.
+#
+# These used to be load-bearing: the rows and their dispatch were two lists in
+# the same order, and Batch 10 inserting `Theme` in the middle shifted `Full
+# screen` and `Quit` so that activating one ran the other's branch. Naming the
+# indices made that a rename instead of a silent misfire, but it did not remove
+# the requirement that the two lists agree. `_settings_rows` does: the label and
+# what activating it does are now one tuple, so there is no second order to keep.
 SET_FOLDER, SET_RESCAN, SET_THEME, SET_FULLSCREEN, SET_QUIT = range(5)
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsRow:
+    """A Settings row: what it says, what it says on its right, what it does.
+
+    `action` returns whatever it likes and nothing looks -- `QWidget.close`
+    returns a bool, `rescan` returns None, and a row that had to report success
+    would be a row with a status line of its own.
+    """
+
+    label: str
+    value: str
+    action: Callable[[], object]
 
 
 CATEGORIES = (
@@ -349,6 +370,7 @@ class MainWindow(ChromeWindow):
         controller.library_changed.connect(self._on_library)
         controller.folder_changed.connect(self._on_folder)
         controller.track_changed.connect(self._on_track)
+        controller.art_changed.connect(self._on_art)
         controller.position_changed.connect(self._on_position)
         controller.playing_changed.connect(self._on_playing)
         controller.speed_changed.connect(self._on_speed)
@@ -451,17 +473,22 @@ class MainWindow(ChromeWindow):
     def _on_track(self, index: int) -> None:
         track = self.controller.current
         self.transport.set_title(track.title if track else "nothing loaded")
-        # The one place a cover is read. Track change is also where the decode
-        # happens -- 70-210 ms of it -- and pulling the art costs 0.2-11 ms on
-        # this library, so it disappears into a wait that was already there.
-        # Every other path into `_refresh_column` (a speed tick, a duration
-        # arriving) must not reach this, which is why it is here and not there.
-        self.stage.page.set_art(_cover_image(track.path) if track else None)
         if index >= 0:
             self._selection[CAT_MUSIC] = index
             if self._category == CAT_MUSIC:
                 self.stage.column.set_index(index)
         self._refresh_column()
+
+    def _on_art(self, data: object) -> None:
+        """The playing track's cover, as bytes off the controller.
+
+        The `ui` half of the seam: `core.tags` hands up whatever sat in the APIC
+        frame and has no opinion about whether it is an image, and this is where
+        it becomes pixels or doesn't. Reaching down for those bytes from here is
+        what Batch 14 moved -- the read is the controller's now, and the window
+        is told, like it is told about everything else.
+        """
+        self.stage.page.set_art(_cover_image(data if isinstance(data, bytes) else None))
 
     def _on_position(self, position: float, duration: float) -> None:
         self.transport.set_position(position, duration)
@@ -665,7 +692,15 @@ class MainWindow(ChromeWindow):
             return "unreadable"
         return self._folder.name
 
-    def _settings_items(self) -> list[Item]:
+    def _settings_rows(self) -> list[SettingsRow]:
+        """The Settings list, in order. The only place that order is stated.
+
+        Rebuilt per call rather than held, because two of the three values move:
+        the folder summary and the track counts are re-read on every
+        `_refresh_column`, and the theme's chevrons come and go with the mode.
+        Five tuples on a keypress is not a cost worth caching against a bug
+        class this shape.
+        """
         counts = f"{len(self._library.tracks)} tracks"
         if self._library.skipped:
             counts += f"  ·  {len(self._library.skipped)} skipped"
@@ -678,12 +713,19 @@ class MainWindow(ChromeWindow):
         # says the keys land here, and these say which keys.
         name = theme.palette().name
         return [
-            Item("Music folder", self._folder_summary()),
-            Item("Rescan folder", counts),
-            Item("Theme", f"‹ {name} ›" if self._stepping else name),
-            Item("Full screen", "F11"),
-            Item("Quit", ""),
+            SettingsRow("Music folder", self._folder_summary(), self._choose_folder),
+            SettingsRow("Rescan folder", counts, self.controller.rescan),
+            SettingsRow(
+                "Theme",
+                f"‹ {name} ›" if self._stepping else name,
+                self._start_stepping,
+            ),
+            SettingsRow("Full screen", "F11", self.toggle_fullscreen),
+            SettingsRow("Quit", "", self.close),
         ]
+
+    def _settings_items(self) -> list[Item]:
+        return [Item(row.label, row.value) for row in self._settings_rows()]
 
     # -- activation --------------------------------------------------------
 
@@ -700,16 +742,16 @@ class MainWindow(ChromeWindow):
             self._activate_settings(index)
 
     def _activate_settings(self, index: int) -> None:
-        if index == SET_FOLDER:
-            self._choose_folder()
-        elif index == SET_RESCAN:
-            self.controller.rescan()
-        elif index == SET_THEME:
-            self._start_stepping()
-        elif index == SET_FULLSCREEN:
-            self.toggle_fullscreen()
-        elif index == SET_QUIT:
-            self.close()
+        """Run the activated row's own action. No branches, so none to shift.
+
+        The bounds check is not defensive padding: `activate` fires on whatever
+        the cursor is on, and the column is rebuilt from a list this method also
+        builds -- the two are momentarily out of step only if something between
+        them changes the count, which is exactly the case worth not crashing on.
+        """
+        rows = self._settings_rows()
+        if 0 <= index < len(rows):
+            rows[index].action()
 
     # -- the theme row, which is stepped into ------------------------------
     #
@@ -875,15 +917,15 @@ def _credit(track) -> str:
     return "   ·   ".join(part for part in (track.artist, track.album) if part)
 
 
-def _cover_image(path: Path) -> QImage | None:
-    """The embedded cover as a `QImage`, or `None` if there isn't a usable one.
+def _cover_image(data: bytes | None) -> QImage | None:
+    """Cover bytes as a `QImage`, or `None` if there isn't a usable one.
 
     `core.tags` hands up whatever bytes sat in the frame and stops there -- it
     has no image library and isn't allowed one. This is the other half of that
-    seam. A frame holding something Qt can't decode is the same as no frame:
-    the note glyph is a better answer than a black square.
+    seam, and the half that stayed put: only the *reading* moved behind the
+    controller. A frame holding something Qt can't decode is the same as no
+    frame -- the note glyph is a better answer than a black square.
     """
-    data = read_art(path)
     if not data:
         return None
     image = QImage.fromData(data)

@@ -403,8 +403,12 @@ def set_palette(name: str) -> bool:
     transport bar would keep the old colour. Returning True unconditionally is
     the honest answer, and a palette change happens on a keypress rather than
     once per pixel of a drag, so there is nothing to protect.
+
+    Nothing derived is recomputed here. `_text_mix` is keyed on this value, so
+    it notices by itself -- see the note above it for why that is not merely
+    tidier.
     """
-    global _palette, _accent_text_mix
+    global _palette
 
     for item in PALETTES:
         if item.name == name:
@@ -412,10 +416,6 @@ def set_palette(name: str) -> bool:
             break
     else:
         _palette = PALETTES[0]
-    # Cached module state, recomputed nowhere else. A palette with a darker hue
-    # at this fraction needs a different lift toward white, and forgetting this
-    # is exactly the Batch 9 bug with a new way in.
-    _accent_text_mix = _text_mix()
     return True
 
 
@@ -471,12 +471,9 @@ def set_accent_fraction(fraction: float) -> bool:
     stylesheet re-polishes the whole widget tree -- so it is told only when the
     colour has moved a bucket, which is a step too small to see in a 4px fill.
     """
-    global _accent_fraction, _accent_bucket, _accent_text_mix
+    global _accent_fraction, _accent_bucket
 
     _accent_fraction = max(0.0, min(1.0, float(fraction)))
-    # Computed here rather than per paint: it changes exactly when the accent
-    # does, and this is the one function that moves it.
-    _accent_text_mix = _text_mix()
     bucket = int(_accent_fraction * _QSS_STEPS)
     if bucket == _accent_bucket:
         return False
@@ -537,21 +534,49 @@ def _contrast(first: QColor, second: QColor) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
+# Cached, and keyed on the two things it is a function of rather than
+# recomputed by whoever moved one of them. It used to be a bare global that
+# `set_palette` and `set_accent_fraction` each had to remember to refresh, and
+# the comment in the first of them named the risk in its own words: forgetting
+# it is the Batch 9 bug with a new way in. That is the conventions' "a gate
+# keyed on one input is a hole the moment a second input can change the same
+# output" applied to the value living next door to the gate it was written
+# about -- and a third writer of either input, or a third input entirely, could
+# desync this silently, because the symptom is a colour and not an error.
+#
+# Keyed on the inputs there is nothing left to remember: a stale key cannot
+# survive a read.
+#
+# It is also slightly cheaper, and the number is here so nobody re-derives it as
+# a justification: the loop below runs up to twenty contrast computations and
+# used to run on *every* `set_accent_fraction`, i.e. once per mouse-move of a
+# drag. Moving it behind a key takes a 300-step drag from 0.051 to 0.033 ms per
+# step -- against a drag step that costs 4.70 ms in total, so it is 0.4% and not
+# a reason to do anything. The correctness is the reason.
+_text_mix_key: tuple[str, float] | None = None
+_text_mix_value = 0.0
+
+
 def _text_mix() -> float:
     """How far toward white this hue has to go to stay readable. 0 at 1.00x."""
+    global _text_mix_key, _text_mix_value
+
+    key = (_palette.name, _accent_fraction)
+    if key == _text_mix_key:
+        return _text_mix_value
+
     base = accent()
     amount = 0.0
     while amount < 1.0 and _contrast(mix(base, TEXT, amount), BG_MID) < _TEXT_CONTRAST_FLOOR:
         amount += 0.05
+    _text_mix_key, _text_mix_value = key, amount
     return amount
-
-
-_accent_text_mix = _text_mix()
 
 
 def accent_text() -> QColor:
     """The accent for anything drawn with a pen: readouts, the marker, glyphs."""
-    return mix(accent(), TEXT, _accent_text_mix) if _accent_text_mix else accent()
+    amount = _text_mix()
+    return mix(accent(), TEXT, amount) if amount else accent()
 
 
 # -- stylesheet ------------------------------------------------------------

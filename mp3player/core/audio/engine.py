@@ -120,20 +120,28 @@ def refresh_devices() -> None:
     back in -- does not exist as far as `query_devices` is concerned. Tearing
     PortAudio down and back up is the only way to see it.
 
-    Must be called with no stream open. Best-effort: if it fails we are no worse
-    off than before, and the reopen that follows will fail with a real message.
+    Must be called with no stream open. Best-effort *for the one failure that is
+    expected here*: PortAudio refusing to come down or go back up is what an
+    unplugged device does, it happens on a 2 s timer for as long as the
+    headphones are out, and we are no worse off than before -- the reopen that
+    follows fails with a real message. Both `_terminate` and `_initialize` route
+    their return codes through `sd._check`, so `PortAudioError` is the whole of
+    that case.
 
-    Best-effort is not the same as unrecorded, though. Both calls are *private*
-    sounddevice API, so the day one of them is renamed this becomes an
-    `AttributeError` that stops reconnection working forever while the retry
-    timer keeps firing -- indistinguishable, from the outside, from the device
-    genuinely still being unplugged. Narrowing the `except` is Batch 14's; giving
-    it somewhere to be seen is this one's.
+    Everything else is now allowed out, and that is the fix rather than an
+    oversight. Both calls are *private* sounddevice API: the day one of them is
+    renamed this raises `AttributeError`, and swallowing it meant reconnection
+    silently stopped working forever while the retry timer went on firing and
+    the "audio device lost" line stayed up -- indistinguishable, from outside,
+    from the device genuinely still being unplugged. That is the worst kind of
+    silence and precisely what the reconnect path was written to avoid. Loose,
+    it reaches `sys.excepthook`: one log entry, one dialog, and the app carries
+    on retrying exactly as it would have anyway (Batch 13).
     """
     try:
         sd._terminate()
         sd._initialize()
-    except Exception:
+    except sd.PortAudioError:
         _log.warning("could not re-enumerate audio devices", exc_info=True)
 
 

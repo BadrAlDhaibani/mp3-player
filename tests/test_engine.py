@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mp3player.core.audio import engine as engine_mod
 from mp3player.core.audio import sfx
 from mp3player.core.audio.engine import Mixer, StreamWatch
 
@@ -480,6 +481,51 @@ def test_one_late_block_clears_the_stall() -> None:
     assert not watch.stalled(1)  # it rendered; the timer starts over
     clock.advance(0.4)
     assert not watch.stalled(1)
+
+
+# -- re-enumerating the device list --------------------------------------
+#
+# `refresh_devices` is two calls into *private* sounddevice API, wrapped in a
+# try. What it catches is the whole of the design: a PortAudio failure is the
+# expected answer while the device is still unplugged and is genuinely
+# best-effort, but a rename of `_terminate` or `_initialize` used to be caught
+# by the same clause -- which stopped reconnection working forever while the
+# retry timer went on firing and the "audio device lost" line stayed up. The
+# real PortAudio is never touched here; both calls are replaced.
+
+
+def test_a_portaudio_failure_is_swallowed(monkeypatch) -> None:
+    """The expected one: no worse off than before, and the reopen that follows
+    fails with a real message."""
+
+    def boom() -> None:
+        raise engine_mod.sd.PortAudioError("no device to terminate")
+
+    monkeypatch.setattr(engine_mod.sd, "_terminate", boom)
+    monkeypatch.setattr(engine_mod.sd, "_initialize", lambda: None)
+    engine_mod.refresh_devices()  # does not raise
+
+
+def test_a_renamed_private_call_is_not_swallowed(monkeypatch) -> None:
+    """The one that used to be silent. Loose, it reaches `sys.excepthook`: one
+    log line, one dialog, and the retry timer keeps going regardless."""
+
+    def gone() -> None:
+        raise AttributeError("module 'sounddevice' has no attribute '_terminate'")
+
+    monkeypatch.setattr(engine_mod.sd, "_terminate", gone)
+    monkeypatch.setattr(engine_mod.sd, "_initialize", lambda: None)
+    with pytest.raises(AttributeError):
+        engine_mod.refresh_devices()
+
+
+def test_both_halves_run_when_neither_fails(monkeypatch) -> None:
+    """Order matters: terminate then initialize, or PortAudio is left down."""
+    calls: list[str] = []
+    monkeypatch.setattr(engine_mod.sd, "_terminate", lambda: calls.append("terminate"))
+    monkeypatch.setattr(engine_mod.sd, "_initialize", lambda: calls.append("initialize"))
+    engine_mod.refresh_devices()
+    assert calls == ["terminate", "initialize"]
 
 
 def test_detach_track_hands_back_what_was_playing() -> None:

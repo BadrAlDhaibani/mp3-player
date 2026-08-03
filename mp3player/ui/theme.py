@@ -182,8 +182,13 @@ SLIDER_VALUE_W = 68  # room for the readout *and* a gap after NIGHTCORE
 # list -- the song title sits *on* the row and everything else hangs beneath it
 # at a fixed distance, so nothing here scrolls.
 NP_TITLE = 24  # font size of the song title
-NP_INFO_FIRST = 54  # row -> first info line
-NP_INFO_SECOND = 78
+# Three info lines, tightened from the two-line 54/78 to make room without
+# moving the slider. A third at the old spacing would have landed at 102, whose
+# 18px box runs to 111 against a slider box that starts at 112 -- one pixel is
+# not clearance. 46/68/90 keeps the 22px rhythm and leaves 22px below the last.
+NP_INFO_FIRST = 46  # row -> first info line
+NP_INFO_SECOND = 68
+NP_INFO_THIRD = 90
 NP_INFO_TEXT = 13
 NP_SLIDER = 128
 NP_HINT = 154

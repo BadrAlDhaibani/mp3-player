@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import Property, QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
+from PySide6.QtCore import Property, QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from mp3player.ui import theme
@@ -51,6 +51,9 @@ class NowPlayingPage(QWidget):
         # letting either of them eat events would break the other.
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._state = NowPlaying()
+        self._art: QImage | None = None
+        self._scaled: QPixmap | None = None
+        self._scaled_size = QSize()
         self._appear = 1.0
         self._arrival = Tween(self, "appear", theme.APPEAR_MS)
 
@@ -62,6 +65,25 @@ class NowPlayingPage(QWidget):
     @property
     def state(self) -> NowPlaying:
         return self._state
+
+    def set_art(self, image: QImage | None) -> None:
+        """The current track's cover, or `None` for the note glyph.
+
+        Kept off `NowPlaying` on purpose. That dataclass is "everything the page
+        shows, already formatted" -- strings, rebuilt on every speed tick and
+        every duration change -- and a cover is neither formatted nor cheap to
+        compare. It changes once per track, so it arrives by its own door.
+        """
+        if image is self._art:
+            return
+        self._art = image
+        self._scaled = None  # a new cover invalidates whatever we had scaled
+        self._scaled_size = QSize()
+        self.update()
+
+    @property
+    def art(self) -> QImage | None:
+        return self._art
 
     # -- arrival -----------------------------------------------------------
     #
@@ -166,18 +188,66 @@ class NowPlayingPage(QWidget):
         if art is None:
             return
 
+        cover = self._cover(art.size())
+        if cover is not None:
+            # Clipped rather than drawn square, so the cover keeps the same
+            # rounded corners the placeholder had and the gutter doesn't gain a
+            # hard-edged rectangle the moment a track happens to be tagged.
+            outline = QPainterPath()
+            outline.addRoundedRect(QRectF(art), 6, 6)
+            painter.save()
+            painter.setClipPath(outline)
+            painter.drawPixmap(art, cover)
+            painter.restore()
+            painter.setPen(theme.PANEL_EDGE)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(art, 6, 6)
+            return
+
         painter.setPen(theme.PANEL_EDGE)
         painter.setBrush(theme.PANEL)
         painter.drawRoundedRect(art, 6, 6)
         painter.setBrush(Qt.NoBrush)
 
-        # No ID3 art in v1 (see the scope list) -- a note glyph stands in, and
-        # the block is the right shape for a cover when tags land.
+        # No cover in the file -- which is most of this library. The note glyph
+        # that stood in for every track before Batch 8 is still what an untagged
+        # one gets, so the gutter is never empty.
         painter.setFont(
             theme.font(max(24, art.width() * 2 // 5), family=theme.GLYPH_FAMILY)
         )
         painter.setPen(theme.faded(theme.TEXT_FAINT, 0.7))
         painter.drawText(art, Qt.AlignCenter, "♪")
+
+    def _cover(self, size: QSize) -> QPixmap | None:
+        """The cover scaled to exactly `size`, or `None` if there isn't one.
+
+        Cached against the size rather than scaled per paint. Covers in this
+        library run to 2.2 MB and well past a thousand pixels a side, and this
+        widget shares a window with a background that repaints 21 times a
+        second -- so a smooth transform on every frame is a cost worth paying
+        once. `art_rect` moves with the window, which is why the cache is keyed
+        on the size and not just on the image.
+        """
+        if self._art is None or size.isEmpty():
+            return None
+        if self._scaled is not None and self._scaled_size == size:
+            return self._scaled
+
+        # Expanding, then centre-cropped: a cover is usually square but nothing
+        # guarantees it, and letterboxing one inside the plate would put bars
+        # where the panel edge is supposed to be.
+        scaled = self._art.scaled(
+            size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+        )
+        crop = QRect(
+            (scaled.width() - size.width()) // 2,
+            (scaled.height() - size.height()) // 2,
+            size.width(),
+            size.height(),
+        )
+        self._scaled = QPixmap.fromImage(scaled.copy(crop))
+        self._scaled_size = size
+        return self._scaled
 
     def _paint_title(self, painter: QPainter) -> None:
         available = self._text_width()
@@ -198,15 +268,20 @@ class NowPlayingPage(QWidget):
         painter.setPen(theme.TEXT_DIM)
         metrics = QFontMetrics(painter.font())
 
-        for line, offset in zip(
-            self._state.lines, (theme.NP_INFO_FIRST, theme.NP_INFO_SECOND)
-        ):
-            painter.drawText(
-                QRect(theme.ITEM_X, self.row_y() + offset, available, 18),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                metrics.elidedText(line, Qt.ElideRight, available),
-            )
-            painter.setPen(theme.TEXT_FAINT)  # second line sits back a shade
+        # Fixed slots, not a flowing list: an empty line keeps its space rather
+        # than pulling the ones below it up. Most of this library is untagged,
+        # so a block that closed up when there was no artist would jump on
+        # nearly every track change -- and things staying put is most of what
+        # makes an XMB feel like one.
+        offsets = (theme.NP_INFO_FIRST, theme.NP_INFO_SECOND, theme.NP_INFO_THIRD)
+        for line, offset in zip(self._state.lines, offsets):
+            if line:
+                painter.drawText(
+                    QRect(theme.ITEM_X, self.row_y() + offset, available, 18),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    metrics.elidedText(line, Qt.ElideRight, available),
+                )
+            painter.setPen(theme.TEXT_FAINT)  # later lines sit back a shade
 
     def _paint_slider(self, painter: QPainter) -> None:
         track = self.track_rect()

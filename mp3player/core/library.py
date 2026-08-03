@@ -10,6 +10,7 @@ from pathlib import Path
 
 from mp3player.core.formats import is_mp3
 from mp3player.core.models import Track
+from mp3player.core.tags import read_tags
 
 AUDIO_SUFFIX = ".mp3"
 
@@ -48,12 +49,20 @@ class ScanResult:
         return bool(self.tracks)
 
 
-def scan_folder(folder: Path | str | None) -> ScanResult:
+def scan_folder(folder: Path | str | None, *, tags: bool = True) -> ScanResult:
     """List playable MP3s sitting directly inside `folder`.
 
     Never raises. A folder that is missing, empty, unreadable, or simply not a
     folder all yield an empty result -- the app should degrade to "no music"
     rather than fail to start. Which of those it was comes back in `error`.
+
+    `tags=False` names every track by its filename and reads nothing else. It is
+    for callers that only want the paths -- the audio and sfx harnesses in
+    `tools/` -- and is not a setting anybody can reach from the app; the
+    reason it exists is that a tag read is the one part of a scan that touches
+    the *contents* of every file, and something that only wants a playlist
+    shouldn't pay for it. Cover art is never read here at any setting: see
+    `core.tags` for why that one is fetched a track at a time.
     """
     if folder is None:
         return ScanResult(error=NO_FOLDER)
@@ -85,7 +94,9 @@ def scan_folder(folder: Path | str | None) -> ScanResult:
         except OSError:
             continue  # a broken link or a path we can't stat
         if is_mp3(entry):
-            tracks.append(Track.from_path(entry))
+            tracks.append(
+                Track.from_tags(entry, read_tags(entry)) if tags else Track.from_path(entry)
+            )
         else:
             skipped.append(entry)
 

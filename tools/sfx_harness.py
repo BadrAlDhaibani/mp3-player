@@ -190,7 +190,9 @@ def main() -> int:
     if target is not None and Path(target).is_file():
         tracks = [Track.from_path(Path(target))]
     elif target is not None:
-        tracks = list(scan_folder(target).tracks)
+        # Paths only: this harness plays one track as a bed for the blips, and
+        # nothing here shows a tag. Same reason as `engine_harness`.
+        tracks = list(scan_folder(target, tags=False).tracks)
 
     try:
         engine = AudioEngine()

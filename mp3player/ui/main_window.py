@@ -18,11 +18,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 
 from mp3player.core import library, settings as settings_mod
 from mp3player.core.library import ScanResult
+from mp3player.core.tags import read_art
 from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
 from mp3player.ui.controller import SEEK_STEP, PlayerController
@@ -420,6 +421,12 @@ class MainWindow(ChromeWindow):
     def _on_track(self, index: int) -> None:
         track = self.controller.current
         self.transport.set_title(track.title if track else "nothing loaded")
+        # The one place a cover is read. Track change is also where the decode
+        # happens -- 70-210 ms of it -- and pulling the art costs 0.2-11 ms on
+        # this library, so it disappears into a wait that was already there.
+        # Every other path into `_refresh_column` (a speed tick, a duration
+        # arriving) must not reach this, which is why it is here and not there.
+        self.stage.page.set_art(_cover_image(track.path) if track else None)
         if index >= 0:
             self._selection[CAT_MUSIC] = index
             if self._category == CAT_MUSIC:
@@ -549,22 +556,26 @@ class MainWindow(ChromeWindow):
                 else empty_reason(self._library.error, self._folder)
             )
         else:
+            # Who it is, then how long, then where in the list -- the same order
+            # you'd read them off a sleeve. The first line is blank on an
+            # untagged file rather than absent, so the two below it don't move.
+            first = _credit(track)
             # The warped length is the one number only this app can tell you,
             # and it moves as the slider does. `duration` is the file's real
             # length, so dividing by speed gives the wallclock it'll actually
             # take -- 2:00 at 1.30x really is 1:32.
-            first = f"{clock(self._duration)}"
+            second = f"{clock(self._duration)}"
             if self._duration > 0 and abs(self._speed - 1.0) > 0.005:
-                first += f"   ·   plays in {clock(self._duration / self._speed)}"
-                first += f" at {self._speed:.2f}x"
-            second = (
+                second += f"   ·   plays in {clock(self._duration / self._speed)}"
+                second += f" at {self._speed:.2f}x"
+            third = (
                 f"Track {self.controller.index + 1} of {len(self._library.tracks)}"
                 f"   ·   {where}"
             )
 
         return NowPlaying(
             title=track.title if track else "Nothing playing",
-            lines=(first, second),
+            lines=(first, second) if track is None else (first, second, third),
             fraction=_speed_fraction(self._speed),
             speed_text=f"{self._speed:.2f}x",
         )
@@ -572,7 +583,7 @@ class MainWindow(ChromeWindow):
     def _music_items(self) -> list[Item]:
         playing = self.controller.index
         return [
-            Item(track.title, marker=(i == playing))
+            Item(track.title, value=track.artist, marker=(i == playing))
             for i, track in enumerate(self._library.tracks)
         ]
 
@@ -727,3 +738,27 @@ def _speed_fraction(speed: float) -> float:
     if span <= 0:
         return 0.0
     return min(1.0, max(0.0, (speed - settings_mod.MIN_SPEED) / span))
+
+
+def _credit(track) -> str:
+    """`Artist · Album`, or whichever of them the file actually named.
+
+    Empty when it named neither, which is most of this library -- and empty is
+    a line the page draws nothing on rather than a line it leaves out.
+    """
+    return "   ·   ".join(part for part in (track.artist, track.album) if part)
+
+
+def _cover_image(path: Path) -> QImage | None:
+    """The embedded cover as a `QImage`, or `None` if there isn't a usable one.
+
+    `core.tags` hands up whatever bytes sat in the frame and stops there -- it
+    has no image library and isn't allowed one. This is the other half of that
+    seam. A frame holding something Qt can't decode is the same as no frame:
+    the note glyph is a better answer than a black square.
+    """
+    data = read_art(path)
+    if not data:
+        return None
+    image = QImage.fromData(data)
+    return None if image.isNull() else image

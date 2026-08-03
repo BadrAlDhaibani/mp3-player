@@ -14,19 +14,21 @@ If a box below isn't ticked, it isn't done.
 > Batch 4 (XMB shell structure) ·
 > Batch 5 (motion & atmosphere) ·
 > Batch 6 (sound & feel — **all but the ear pass**) ·
-> Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run)
+> Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run) ·
+> Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks)
 >
-> **v1 is shipped.** Everything on the roadmap is ticked except one box that
-> can't be ticked from this side of the screen: *"tune the synthesized sounds by
-> ear"*. Shipping without it was decided with the user — the instrument exists
-> and the numbers are unverified, not wrong. Run `tools/sfx_harness.py`, listen
-> — especially `m` (a held arrow key) and `p` (blips over music) — and say what
-> to change. It's `_PEAKS` in `core/audio/sfx.py` for the mix and `_MIN_GAP_MS`
-> in `ui/sounds.py` for how often; neither needs a code change to try.
+> **v1 is shipped and Batch 8 landed on top of it.** Everything on the roadmap
+> is ticked except one box that can't be ticked from this side of the screen:
+> *"tune the synthesized sounds by ear"*. Shipping without it was decided with
+> the user — the instrument exists and the numbers are unverified, not wrong.
+> Run `tools/sfx_harness.py`, listen — especially `m` (a held arrow key) and
+> `p` (blips over music) — and say what to change. It's `_PEAKS` in
+> `core/audio/sfx.py` for the mix and `_MIN_GAP_MS` in `ui/sounds.py` for how
+> often; neither needs a code change to try.
 >
-> **Next** is whatever comes off the post-v1 list in the v1 scope section — ID3
-> tags and art, a visualizer, shuffle/repeat, export, subfolders. None of it is
-> started. Confirm with the user before beginning any of it.
+> **Next** is whatever comes off the post-v1 list in the v1 scope section — a
+> visualizer, shuffle/repeat, export, subfolders, multiple folders. None of it
+> is started. Confirm with the user before beginning any of it.
 >
 > Before writing any of it, read the note in the conventions about
 > `tools/shell_harness.py` running offscreen with no fonts. Every layout bug in
@@ -51,8 +53,9 @@ speed slider running Daycore → Nightcore · XMB look · synthesized UI sounds.
 two presets became the ends of the slider itself. See the decisions log.)
 
 **Deliberately out of v1** — good ideas, parked until v1 actually ships:
-ID3 tags & album art · spectrum visualizer · shuffle/repeat/queue · export to file ·
-subfolder recursion · multiple library folders.
+~~ID3 tags & album art~~ (landed in Batch 8) · spectrum visualizer ·
+shuffle/repeat/queue · export to file · subfolder recursion ·
+multiple library folders.
 
 ---
 
@@ -127,6 +130,14 @@ here and write down why.
 | **First run opens on Settings, not on a file dialog** | Chosen with the user. Throwing a native folder picker at someone who has not yet seen the app puts a Windows dialog in front of the thing they launched, and cancelling it drops them exactly where doing nothing would have. Landing on Settings ▸ Music folder stays inside the XMB, costs one press, and lands on the row that every "no music" line already names. Settled rather than slid — this is where the app *started*, not somewhere it navigated to — and silent, because nobody pressed anything. |
 | **Settings are read as `utf-8-sig`, written without a BOM** | Notepad and PowerShell's `Out-File -Encoding utf8` both prepend a byte-order mark. Read as plain `utf-8` that BOM reaches `json.loads` as a stray character, the whole file counts as corrupt, and every setting silently reverts — which the user experiences as the app forgetting their music folder for no reason. Found by hand-editing the file while testing the packaged exe, which is the only reason it was ever seen. |
 | **The `.exe` is a folder, not one file** | `--onefile` unpacks ~120 MB of Qt to a temp directory on *every* launch: several seconds of nothing before the window exists. This app opens its audio stream and sounds a startup swell in the first frame — an app selling a console boot cannot spend four seconds arriving. Shipped as `dist/XMB Player/` plus a zip. |
+| **`mutagen` reads the tags, and we accept its licence** | This library is YouTube rips: ID3v2.2 alongside 2.4, unsynchronisation, UTF-16 BOMs, every APIC variant. Hand-rolling that (the alternative considered, ~200 lines next to `formats.py`'s existing byte sniffing) means owning a long tail whose failure mode is mojibake titles and art missing from the odd file. mutagen is pure Python, no C extensions, ~1.5 MB into a 150 MB exe. **It is GPL-2.0, so the distributed zip inherits copyleft** — chosen with the user, a shrug for a personal novelty app, and written down here rather than discovered later. |
+| **The tag names the track; the filename is the fallback** | Non-empty `TIT2` wins, otherwise the stem — which is exactly what the app did before tags existed, so an untagged library looks identical to how it always did. Whitespace-only frames normalise to empty in `core/tags`, or the fallback never fires and the row renders blank, which reads as a bug in the list rather than in the file. No setting and no "does this tag look like junk" heuristic: both were considered and neither survives contact with having to define junk. |
+| **Text tags at scan time, cover art one track at a time** | Measured on the real library: **199 tracks cost 111 ms tagged against 34 ms bare — and 31 tracks cost 104 ms.** The scan is dominated by *reading embedded covers*, not by file count, because the folder with fewer files has more art in it. So `read_tags` and `read_art` are separate calls with separate call sites: every file pays for the text, only the playing one pays for the image. `read_art` costs 0.18–11 ms against a decode that was already going to take 70–210 ms, so it disappears into a wait that existed anyway. If this ever needs to get faster, the axis is **bytes of art**, not files. |
+| **Art is fetched, never carried** | Covers in this library run to 2.2 MB and a `Track` is held for every file in the folder. `Track` therefore gains `artist` and `album` and stops there; the cover is read on track change and handed to the page. A library-wide art cache is a post-v1 idea for a post-v1 problem. |
+| **`core` hands up image *bytes*; `ui` makes pixels** | Same seam as `MISSING`/`UNREADABLE` versus `empty_reason`. `core/tags.read_art` returns whatever sat in the APIC frame and has no opinion about whether it decodes — it has no image library and isn't allowed one. `ui/main_window._cover_image` is the other half, and a frame Qt can't decode becomes `None`, i.e. the note glyph, because that beats a black square. |
+| **The artist is the Music row's right-aligned readout** | `Item` already had `label`/`value` for Settings rows, so this cost no widget change — and one consequence was worth taking rather than avoiding: a row with a value gets the full-width selection plate, so the Music list now wears the same plate Settings does. Rendered at 1600 before believing it; it reads as a proper XMB cursor, not the banner the code comment warns about. |
+| **A readout gets at most 45% of its row, elided** | Settings values are short words and never came close. An artist tag has no length at all, and `_paint_item` measured the label against an *unelided* value: at 720 px "Boards of Canada featuring Somebody Else Entirely" claimed the whole row, left the title a 40 px stub, and then drew itself right-aligned straight over it. The value is elided first, then the label gets what's left. The label always keeps the majority. |
+| **The Now Playing info block is three fixed slots, not a flowing list** | Artist · Album, then the length, then where you are. Most of this library is untagged, so a block that closed up when there was no credit would jump on nearly every track change — and things staying put is most of what makes an XMB feel like one. An empty first line is drawn as nothing and keeps its space. Three lines needed the offsets tightened from 54/78 to 46/68/90: a third at the old spacing lands 1 px off the slider's box, which is not clearance. |
 
 ### Open questions
 
@@ -145,6 +156,7 @@ mp3player/
   core/                  # zero Qt imports -- enforceable seam
     models.py            # Track dataclass
     formats.py           # magic-byte sniffing; no numpy, no decoding
+    tags.py              # read_tags() -> Tags; read_art() -> bytes | None
     library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
     audio/
@@ -308,6 +320,20 @@ don't invent a second way to do a thing we've already solved.
   font is bigger than the status font.** The same sentence fits in one and runs
   off the edge in the other. Anything that appears in both gets a short form and
   a long form, and both get looked at in a render.
+- **Elide a right-aligned value *before* measuring the label against it, and
+  cap what it may claim.** Right-aligned text that doesn't fit doesn't clip —
+  it runs left, over whatever is already there. A layout that subtracts the
+  value's width from the label's budget is only correct while the value is
+  short, which is true of every readout you wrote by hand and false of the
+  first one that comes out of a file.
+- **A field whose text comes from a file has no length.** Tags, filenames,
+  folder names. Anything laid out against one needs a bound that holds at
+  720 px, and the bound is a share of the row rather than a pixel count.
+- **Vertical positions are fixed numbers, so the offscreen harness *can*
+  check those.** It cannot judge width, but "this line's box clears that
+  control's box" is arithmetic on `theme.py` constants and belongs in an
+  assertion. Batch 8's third info line got both: an assertion for the collision
+  and a render for whether it reads.
 - **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
   `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
@@ -618,6 +644,62 @@ and PortAudio actually came along.
 
 Also landed: `main.py` deleted. It was the Batch 0 `QWidget` stub, tracked and
 dead since `app.py` existed.
+
+### Batch 8 — ID3 tags & album art ✅
+
+- [x] `core/tags.py` — `read_tags()` / `read_art()`, never raises
+- [x] `Track` gains `artist`/`album`; `scan_folder(..., tags=True)` fills them
+- [x] Music rows show the tag title with the artist right-aligned
+- [x] Now Playing shows the real cover, and a third info line for artist · album
+- [x] `requirements.txt` — `mutagen>=1.47`
+- [x] Tests, harness checks, renders, exe rebuild
+
+**The seams Batch 1 left open were the whole job.** `Track.title` was a field
+rather than a property specifically so a tag reader could fill it later, and the
+art placeholder was already sized and hit-tested with a comment saying the block
+was the right shape for a cover. Neither needed moving. `PlayerController`,
+`core/audio/` and `ui/sounds.py` were untouched — the sixth batch running where
+the seam held.
+
+**The scan is not shaped the way anyone would guess.** 199 tracks cost 111 ms
+with tags against 34 ms without; 31 tracks cost 104 ms. Fewer files, more time —
+because that folder has more embedded art in it, and reading a tag reads the
+covers whether you wanted them or not. That measurement is the reason
+`read_tags` and `read_art` are two calls instead of one convenience function,
+and it's a decisions-log row so the next person optimises bytes rather than
+files.
+
+**One real bug, found the way they always are.** Every check passed and the
+Music list at 720 px was drawing "Boards of Canada featuring Somebody Else
+Entirely" right-aligned straight through its own song title, which had been
+elided to `E…` — because `_paint_item` measured the label against the value's
+*unelided* width, and a value long enough to fill the row leaves the label the
+40 px floor. Invisible to the harness twice over: offscreen fonts measure 2.5x
+too wide, and nothing about it is an assertion anyway. Settings never hit it
+because every value there is a word you typed. Two conventions came out of it.
+
+**The third info line's collision, by contrast, *was* checkable.** Vertical
+offsets are constants, so "this box clears the slider's box" is arithmetic —
+and at the old 24 px spacing a third line lands 1 px off. It got an assertion at
+all three sizes *and* a render, which is the split worth remembering: the
+harness can do position, only a render can do width.
+
+The credit line is drawn as an empty slot rather than left out when a file names
+nobody, which is most of this library — a block that closed up would jump on
+nearly every track change. Verified by rendering a tagged track and an untagged
+one and checking the length line hadn't moved between them.
+
+Verified: 231 tests green (29 new, core-only as the convention requires),
+`tools/shell_harness.py` 178/178 including 24 new checks. Renders at 720x480,
+980x640 and 1600x900 of the Music list with a long title *and* a long artist,
+Now Playing with a real cover, and Now Playing with nothing tagged. Ran against
+the real library — `Don Toliver - Italy.mp3` reads as **"Like It Or Leave"**,
+which is the batch justifying itself — 20 of 31 tracks tagged, cover on screen,
+exit 0. Rebuilt the exe (150 MB unpacked, 60 MB zipped, 102 s) and launched it:
+it scans and lists 31 tracks, which *is* mutagen running 31 times inside the
+frozen app. `qjpeg.dll` ships in the bundled `imageformats` plugins, which is
+what real covers need and the one packaging risk here — mutagen itself has no
+native code to leave behind.
 
 ---
 

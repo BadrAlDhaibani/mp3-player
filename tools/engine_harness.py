@@ -207,7 +207,10 @@ def collect_tracks(target: Path | None) -> list[Track]:
         return [Track.from_path(target)]
 
     folder = target or settings_mod.load().music_folder or Path.home() / "Music"
-    result = scan_folder(folder)
+    # No tags: this harness probes the engine, not the product. It wants paths
+    # to feed the mixer, and reading every cover in the folder to get them is
+    # about 100 ms of nothing on the way to a keyboard prompt.
+    result = scan_folder(folder, tags=False)
     print(f"  {folder}: {len(result.tracks)} playable, {len(result.skipped)} skipped")
     return list(result.tracks)
 

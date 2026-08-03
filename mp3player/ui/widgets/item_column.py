@@ -30,6 +30,11 @@ from mp3player.ui import theme
 from mp3player.ui.motion import Tween
 
 VALUE_PAD = 12  # right-hand readout inset, so it clears the plate's corner
+# The most of a row a readout may claim. Settings values are short words and
+# never came near this; an artist tag has no length at all, and at 720px
+# "Boards of Canada featuring Somebody Else Entirely" took the whole row and
+# printed straight over its own title. The label always keeps the majority.
+VALUE_MAX_SHARE = 0.45
 PLAYING_MARKER = "▶"
 
 
@@ -279,7 +284,17 @@ class ItemColumn(QWidget):
         metrics = QFontMetrics(painter.font())
 
         available = self._text_width()
-        value_width = metrics.horizontalAdvance(item.value) + 24 if item.value else 0
+        # The readout is elided first and to a share of the row, then the label
+        # gets what's left. Both halves matter: an unelided value is drawn
+        # right-aligned and simply runs left over the label, and a value allowed
+        # to claim the whole row leaves the label a 40px stub. Neither shows up
+        # in Settings, where every value is one short word.
+        value = (
+            metrics.elidedText(item.value, Qt.ElideRight, int(available * VALUE_MAX_SHARE))
+            if item.value
+            else ""
+        )
+        value_width = metrics.horizontalAdvance(value) + 24 if value else 0
         box = QRectF(
             theme.ITEM_X, y - theme.ITEM_SPACING / 2, available, theme.ITEM_SPACING
         )
@@ -290,7 +305,7 @@ class ItemColumn(QWidget):
         )
         painter.drawText(box, Qt.AlignLeft | Qt.AlignVCenter, label)
 
-        if item.value:
+        if value:
             painter.setPen(
                 theme.mix(theme.faded(theme.TEXT_FAINT, alpha), theme.ACCENT, focus)
             )
@@ -299,7 +314,7 @@ class ItemColumn(QWidget):
             painter.drawText(
                 box.adjusted(0, 0, -VALUE_PAD, 0),
                 Qt.AlignRight | Qt.AlignVCenter,
-                item.value,
+                value,
             )
 
         if item.marker:

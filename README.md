@@ -23,12 +23,16 @@ Windows · Python 3.13 · PySide6 · numpy · sounddevice · soundfile
   doing while you are looking at some other category.
 - **It tells you how long the track will actually take.** `4:07 · plays in
   3:10 at 1.30x`. It moves as you drag.
+- **It reads your tags.** Title, artist, album and the embedded cover. A tagged
+  file is listed under its tag with the artist alongside it; an untagged one
+  keeps its filename and gets the note glyph, exactly as before.
 
 ## What it doesn't
 
-Parked until after v1, deliberately: ID3 tags and album art, a spectrum
-visualizer, shuffle/repeat/queue, exporting the warped audio to a file,
-subfolders, and more than one library folder at a time.
+Parked, deliberately: a spectrum visualizer, shuffle/repeat/queue, exporting the
+warped audio to a file, subfolders, and more than one library folder at a time.
+
+It does not *write* tags either — nothing here edits your files.
 
 ---
 
@@ -110,6 +114,13 @@ volume and speed, in `%APPDATA%/XMBPlayer/settings.json`.
   track. Fine for one at a time, and it makes seeking a pointer move.
 - **Decoding blocks the UI** for 0.07–0.21 s per track on the test library. You
   can feel it on a fast next/next/next.
+- **Opening a folder reads every tag**, which is about 110 ms for the folders
+  this was measured on. Almost all of that is the embedded cover art going past,
+  so a small folder of well-tagged albums costs more than a big one of bare
+  rips. Covers themselves are only read for the track you play.
+- **Tags are trusted over filenames.** If a rip is tagged `Track 01`, that is
+  what the list will say. There is no toggle; renaming or retagging the file is
+  the fix.
 - **Windows only in practice.** Nothing is Windows-specific by design — the
   device picker falls back to whatever PortAudio offers — but it has only been
   run and measured there.
@@ -168,3 +179,12 @@ moment and the audio follows seamlessly. That's the whole thing.
 Everything that changes a gain — play, pause, seek, track change, volume —
 ramps over about 10 ms instead of jumping, because a gain that jumps puts a
 vertical edge in the waveform and that edge is the click.
+
+---
+
+## Dependencies
+
+PySide6, numpy, sounddevice (PortAudio), soundfile (libsndfile), and
+[mutagen](https://mutagen.readthedocs.io/) for ID3 tags. **mutagen is GPL-2.0**,
+so a build that bundles it — which the `.exe` does — carries that licence with
+it. Worth knowing before handing the zip to anyone.

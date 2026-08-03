@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -33,8 +34,9 @@ for _stream in (sys.stdout, sys.stderr):
     if _stream is not None:
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1  # noqa: E402
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mp3player.core import settings as settings_mod  # noqa: E402
@@ -45,6 +47,7 @@ from mp3player.core.audio.engine import (  # noqa: E402
     StreamWatch,
 )
 from mp3player.core.library import scan_folder  # noqa: E402
+from mp3player.core.models import Track  # noqa: E402
 from mp3player.ui import theme  # noqa: E402
 from mp3player.ui import main_window  # noqa: E402
 from mp3player.ui.controller import PlayerController  # noqa: E402
@@ -55,8 +58,44 @@ from mp3player.ui.main_window import (  # noqa: E402
     MainWindow,
 )
 
+# The Now Playing info block, by slot. Named because the numbers moved once
+# already and the checks that used literals kept passing while pointing at the
+# wrong line.
+CREDIT_LINE, LENGTH_LINE, POSITION_LINE = 0, 1, 2
+
 PASSED: list[str] = []
 FAILED: list[str] = []
+
+
+def cover_png(size: int = 64) -> bytes:
+    """A real PNG, generated rather than checked in.
+
+    The point of the art checks is the whole path -- tag frame to bytes to
+    `QImage` to a scaled pixmap -- so the bytes have to be something Qt will
+    genuinely decode. Making one here beats a binary file in a repo whose
+    decisions log is proud of not having any.
+    """
+    image = QImage(size, size, QImage.Format_RGB32)
+    image.fill(QColor(80, 140, 220))
+    buffer = QBuffer()
+    buffer.open(QIODevice.WriteOnly)
+    image.save(buffer, "PNG")
+    return bytes(buffer.data())
+
+
+def write_tagged_mp3(path: Path, *, cover: bytes | None = None, **frames) -> Path:
+    """A file the scanner will list, carrying a real ID3v2 tag."""
+    tag = ID3()
+    if "title" in frames:
+        tag.add(TIT2(encoding=3, text=frames["title"]))
+    if "artist" in frames:
+        tag.add(TPE1(encoding=3, text=frames["artist"]))
+    if "album" in frames:
+        tag.add(TALB(encoding=3, text=frames["album"]))
+    if cover:
+        tag.add(APIC(encoding=3, mime="image/png", type=3, desc="", data=cover))
+    tag.save(str(path))
+    return path
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
@@ -451,22 +490,25 @@ def main() -> int:
         f"fraction={state.fraction:.3f}",
     )
     check("the title is the song", state.title == controller.current.title)
+    # The info block is three fixed slots: who it is, how long it is, where it
+    # sits. Indices, not a search -- a check that scans all three would have
+    # gone on passing when Batch 8 pushed the length line down one.
     check(
         "the info block gives the warped length",
-        "plays in" in state.lines[0] and "1.10x" in state.lines[0],
-        state.lines[0],
+        "plays in" in state.lines[LENGTH_LINE] and "1.10x" in state.lines[LENGTH_LINE],
+        state.lines[LENGTH_LINE],
     )
     check(
         "...and where the track sits in the library",
-        f"of {len(controller.tracks)}" in state.lines[1],
-        state.lines[1],
+        f"of {len(controller.tracks)}" in state.lines[POSITION_LINE],
+        state.lines[POSITION_LINE],
     )
     controller.set_speed(1.0)
     app.processEvents()
     check(
         "no warped length at 1.00x -- it would just repeat itself",
-        "plays in" not in page.state.lines[0],
-        page.state.lines[0],
+        "plays in" not in page.state.lines[LENGTH_LINE],
+        page.state.lines[LENGTH_LINE],
     )
     check("paints the page", not window.grab().isNull())
 
@@ -637,6 +679,16 @@ def main() -> int:
             hint_top + 18 <= page.height(),
             f"hint bottom {hint_top + 18} vs stage {page.height()}",
         )
+        # Vertical positions are fixed numbers, so unlike text width this *is*
+        # checkable here. The third info line arrived in Batch 8 and would have
+        # landed one pixel off the slider's box at the old 24px spacing.
+        third_bottom = page.row_y() + theme.NP_INFO_THIRD + 18
+        slider_top = page.row_y() + theme.NP_SLIDER - 16
+        check(
+            f"the third info line clears the slider at {width}x{height}",
+            third_bottom < slider_top,
+            f"line bottom {third_bottom} vs slider top {slider_top}",
+        )
         # NOTE: don't add text-width assertions here. This harness runs under
         # QT_QPA_PLATFORM=offscreen, which has no font database -- QFontMetrics
         # returns fallback widths roughly 2.5x too wide (the hint measures 148px
@@ -672,6 +724,117 @@ def main() -> int:
     # Coarse is a decision, not a default: a precise timer would raise the
     # system-wide timer resolution for the sake of 9 more fps nobody can see.
     check("the wave's timer is deliberately coarse", wave._timer.timerType() == Qt.CoarseTimer)
+
+    print("\n-- tags and art")
+    # A folder built here rather than borrowed: the point is the *contrast*
+    # between a tagged file and a bare one, and the real library is 80% bare.
+    # These are listable, not playable -- everything below is about what the
+    # shell says and draws, and none of it needs libsndfile to agree.
+    window.resize(980, 640)
+    real_folder = controller.folder
+    with tempfile.TemporaryDirectory() as temp:
+        tags_folder = Path(temp)
+        tagged_path = write_tagged_mp3(
+            tags_folder / "01 - unhelpful filename.mp3",
+            title="Roygbiv",
+            artist="Boards of Canada",
+            album="Music Has the Right to Children",
+            cover=cover_png(),
+        )
+        bare_path = tags_folder / "Some Artist - Some Song.mp3"
+        bare_path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 256)
+
+        controller.open_folder(tags_folder, remember=False)
+        app.processEvents()
+        bar.set_index(CAT_MUSIC)
+        app.processEvents()
+        rows = {item.label: item for item in column._items}
+
+        check("a tagged track is listed under its tag", "Roygbiv" in rows, str(list(rows)))
+        check(
+            "...with the artist as the row's readout",
+            rows.get("Roygbiv") is not None
+            and rows["Roygbiv"].value == "Boards of Canada",
+        )
+        check(
+            "an untagged track keeps its filename",
+            "Some Artist - Some Song" in rows,
+            str(list(rows)),
+        )
+        check(
+            "...and has no readout to right-align",
+            rows.get("Some Artist - Some Song") is not None
+            and rows["Some Artist - Some Song"].value == "",
+        )
+        check("paints a list of tagged rows", not window.grab().isNull())
+
+        # The other half of the core/ui seam: `read_art` hands up bytes and has
+        # no idea what they are, and this is where they become pixels.
+        image = main_window._cover_image(tagged_path)
+        check("the embedded cover decodes to an image", image is not None)
+        check(
+            "...at the size it was written",
+            image is not None and (image.width(), image.height()) == (64, 64),
+            "" if image is None else f"{image.width()}x{image.height()}",
+        )
+        check("a file with no tag has no cover", main_window._cover_image(bare_path) is None)
+
+        bar.set_index(CAT_NOW)
+        app.processEvents()
+        page.set_art(image)
+        check("the page takes the cover", page.art is image)
+        size = page.art_rect().size()
+        cover = page._cover(size)
+        check("...and scales it to the art rect exactly", cover.size() == size, f"{cover.size()}")
+        check("...caching the result rather than rescaling per paint", page._cover(size) is cover)
+        window.resize(1600, 900)
+        app.processEvents()
+        bigger = page.art_rect().size()
+        check(
+            "a resize rescales, because the rect moved with the window",
+            bigger != size and page._cover(bigger).size() == bigger,
+        )
+        check("paints with a cover", not window.grab().isNull())
+
+        page.set_art(None)
+        check("clearing the cover drops the cached pixmap", page._scaled is None)
+        check("paints the note glyph again with no cover", not window.grab().isNull())
+        window.resize(980, 640)
+        app.processEvents()
+
+    controller.open_folder(real_folder, remember=False)
+    app.processEvents()
+
+    # The credit line, built from a Track rather than from a file: three cases,
+    # and the empty one is the common one in this library.
+    credit = main_window._credit
+    check(
+        "artist and album both show, in that order",
+        credit(Track(Path("x.mp3"), "t", "Aphex Twin", "Drukqs")).startswith("Aphex Twin"),
+    )
+    check(
+        "an album with no artist still says something",
+        credit(Track(Path("x.mp3"), "t", "", "Drukqs")) == "Drukqs",
+    )
+    check(
+        "a file that named nobody gets an empty line, not a placeholder",
+        credit(Track(Path("x.mp3"), "t")) == "",
+    )
+    bar.set_index(CAT_NOW)
+    controller.play_index(0)
+    app.processEvents()
+    check("a loaded track fills all three info slots", len(page.state.lines) == 3)
+    check(
+        "...with the credit first and the length under it",
+        "plays in" in page.state.lines[LENGTH_LINE]
+        or page.state.lines[LENGTH_LINE].count(":") == 1,
+        page.state.lines[LENGTH_LINE],
+    )
+    check(
+        "an empty credit line still leaves the lines below it in place",
+        page.state.lines[POSITION_LINE].startswith("Track "),
+        page.state.lines[POSITION_LINE],
+    )
 
     print("\n-- empty library")
     folder = controller.folder

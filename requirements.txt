@@ -5,6 +5,8 @@ shiboken6==6.11.1
 numpy>=2.0
 sounddevice>=0.5
 soundfile>=0.13
+# ID3 tags and cover art. GPL-2.0 -- see the decisions log in CLAUDE.md.
+mutagen>=1.47
 
 # dev
 pytest>=8.0

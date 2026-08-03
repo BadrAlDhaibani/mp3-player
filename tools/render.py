@@ -4,6 +4,7 @@
     venv/Scripts/python.exe tools/render.py out.png --what music --size 720x480
     venv/Scripts/python.exe tools/render.py out.png --what now --speed 1.30
     venv/Scripts/python.exe tools/render.py out.png --what settings --select 2
+    venv/Scripts/python.exe tools/render.py out.png --theme all
 
 The third leg of the stool. `shell_harness.py` asserts where things come to
 rest, `filmstrip.py` shows what happens on the way, and this shows what a screen
@@ -12,10 +13,11 @@ a width problem, because the offscreen harness has no font database and no
 opinion about whether anything reads.
 
 Deliberately *not* offscreen: it needs the real fonts, and it is for looking at
-rather than asserting on. `--speed` may be given more than once (and defaults to
-daycore / 1.00x / nightcore), in which case the frames are stacked with the
-speed written on each — the accent and the wave both track the slider, so most
-questions about either are really questions about three frames side by side.
+rather than asserting on. `--speed` and `--theme` may both be given more than
+once (speed defaults to daycore / 1.00x / nightcore, theme to whatever is saved),
+and the frames are stacked theme-major with both written on each — the accent
+and the wave both track the slider, so most questions about either are really
+questions about several frames side by side. `--theme all` is every preset.
 
 It found the Batch 9 bug: at daycore the *selected* row's artist was fainter
 than the unselected ones around it, because a saturated blue at V=1.0 is darker
@@ -88,7 +90,17 @@ def main() -> int:
         help="repeatable; defaults to daycore, 1.00x and nightcore",
     )
     parser.add_argument(
+        "--theme",
+        action="append",
+        help="repeatable; a preset name or `all`. Defaults to the saved one.",
+    )
+    parser.add_argument(
         "--select", type=int, default=4, help="which row to put the cursor on"
+    )
+    parser.add_argument(
+        "--step",
+        action="store_true",
+        help="step into the selected settings row, so the outline shows",
     )
     parser.add_argument(
         "--play", action="store_true", default=True,
@@ -98,6 +110,9 @@ def main() -> int:
 
     width, height = (int(n) for n in args.size.lower().split("x"))
     speeds = args.speed or list(DEFAULT_SPEEDS)
+    themes = args.theme or []
+    if any(name.lower() == "all" for name in themes):
+        themes = list(theme.palette_names())
 
     app = QApplication(sys.argv)
     saved = settings_mod.load()
@@ -132,14 +147,27 @@ def main() -> int:
             stage.column.settle()
         app.processEvents()
 
+    if args.step and args.what == "settings":
+        # Through `activate` rather than by setting the flag, so this renders
+        # the state the app actually reaches rather than one arranged for it.
+        stage.column.activate()
+        app.processEvents()
+
     shots = []
-    for speed in speeds:
-        controller.set_speed(speed)
-        # The wave runs on its own timer, so give it turns to catch up rather
-        # than grabbing mid-frame.
-        for _ in range(4):
-            app.processEvents()
-        shots.append((label_for(speed), window.grab()))
+    # Theme-major: the interesting comparison down a column is one palette
+    # travelling, and the interesting one between blocks is the same speed in a
+    # different palette. `themes` empty means "leave whatever is saved alone",
+    # which is the single-palette case and captions itself with the name anyway.
+    for name in themes or [theme.palette().name]:
+        controller.set_theme(name)
+        for speed in speeds:
+            controller.set_speed(speed)
+            # The wave runs on its own timer, so give it turns to catch up
+            # rather than grabbing mid-frame.
+            for _ in range(4):
+                app.processEvents()
+            caption = f"{theme.palette().name}  ·  {label_for(speed)}"
+            shots.append((caption, window.grab()))
 
     stack(shots, Path(args.out))
 

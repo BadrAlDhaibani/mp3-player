@@ -11,6 +11,8 @@ painted *over* `background_brush`; the gradient is what shows through it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QFont, QLinearGradient
 
@@ -29,6 +31,10 @@ TEXT_FAINT = QColor(120, 140, 172)
 # now travels with the speed slider. These stay as the *anchor*: the wave's hue
 # knots were fitted so the ramp passes exactly through them at 1.00x, and that
 # invariant is only checkable against a value that holds still.
+#
+# Since Batch 10 there are five ramps and this is specifically *XMB Blue's*
+# anchor -- the default, and the only one that predates the others. Every palette
+# carries its own; see `PALETTES`.
 ACCENT = QColor(126, 200, 255)
 ACCENT_SOFT = QColor(126, 200, 255, 70)
 
@@ -293,15 +299,126 @@ WAVE_STEP = 60
 WAVE_GLOW_RADIUS = 9
 WAVE_GLOW = 0.6  # how much of the blurred copy is added back
 
+# -- the ramps -------------------------------------------------------------
+#
 # Hue tracks the speed slider, so the atmosphere reads out the one thing this
 # app is for: deep blue at daycore, the accent itself at 1.00x, violet at
 # nightcore. The knots are (slider fraction, value) -- 1.00x is 0.4 of the way
 # along a 0.80..1.30 range, which is why the middle knot sits there.
-_WAVE_HUE = ((0.0, 0.625), (0.4, 0.571), (1.0, 0.819))
-_WAVE_SATURATION = ((0.0, 0.70), (0.4, 0.51), (1.0, 0.74))
+#
+# A *theme* is a swap of these two tuples and nothing else. The navy gradient and
+# the white/grey text hold still whichever palette is on, for the same reason
+# Batch 9 kept its scope to the accent: the frame staying put is what makes the
+# colour shift read as deliberate rather than as the app changing skin.
+
+Knots = tuple[tuple[float, float], ...]
 
 
-def _along(knots: tuple[tuple[float, float], ...], fraction: float) -> float:
+@dataclass(frozen=True, slots=True)
+class Palette:
+    """One preset spectrum: where the colour travels as the slider moves.
+
+    `anchor` is what this palette's 1.00x comes out as, **written by hand rather
+    than derived**. That is the only thing keeping the harness's "1.00x is the
+    accent" check from becoming a tautology now that the knots can move -- a
+    fitted value compared against itself proves nothing.
+    """
+
+    name: str
+    hue: Knots
+    saturation: Knots
+    anchor: QColor
+
+
+# The default is first, and its knots are the ones the app shipped with. Every
+# other palette keeps the same shape -- three knots, the middle one at 0.4 --
+# because that is where 1.00x lands and the resting colour belongs on a knot.
+#
+# Knots may run outside 0..1: `wave_color` takes the hue modulo 1 *after*
+# interpolating, so Ember's -0.08 is hot pink and Vapor's 1.02 is coral. That is
+# how a ramp crosses the red wrap without `_along` lerping the long way round
+# through green. Do not "fix" one of these back into range.
+PALETTES: tuple[Palette, ...] = (
+    Palette(
+        "XMB Blue",
+        hue=((0.0, 0.625), (0.4, 0.571), (1.0, 0.819)),
+        saturation=((0.0, 0.70), (0.4, 0.51), (1.0, 0.74)),
+        anchor=ACCENT,
+    ),
+    Palette(
+        "Ember",
+        hue=((0.0, 0.085), (0.4, 0.035), (1.0, -0.08)),
+        saturation=((0.0, 0.85), (0.4, 0.70), (1.0, 0.62)),
+        anchor=QColor(255, 114, 76),
+    ),
+    # Daycore was 0.47 and rendered as the same teal Vapor opens on -- two
+    # presets whose slowest end is indistinguishable is one preset with a longer
+    # menu. 0.43 keeps the whole ramp inside the greens, which is also what the
+    # name promises.
+    Palette(
+        "Aurora",
+        hue=((0.0, 0.43), (0.4, 0.36), (1.0, 0.22)),
+        saturation=((0.0, 0.75), (0.4, 0.60), (1.0, 0.72)),
+        anchor=QColor(102, 255, 126),
+    ),
+    Palette(
+        "Vapor",
+        hue=((0.0, 0.50), (0.4, 0.88), (1.0, 1.02)),
+        saturation=((0.0, 0.65), (0.4, 0.55), (1.0, 0.60)),
+        anchor=QColor(255, 114, 216),
+    ),
+    # Saturation stays low throughout -- but not *too* low. At 0.06 the anchor
+    # measured (240,248,255), which is white to within a rounding error: the
+    # selected row's readout would have been the same colour as its title, and
+    # an accent that matches the text is not an accent. 0.16 is still "no
+    # colour" at a glance and still tells the two apart.
+    Palette(
+        "Mono",
+        hue=((0.0, 0.55), (0.4, 0.58), (1.0, 0.78)),
+        saturation=((0.0, 0.34), (0.4, 0.16), (1.0, 0.28)),
+        anchor=QColor(214, 235, 255),
+    ),
+)
+
+_palette = PALETTES[0]
+
+
+def palette() -> Palette:
+    """The palette in force. Read fresh -- widgets never cache a colour."""
+    return _palette
+
+
+def palette_names() -> tuple[str, ...]:
+    """Every preset, in cycle order. The Settings row steps through this."""
+    return tuple(item.name for item in PALETTES)
+
+
+def set_palette(name: str) -> bool:
+    """Swap the ramp. Always True: the caller must re-apply the stylesheet.
+
+    Unlike `set_accent_fraction` there is no gate to earn here. That one is
+    keyed on the slider fraction, which does not move when only the palette
+    does -- so a swap sails straight through the bucket comparison and the
+    transport bar would keep the old colour. Returning True unconditionally is
+    the honest answer, and a palette change happens on a keypress rather than
+    once per pixel of a drag, so there is nothing to protect.
+    """
+    global _palette, _accent_text_mix
+
+    for item in PALETTES:
+        if item.name == name:
+            _palette = item
+            break
+    else:
+        _palette = PALETTES[0]
+    # Cached module state, recomputed nowhere else. A palette with a darker hue
+    # at this fraction needs a different lift toward white, and forgetting this
+    # is exactly the Batch 9 bug with a new way in.
+    _accent_text_mix = _text_mix()
+    return True
+
+
+def _along(knots: Knots, fraction: float) -> float:
     """Piecewise-linear lookup through `knots`, clamped at both ends."""
     fraction = max(0.0, min(1.0, fraction))
     for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
@@ -314,12 +431,14 @@ def _along(knots: tuple[tuple[float, float], ...], fraction: float) -> float:
 def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> QColor:
     """The wave's colour at a point along the speed slider.
 
-    At `fraction=0.4` this returns ACCENT to within a rounding step, which is
-    the point: at 1.00x the wave is the same icy blue as every other accent in
-    the app, and only the effect pulls it away.
+    At `fraction=0.4` this returns the active palette's anchor to within a
+    rounding step, which is the point: at 1.00x the wave is the same colour as
+    every other accent in the app, and only the effect pulls it away. On the
+    default palette that anchor is ACCENT, so 1.00x is the icy blue it always
+    was.
     """
-    hue = (_along(_WAVE_HUE, fraction) + hue_shift) % 1.0
-    color = QColor.fromHsvF(hue, _along(_WAVE_SATURATION, fraction), 1.0)
+    hue = (_along(_palette.hue, fraction) + hue_shift) % 1.0
+    color = QColor.fromHsvF(hue, _along(_palette.saturation, fraction), 1.0)
     color.setAlpha(max(0, min(255, alpha)))
     return color
 

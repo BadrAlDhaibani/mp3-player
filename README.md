@@ -18,9 +18,16 @@ Windows · Python 3.13 · PySide6 · numpy · sounddevice · soundfile
 - **The XMB.** A crossbar you navigate with the arrow keys, a wave that lights
   the row your selection sits on, and UI blips synthesized in numpy rather than
   shipped as files.
-- **The wave reads out the speed.** Deep blue at daycore, the app's own blue at
-  1.00x, violet at nightcore — so the background tells you what the effect is
-  doing while you are looking at some other category.
+- **The whole app reads out the speed.** Deep blue at daycore, the app's own blue
+  at 1.00x, violet at nightcore — the wave, the selection, every slider fill and
+  every readout travel together, so the colour tells you what the effect is doing
+  while you are looking at some other category.
+- **Five colour presets.** Settings ▸ Theme, Enter, then `←` `→` to walk them —
+  the app recolours as you go, so you pick by looking. **XMB Blue**, **Ember**
+  (amber → coral → hot pink), **Aurora** (teal → green → chartreuse), **Vapor**
+  (cyan → hot pink → coral) and **Mono** (near-white throughout). A theme
+  changes only where the colour travels as the slider moves; the navy background
+  and the text stay put. Remembered across launches.
 - **It tells you how long the track will actually take.** `4:07 · plays in
   3:10 at 1.30x`. It moves as you drag.
 - **It reads your tags.** Title, artist, album and the embedded cover. A tagged
@@ -79,6 +86,7 @@ before the window appears.
 | `←` `→` | move between Now Playing · Music · Settings |
 | `↑` `↓` | move down a list — or, on Now Playing, drive the speed slider |
 | `Enter` | play the selected track, or open the selected setting |
+| `Enter` on **Theme** | step into the row; `←` `→` then walk the presets, `Enter` or `Esc` leaves |
 | `Backspace` | back a category |
 | `Space` | play / pause |
 | `Ctrl` + `←` `→` | previous / next track |
@@ -96,7 +104,7 @@ a category to switch, and drag or scroll the speed slider.
 There is no folder yet, so it opens on **Settings ▸ Music folder** with one
 press between you and a folder picker. It reads the `.mp3` files sitting
 directly in that folder — top level only — and remembers it, along with your
-volume and speed, in `%APPDATA%/XMBPlayer/settings.json`.
+volume, speed and theme, in `%APPDATA%/XMBPlayer/settings.json`.
 
 ---
 

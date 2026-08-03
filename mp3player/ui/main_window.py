@@ -36,6 +36,12 @@ from mp3player.ui.widgets.wave import WaveBackground
 
 CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
 
+# The Settings rows, by position. `ItemColumn` activates by index and has no
+# notion of an id, so these are what keep the list and the dispatch in step --
+# Batch 10 inserted a row in the middle and every branch below it shifted, which
+# without names is a silent misfire rather than a rename.
+SET_FOLDER, SET_RESCAN, SET_THEME, SET_FULLSCREEN, SET_QUIT = range(5)
+
 
 CATEGORIES = (
     Category("▶", "Now Playing"),
@@ -287,6 +293,10 @@ class MainWindow(ChromeWindow):
         self._speed = settings_mod.DEFAULT_SPEED
         self._duration = 0.0
         self._device_lost = False
+        # Set while the Theme row is holding the arrow keys. The only modal
+        # state in the app, which is why it is spelled out here rather than
+        # inferred from the cursor being on that row.
+        self._stepping = False
         # The first `library_changed` is the one that can decide this is a first
         # run. Every later one is the user changing folders, and landing them
         # back on Settings for that would be the app taking the wheel.
@@ -317,15 +327,19 @@ class MainWindow(ChromeWindow):
         self.set_body(body)
 
         self.stage.bar.set_categories(CATEGORIES)
-        # Both seeded from DEFAULT_SPEED, not from the saved one -- the real
-        # value arrives moments later on `controller.start()`, through
-        # `_on_speed`, which is what actually colours a launch. This exists
-        # because the accent is module state and a second window in the same
-        # process (the harness, the render tools) would otherwise inherit the
-        # last one's colour in a stylesheet built before anything set it.
+        # All three seeded from the defaults, not from what was saved -- the real
+        # values arrive moments later on `controller.start()`, through `_on_theme`
+        # and `_on_speed`, which is what actually colours a launch. This exists
+        # because the palette and the accent are module state and a second window
+        # in the same process (the harness, the render tools) would otherwise
+        # inherit the last one's colour in a stylesheet built before anything set
+        # it.
+        theme.set_palette(settings_mod.DEFAULT_THEME)
         self.stage.wave.set_fraction(_speed_fraction(self._speed))
-        if theme.set_accent_fraction(_speed_fraction(self._speed)):
-            self.transport.refresh_accent()
+        theme.set_accent_fraction(_speed_fraction(self._speed))
+        # Unconditional: the bucket may not have moved but the palette may have,
+        # and this runs once per window rather than once per pixel of a drag.
+        self.transport.refresh_accent()
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _connect(self) -> None:
@@ -337,6 +351,7 @@ class MainWindow(ChromeWindow):
         controller.position_changed.connect(self._on_position)
         controller.playing_changed.connect(self._on_playing)
         controller.speed_changed.connect(self._on_speed)
+        controller.theme_changed.connect(self._on_theme)
         controller.volume_changed.connect(self.transport.set_volume)
         controller.failed.connect(self.stage.set_status)
         # The one sound wired to a controller signal rather than to an input:
@@ -347,6 +362,12 @@ class MainWindow(ChromeWindow):
 
         self.stage.bar.index_changed.connect(self._on_category)
         self.stage.column.activated.connect(self._activate)
+        # The one thing wired to `index_changed`, and not for sound: if the
+        # cursor moved while a row was stepped into, it moved off that row --
+        # a click, the wheel, Home, End. This is the mouse's exit as much as the
+        # keyboard's, which is why it hangs off the movement rather than off any
+        # of the four things that can cause it.
+        self.stage.column.index_changed.connect(lambda _index: self._stop_stepping())
         self.stage.page.slider_moved.connect(self._on_slider_dragged)
         self.stage.moved.connect(self.sounds.move)
 
@@ -475,6 +496,21 @@ class MainWindow(ChromeWindow):
         # costs nothing.
         self.stage.column.update()
 
+    def _on_theme(self, name: str) -> None:
+        """A different spectrum under the same slider. Everything else holds.
+
+        The restyle is unconditional, unlike `_on_speed`'s. That gate asks
+        whether the *fraction* moved a bucket, and it hasn't -- the slider is
+        exactly where it was and only the ramp beneath it changed, so a swap
+        sails straight through the comparison and the bottom bar keeps the old
+        colour. The wave needs no telling at all: it reads `wave_color` six
+        times a frame and caches nothing, so it is already repainting.
+        """
+        theme.set_palette(name)
+        self.transport.refresh_accent()
+        self._refresh_column()
+        self.stage.column.update()
+
     def _on_slider_dragged(self, fraction: float) -> None:
         span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
         self._set_speed(settings_mod.MIN_SPEED + fraction * span)
@@ -522,6 +558,9 @@ class MainWindow(ChromeWindow):
     # -- categories and items ---------------------------------------------
 
     def _on_category(self, index: int) -> None:
+        # Leaving Settings leaves the row, however you left. Before the refresh
+        # below, or the column rebuilds still wearing the outline.
+        self._stop_stepping()
         # The crossbar has already moved by the time this fires, so the cursor
         # for the category we just left has to be banked against the mirrored
         # index rather than against `bar.index`.
@@ -631,9 +670,16 @@ class MainWindow(ChromeWindow):
             counts += f"  ·  {len(self._library.skipped)} skipped"
         # No speed presets here any more -- they're the two ends of the slider
         # on Now Playing, which is a better home for them than a settings list.
+        # The theme row reads its value back out of `theme` rather than off the
+        # controller, so an unknown name in the settings file shows as whatever
+        # is actually on screen instead of what the file asked for. The chevrons
+        # are the second half of saying the row is stepped into -- the outline
+        # says the keys land here, and these say which keys.
+        name = theme.palette().name
         return [
             Item("Music folder", self._folder_summary()),
             Item("Rescan folder", counts),
+            Item("Theme", f"‹ {name} ›" if self._stepping else name),
             Item("Full screen", "F11"),
             Item("Quit", ""),
         ]
@@ -653,14 +699,46 @@ class MainWindow(ChromeWindow):
             self._activate_settings(index)
 
     def _activate_settings(self, index: int) -> None:
-        if index == 0:
+        if index == SET_FOLDER:
             self._choose_folder()
-        elif index == 1:
+        elif index == SET_RESCAN:
             self.controller.rescan()
-        elif index == 2:
+        elif index == SET_THEME:
+            self._start_stepping()
+        elif index == SET_FULLSCREEN:
             self.toggle_fullscreen()
-        elif index == 3:
+        elif index == SET_QUIT:
             self.close()
+
+    # -- the theme row, which is stepped into ------------------------------
+    #
+    # The one modal row in the app. Enter steps in, Left and Right walk the
+    # presets live, and Enter, Esc or Backspace steps back out -- as does
+    # anything that moves the cursor off the row.
+    #
+    # Picking a theme is a *comparison*: you want to see each one on the screen
+    # you are already looking at and stop on the one you like. Cycling blind
+    # with a single key makes the one you liked two presses ago cost three more
+    # to get back to, which is why this is a mode and not a toggle.
+
+    def _start_stepping(self) -> None:
+        self._stepping = True
+        self.stage.column.set_stepping(True)
+        self._refresh_column()
+
+    def _stop_stepping(self) -> None:
+        """Leave the mode. Safe to call when not in it -- most callers are."""
+        if not self._stepping:
+            return
+        self._stepping = False
+        self.stage.column.set_stepping(False)
+        self._refresh_column()
+
+    def _step_theme(self, delta: int) -> None:
+        """Walk the presets, wrapping. Applied live, so you pick by looking."""
+        names = theme.palette_names()
+        here = names.index(theme.palette().name)
+        self.controller.set_theme(names[(here + delta) % len(names)])
 
     def _choose_folder(self) -> None:
         # Opening the picker *at* a folder that has been deleted is how you get
@@ -705,6 +783,37 @@ class MainWindow(ChromeWindow):
     def _handle_key(self, key: int, modifiers) -> bool:
         """Do what `key` means. False if it means nothing here."""
         column = self.stage.column
+
+        # A stepped-into row takes the horizontal arrows before the crossbar
+        # sees them -- first, so the branch below can go on treating Left and
+        # Right as category navigation without learning about the mode.
+        #
+        # Buying those two keys back is the entire reason this mode exists. The
+        # standing rule is that Left/Right are category nav everywhere and can't
+        # be spent on a value; stepping into a row is the one place that rule is
+        # suspended, which is both what real XMB does with a slider item and
+        # what the outline is announcing.
+        if self._stepping:
+            # Bare arrows only. Ctrl and Shift are transport -- you may well be
+            # listening to something while you pick a theme, and the mode is
+            # about this row's value, not about the whole keyboard.
+            if key in (Qt.Key_Left, Qt.Key_Right) and not modifiers & (
+                Qt.ControlModifier | Qt.ShiftModifier
+            ):
+                self._step_theme(+1 if key == Qt.Key_Right else -1)
+                # Sounded here rather than left to the index comparison in
+                # `keyPressEvent`: the cursor deliberately hasn't moved, and
+                # this press did do something.
+                self.sounds.move()
+                return True
+            if key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Escape, Qt.Key_Backspace):
+                self._stop_stepping()
+                self.sounds.back()
+                return True
+            # Everything else falls through on purpose -- Up, Down, Home, End.
+            # They move the cursor, which means the user has left this row, and
+            # `index_changed` closes the mode for them. Same exit the wheel and
+            # a click on another row already take, and it needs no branch here.
 
         # On Now Playing there is no list, so Up and Down have nothing to
         # navigate and drive the slider instead. That's what lets this page have

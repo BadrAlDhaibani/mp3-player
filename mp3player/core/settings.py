@@ -17,6 +17,12 @@ APP_NAME = "XMBPlayer"
 DEFAULT_VOLUME = 0.8
 DEFAULT_SPEED = 1.0
 
+# The colour preset. A bare *name*, because `core` imports no Qt and has no
+# business knowing what a palette is -- `ui/theme.py` owns the list and clamps
+# an unknown name to this one at apply time. Same seam as `library.MISSING`:
+# here it is a token, up there it means something.
+DEFAULT_THEME = "XMB Blue"
+
 MIN_VOLUME, MAX_VOLUME = 0.0, 1.0
 
 DAYCORE_SPEED = 0.80
@@ -57,17 +63,32 @@ def _as_folder(value: object) -> Path | None:
     return Path(value)
 
 
+def _as_name(value: object, default: str) -> str:
+    """Any non-empty string, whether or not this build knows it.
+
+    Deliberately not checked against a list of legal names: a file written by a
+    later build with more presets in it would then come back as the default and
+    be saved that way, quietly destroying a setting this build merely doesn't
+    recognise. `ui` clamps it when it applies it, which is where the list lives.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return default
+    return value.strip()
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     music_folder: Path | None = None
     volume: float = DEFAULT_VOLUME
     speed: float = DEFAULT_SPEED
+    theme: str = DEFAULT_THEME
 
     def to_dict(self) -> dict[str, object]:
         return {
             "music_folder": str(self.music_folder) if self.music_folder else None,
             "volume": self.volume,
             "speed": self.speed,
+            "theme": self.theme,
         }
 
     @classmethod
@@ -83,6 +104,7 @@ class Settings:
             music_folder=_as_folder(raw.get("music_folder")),
             volume=_clamp(raw.get("volume"), DEFAULT_VOLUME, MIN_VOLUME, MAX_VOLUME),
             speed=_clamp(raw.get("speed"), DEFAULT_SPEED, MIN_SPEED, MAX_SPEED),
+            theme=_as_name(raw.get("theme"), DEFAULT_THEME),
         )
 
 

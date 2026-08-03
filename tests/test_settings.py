@@ -65,7 +65,7 @@ def test_one_bad_field_does_not_discard_the_others(path) -> None:
 
 
 def test_unknown_keys_are_ignored(path) -> None:
-    path.write_text(json.dumps({"volume": 0.3, "theme": "ps2", "future": [1]}))
+    path.write_text(json.dumps({"volume": 0.3, "shuffle": True, "future": [1]}))
     assert s.load(path).volume == 0.3
 
 
@@ -98,6 +98,35 @@ def test_nonsense_numbers_fall_back(path, junk) -> None:
 def test_blank_or_wrong_typed_folder_becomes_none(path, stored) -> None:
     path.write_text(json.dumps({"music_folder": stored}))
     assert s.load(path).music_folder is None
+
+
+def test_theme_round_trips(path) -> None:
+    s.save(Settings(theme="Ember"), path)
+    assert s.load(path).theme == "Ember"
+
+
+def test_a_file_without_a_theme_gets_the_default(path) -> None:
+    """Every settings file written before Batch 10 is one of these."""
+    path.write_text(json.dumps({"volume": 0.3}))
+    assert s.load(path).theme == s.DEFAULT_THEME
+
+
+@pytest.mark.parametrize("junk", ["", "   ", None, 42, [], {}])
+def test_a_blank_or_wrong_typed_theme_falls_back(path, junk) -> None:
+    path.write_text(json.dumps({"theme": junk}))
+    assert s.load(path).theme == s.DEFAULT_THEME
+
+
+def test_an_unrecognised_theme_name_survives(path) -> None:
+    """`core` has no list to check against, and inventing one would be worse.
+
+    A file written by a later build with more presets in it must not come back
+    as the default and then get *saved* that way -- that turns "this build
+    doesn't know that name" into "your setting is gone". `ui` clamps it when it
+    applies it, which is where the list actually lives.
+    """
+    path.write_text(json.dumps({"theme": "Nebula"}))
+    assert s.load(path).theme == "Nebula"
 
 
 def test_save_creates_missing_directories(tmp_path) -> None:

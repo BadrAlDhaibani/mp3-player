@@ -16,6 +16,11 @@ where its width has to change.
 
 Music and Settings use this. Now Playing does not -- it's a page rather than a
 list, so it has its own widget (`now_playing.py`) instead of a mode in here.
+
+There is exactly one mode in here, `set_stepping`, and it is only a *look*: the
+outline that says the selected row is holding the arrow keys. What that means,
+and which rows can do it, stays in the window. This widget has never known what
+any of its rows are for.
 """
 
 from __future__ import annotations
@@ -59,6 +64,7 @@ class ItemColumn(QWidget):
         self._items: tuple[Item, ...] = ()
         self._index = 0
         self._empty_text = ""
+        self._stepping = False
 
         self._display = 0.0
         self._appear = 1.0
@@ -152,6 +158,26 @@ class ItemColumn(QWidget):
     def activate(self) -> None:
         if self._items:
             self.activated.emit(self._index)
+
+    # -- stepped-into rows -------------------------------------------------
+
+    @property
+    def stepping(self) -> bool:
+        return self._stepping
+
+    def set_stepping(self, on: bool) -> None:
+        """Whether the selected row is currently holding the arrow keys.
+
+        Purely a *look*. Which rows can be stepped into and what stepping does
+        to them are the window's business -- this column has never known what
+        any of its rows mean and is not about to start. All it does is outline
+        the plate, so the mode is something you can see rather than something
+        you have to remember you are in.
+        """
+        on = bool(on)
+        if on != self._stepping:
+            self._stepping = on
+            self.update()
 
     # -- geometry ----------------------------------------------------------
     #
@@ -270,6 +296,15 @@ class ItemColumn(QWidget):
         painter.setBrush(theme.faded(theme.accent_soft(), 0.55 + 0.45 * settled))
         painter.drawRoundedRect(plate, 4, 4)
         painter.setBrush(Qt.NoBrush)
+
+        if self._stepping:
+            # An outline rather than a brighter plate. The glow already says
+            # "this row is selected"; what needs saying now is "and the arrow
+            # keys land here instead of moving the cursor", which is a different
+            # claim and wants a different mark. Inset by one so the stroke sits
+            # on the plate rather than straddling its edge into the glow.
+            painter.setPen(QPen(theme.faded(theme.accent_text(), settled), 2))
+            painter.drawRoundedRect(plate.adjusted(1, 1, -1, -1), 4, 4)
 
     def _paint_item(self, painter: QPainter, index: int, item: Item, y: float) -> None:
         distance = abs(index - self._display)

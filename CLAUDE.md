@@ -16,10 +16,11 @@ If a box below isn't ticked, it isn't done.
 > Batch 6 (sound & feel — **all but the ear pass**) ·
 > Batch 7 (ship v1 — 202 tests, 154 harness checks, `.exe` built and run) ·
 > Batch 8 (ID3 tags & album art — 231 tests, 178 harness checks) ·
-> Batch 9 (the accent tracks the speed — 231 tests, 193 harness checks)
+> Batch 9 (the accent tracks the speed — 231 tests, 193 harness checks) ·
+> Batch 10 (preset themes — 240 tests, 251 harness checks)
 >
-> **v1 is shipped; Batches 8 and 9 landed on top of it.** Every roadmap box is
-> ticked except the ones listed under *Open, and waiting on a human* below.
+> **v1 is shipped; Batches 8, 9 and 10 landed on top of it.** Every roadmap box
+> is ticked except the ones listed under *Open, and waiting on a human* below.
 >
 > ### Open, and waiting on a human
 >
@@ -35,25 +36,35 @@ If a box below isn't ticked, it isn't done.
 >    levers are `_PEAKS` in `core/audio/sfx.py` for the mix and `_MIN_GAP_MS` in
 >    `ui/sounds.py` for how often. Neither needs a code change to try.
 > 2. **Does the accent's travel feel right while dragging?** *(open since Batch
->    9)*. The colour ramp was verified as three stills via `tools/render.py` and
+>    9)*. The colour ramp was verified as stills via `tools/render.py` and
 >    measured for contrast, but nobody has held ↑ on Now Playing and watched it
 >    move. If it feels like it lags or jumps, the lever is `_QSS_STEPS` in
 >    `ui/theme.py` (how finely the transport bar's stylesheet follows — 48 now,
 >    higher is smoother and costs 2 ms a step). The painted half is already
->    continuous and has no step to tune.
+>    continuous and has no step to tune. **Batch 10 makes this five times more
+>    answerable** — there are now five ramps to drag, and any lag is a property
+>    of the plumbing rather than of any one palette.
+> 3. **Do the five palettes hold up in use?** *(open since Batch 10)*. Each was
+>    rendered at three speeds and looked at, which is how Aurora's daycore got
+>    moved off Vapor's teal — but stills at three points are not the same as
+>    living with one. The levers are all in `PALETTES` in `ui/theme.py`: three
+>    hue knots and three saturation knots per preset, no code change to try a
+>    different number. **If a knot moves, its `anchor` moves with it** or the
+>    harness says so.
 >
 > ### State of the build
 >
-> **The `.exe` has not been rebuilt since Batch 8.** Batch 9 is UI-only and adds
-> no dependency and no bundled asset, so `dist/` is one batch behind on purpose
-> rather than by accident. Rebuild (`tools/build_exe.py`) before distributing
-> anything; it is not needed for development, which runs live source.
+> **The `.exe` has not been rebuilt since Batch 8.** Batches 9 and 10 are
+> UI-only and add no dependency and no bundled asset, so `dist/` is two batches
+> behind on purpose rather than by accident. Rebuild (`tools/build_exe.py`)
+> before distributing anything; it is not needed for development, which runs
+> live source.
 >
 > ### Known flake — don't debug it
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **192/193 with
+> position read, it predates Batch 9, and it passes on a re-run. **250/251 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
@@ -77,7 +88,8 @@ If a box below isn't ticked, it isn't done.
 > "folder is gone" line running off the right edge mid-word at 720 px, Batch 8's
 > long artist drawing straight through its own title, and Batch 9's daycore
 > readout coming out fainter than the unselected rows around it — that last one
-> with all 178 checks green.
+> with all 178 checks green, and Batch 10's Aurora and Vapor opening on the same
+> teal — two presets wearing one colour, with all 227 checks green.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
@@ -186,6 +198,15 @@ here and write down why.
 | **`ACCENT` stops being painted with and becomes the anchor** | The constant stays exactly as it was and nothing reads it any more; `accent()` is what widgets call. Keeping a fixed 1.00x reference is what makes the invariant *checkable* — the wave's hue knots were fitted so the ramp passes through `ACCENT` at 1.00x, and a constant that moved would turn the harness check guarding that into a tautology. Also why the calls are functions rather than a mutated `theme.ACCENT`: `theme.accent()` says out loud that the value is live, where a constant-looking name would quietly become a lie. |
 | **Fills take the ramp straight; text is lightened to a contrast floor** | **HSV value is not lightness.** Every colour off the ramp has `V=1.0`, but a saturated blue at `V=1.0` is far darker to the eye than a cyan at `V=1.0` — so the daycore accent measured **4.9:1 against the background, below `TEXT_FAINT`'s 5.5:1**. Rendered, that inverted the row: the *selected* track's artist was fainter than the unselected ones around it, which is the opposite of what focus means. Fills were fine at every speed. So `accent_text()` mixes toward white — and only as far as it has to, targeting 7:1: daycore 4.9→7.1, nightcore 6.2→7.0, and **1.00x needs zero mix and is byte-identical to before**, which is the invariant the whole ramp hangs on. A flat mix would have lifted 1.00x too. |
 | **Only the transport bar has to be *told* the accent moved** | Everything else paints itself and picks the new colour up on its next repaint, because no widget captures a colour at construction. The bottom bar is stock Qt widgets coloured by stylesheet, so `TransportBar.refresh_accent()` re-applies it — gated on a 48-bucket quantisation of the fraction, because a drag emits on every mouse-move and re-applying a stylesheet re-polishes the whole widget tree. **Measured: 2.0 ms per drag step, about 30% of the drag path's total cost** — the gate stays. A bucket is ~2° of hue, invisible in a 4 px fill. |
+| **A theme is a swap of the ramp's knots, and nothing else** | Chosen with the user in Batch 10. The whole ask was "change the spectrum the slider moves through", and Batch 9 had already routed every accent in the app through one function of one fraction — so a preset is two knot tuples and a name. The navy gradient, the three text greys, every metric and every animation hold still, which is the same scope discipline Batch 9 kept and for the same reason: the frame staying put is what makes the colour read as deliberate rather than as the app changing skin. It also keeps the contrast floor meaningful, since every number in it is measured against `BG_MID`. |
+| **Each palette carries a hand-written `anchor`** | The harness has checked "1.00x *is* `ACCENT`" since Batch 9, and that check was only ever worth anything because `ACCENT` held still while the knots were fitted to it. Once there are five sets of knots, comparing each against its own `wave_color(0.4)` proves nothing — it is the same arithmetic on both sides. So `Palette.anchor` is a literal someone typed after looking at the number, the harness compares the two, and `PALETTES[0].anchor is ACCENT` keeps the original invariant exactly as it was. |
+| **Knots may run outside 0..1** | `wave_color` takes the hue modulo 1 *after* interpolating, so Ember ends at `-0.08` (hot pink) and Vapor at `1.02` (coral). Clamping them into range instead would make `_along` lerp the long way round — Ember's amber→pink would pass through green, cyan and blue on the way. This is a property of the existing `% 1.0`, not something added for it. |
+| **The theme name is a bare string in `core`; `ui` owns the list** | Same seam as `library.MISSING` versus `empty_reason`: `core` imports no Qt and has no business knowing what a palette is, so `_as_name` validates the *shape* (a non-empty string) and stops. `PlayerController` clamps it against `theme.palette_names()` on the way in and on every set, which is what stops a bad name reaching the paint path. Deliberately *not* clamped in `core`: a file written by a later build with more presets would come back as the default and then get saved that way, turning "this build doesn't know that name" into "your setting is gone". |
+| **A palette swap always re-applies the transport stylesheet** | The 48-bucket gate asks whether the *fraction* moved, and swapping a palette doesn't move it — the slider is exactly where it was and only the ramp beneath it changed. So the swap sails straight through the comparison and the one part of the app coloured by stylesheet keeps the old colour. `set_palette` returns `True` unconditionally, which is honest rather than lazy: a theme change is a keypress, not a pixel of a drag, so there is nothing to protect. |
+| ~~Enter cycles the Theme row~~ → **it is stepped into: Enter, then ←→, then Enter/Esc** | *Revised twice within Batch 10, both at the user's ask, both after the previous version had been built and run.* Cycling made every palette one press from the row — but picking a theme is a **comparison**, and blind cycling means the one you liked two presses ago costs three more to get back to. So: a mode. This is the Batch 4 slider-row decision coming back word for word, and it is worth noting that the *only* objection to it in Batch 9 was that `ItemColumn` had no per-row mode. It still doesn't — `set_stepping` is one bool and an outline, and every decision about what the mode means stayed in the window. The machinery Now Playing was built to avoid was a value editor inside the column, not a rectangle. |
+| **Stepping in is what buys Left/Right back** | The adjusters are ←→, not ↑↓ — which reads as a straight contradiction of "Left/Right stay category nav everywhere" and is in fact the exception that rule was written to have. A stepped-into row is the one place the crossbar gives them up, that is exactly what real XMB does with a slider item, and it is what the outline is announcing. It also makes the readout's own `‹ ›` chevrons say which keys, rather than being decoration. `↑↓` were tried first and moved here in the same batch: they are the keys that mean "next row", and spending them on a value left the row's own axis doing nothing. |
+| **The mode has three explicit exits and three that are just leaving** | A mode you can enter and not leave is worse than no mode. Enter, Esc and Backspace step out by name. Everything else that gets you out does it by *moving the cursor off the row* — ↑↓, Home, End, the wheel, a click on another row — and that is **one** connection to `index_changed`, not five branches. `index_changed` is the signal this project had deliberately never wired anything to, because it also fires when the app moves the cursor itself; that is precisely why it works here, since whoever moved the cursor, the user is no longer on that row. Ctrl and Shift arrows stay transport throughout: you may well be listening while you pick, and the mode is about one row's value, not about the whole keyboard. |
+| **The Settings rows have names now** | `ItemColumn` activates by index and has no notion of an id, so a list and an if-chain of bare integers were held together by counting. Batch 10 inserted a row in the *middle* of that list, which without names is a silent misfire rather than a rename — `Full screen` would have quit. `SET_FOLDER … SET_QUIT` in `main_window.py`, plus a harness check that the label at each index is the one its branch expects. |
 | **The Now Playing info block is three fixed slots, not a flowing list** | Artist · Album, then the length, then where you are. Most of this library is untagged, so a block that closed up when there was no credit would jump on nearly every track change — and things staying put is most of what makes an XMB feel like one. An empty first line is drawn as nothing and keeps its space. Three lines needed the offsets tightened from 54/78 to 46/68/90: a third at the old spacing lands 1 px off the slider's box, which is not clearance. |
 
 ### Open questions
@@ -208,6 +229,7 @@ mp3player/
     tags.py              # read_tags() -> Tags; read_art() -> bytes | None
     library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
+                         #   folder, volume, speed, theme (a bare name)
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
       dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
@@ -216,6 +238,7 @@ mp3player/
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
+                         #   + PALETTES: the five speed-driven colour ramps
     motion.py            # Tween: one easing helper, shared by the three animators
     sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
@@ -392,6 +415,20 @@ don't invent a second way to do a thing we've already solved.
   looks like the app or like a different app. **`tools/render.py` is the thing
   to render with** — don't write another one, and if it can't show what you need,
   give it a flag.
+- **A gate keyed on one input is a hole the moment a second input can change
+  the same output.** `set_accent_fraction`'s 48-bucket check is a correct
+  answer to "did the accent move enough to matter?" only while the *fraction*
+  is the only thing the accent depends on. Batch 10 added a second thing, and
+  the gate went on answering the old question — silently, because a stale
+  stylesheet is a colour and not an error. The fix is not a smarter gate: it is
+  that the new input re-applies unconditionally, because it fires on a keypress
+  rather than per pixel of a drag.
+- **A harness that reads the user's saved settings must pin anything it
+  asserts a constant about.** `shell_harness.py` builds a real controller from
+  the real `settings.json`, so once the theme was persisted, every
+  `ACCENT` comparison in it passed or failed depending on which palette the
+  machine happened to be left on. It sets the default up front and puts the
+  saved one back before shutdown flushes, next to the speed and the volume.
 - **Vertical positions are fixed numbers, so the offscreen harness *can*
   check those.** It cannot judge width, but "this line's box clears that
   control's box" is arithmetic on `theme.py` constants and belongs in an
@@ -821,6 +858,101 @@ Not done: the `.exe` was not rebuilt (see the resume block), and nobody has sat
 and dragged the slider by hand yet — the renders are stills of three points on a
 continuous move.
 
+### Batch 10 — Preset themes ✅
+
+- [x] `theme.Palette` + `PALETTES` — five ramps: XMB Blue, Ember, Aurora, Vapor, Mono
+- [x] `palette()` / `palette_names()` / `set_palette()`; `wave_color` reads the active one
+- [x] `settings.theme` — a bare validated name, `core` side
+- [x] `PlayerController.set_theme` / `theme_changed`, clamped and persisted
+- [x] A `Theme` row in Settings, stepped into with Enter and walked with ←→
+- [x] `ItemColumn.set_stepping` — the outline, and nothing else
+- [x] `tools/render.py --theme` / `--step`, harness checks, tests, `CLAUDE.md`
+
+The ask was "change the spectrum the slider moves through", and Batch 9 had
+already made that a one-function question: every accent in the app comes from
+`wave_color(fraction)`, and the ramp was two hard-coded knot tuples. So a theme
+is those two tuples with a name on them, and `PlayerController`, `core/audio/`,
+`wave.py`, `item_column.py`, `now_playing.py` and `transport.py` were all
+untouched — the **eighth** batch running where the seam held. Every paint site
+reads `theme.X` fresh, so five palettes cost the widgets nothing.
+
+**Two things had to be told, and both were the same shape of bug.**
+`_accent_text_mix` is cached module state recomputed only inside
+`set_accent_fraction`, and the transport bar's colours live in a stylesheet
+gated on a 48-bucket quantisation of the *fraction*. A palette swap moves
+neither the fraction nor the bucket, so both would have gone on answering the
+question they were built for while the answer had changed underneath them.
+That is a convention now — a gate keyed on one input is a hole the moment a
+second input can change the same output.
+
+**The renders found the bug, for the fifth batch running, and it was not a
+contrast one this time.** All 227 checks were green while Aurora and Vapor
+opened on the same teal — 169° and 180°, two presets wearing one colour at the
+daycore end. Nothing measurable was wrong: both cleared 14:1, both travelled
+three distinct hues, both hit their anchors. Aurora's daycore moved to 0.43,
+which puts its whole ramp inside the greens and is what the name promised
+anyway. Mono was caught before it shipped by the same reasoning at the other
+end: at saturation 0.06 its anchor measured (240,248,255), which is white — an
+accent the same colour as the text is not an accent. It sits at 0.16.
+
+**The contrast floor carried over for free and earned its keep.** Ember's 1.00x
+lands at 6.99:1 against a 7.0 floor and takes exactly one 0.05 mix step; every
+other palette needs none, and XMB Blue at 1.00x is still byte-identical to
+Batch 8. That is the floor doing what it was written for, on colours nobody had
+when it was written.
+
+**Then the row stopped cycling and started being stepped into**, at the user's
+ask, after cycling had been built, rendered and run — and then the adjusters
+moved from ↑↓ to ←→, same batch, same reason. Both are decisions-log rows; the
+thing worth carrying forward is how little the mode cost. It is one bool on the
+window, one bool on the column, and an outline — because the Batch 4 objection
+to per-row modes ("`ItemColumn` would have to learn what a row means") is
+avoidable by simply not telling it. `set_stepping` draws a rectangle. Every
+branch about what the arrows do while it is on lives in `_handle_key`, in one
+block, ahead of everything that assumes them.
+
+Landing on ←→ is what makes the mode pay for itself rather than merely exist.
+The standing rule is that Left and Right are category navigation *everywhere*,
+and a stepped-into row is the one place that is suspended — which is what real
+XMB does with a slider item, what the outline is announcing, and what the
+readout's `‹ ›` chevrons have been pointing at all along. With ↑↓ as the
+adjusters the mode was buying back keys that were never scarce.
+
+The interesting half was the **exits**, exactly as it was in Batch 6 with the
+silences. Only three are branches: Enter, Esc, Backspace. The rest — ↑↓, Home,
+End, the wheel, a click on another row, a category change — all leave because
+the cursor moved off the row, which is one connection to `index_changed` rather
+than six. And `index_changed` is a signal this project had deliberately never
+wired anything to, on the grounds that it also fires when the app moves the
+cursor itself. That is precisely why it works here: if something moved the
+cursor while a row was stepped into, the user is no longer on that row, whoever
+did the moving.
+
+Also landed: the Settings rows have names (`SET_FOLDER … SET_QUIT`). Inserting
+`Theme` in the middle shifted `Full screen` and `Quit`, and an if-chain of bare
+integers turns that into `Full screen` quitting the app rather than into a
+rename. And the harness now pins the palette to the default before it asserts
+on a colour — it reads the real `settings.json`, so once the theme persisted,
+every `ACCENT` comparison in it depended on which theme the machine was left on.
+
+Verified: **240 tests green** (9 new, core-only as the convention requires --
+the settings field, including that an unrecognised name survives the round trip
+rather than being helpfully destroyed). `tools/shell_harness.py` **251/251**,
+58 new: every palette's anchor against its hand-written literal, every palette's
+ramp travelling, the 7:1 floor and the never-fainter-than-`TEXT_FAINT` check at
+three speeds × five palettes, the bucket-gate hole, ←→ walking all five presets
+in both directions and wrapping *without the crossbar moving*, Ctrl+arrow still
+being transport inside the mode, every way out of it, and the unknown-name
+clamp. Rendered all five palettes at three speeds
+on Music at 980x640, plus Now Playing, the Settings row and the stepped-into row
+(`--step`), and looked at them. Ran it for real: 31 tracks playing throughout,
+stepped into the row, walked every theme in both directions with the transport
+bar following each time and the crossbar staying put, stepped out, confirmed Left went back to the crossbar. Theme persistence checked with a redirected `%APPDATA%` — pick, quit,
+relaunch, same palette on screen.
+
+Not done: the `.exe`, for the same reason as Batch 9 — UI-only, no new
+dependency, no new bundled asset.
+
 ---
 
 ## Running it
@@ -845,13 +977,16 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 192/193 with *that* line failing
+# predates Batch 9, and it passes on a re-run. 250/251 with *that* line failing
 # is the known one; anything else failing is yours.
 
 # look at a screen instead of asserting on it -- real platform, real fonts
 venv/Scripts/python.exe tools/render.py out.png                     # Music, 3 speeds
 venv/Scripts/python.exe tools/render.py out.png --what now --size 720x480
 venv/Scripts/python.exe tools/render.py out.png --what settings --speed 1.30
+venv/Scripts/python.exe tools/render.py out.png --theme all         # 5 palettes x 3 speeds
+venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
+venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
 
 # the Batch 6 harness -- audition the UI sounds; `m` is the one that matters
 venv/Scripts/python.exe tools/sfx_harness.py

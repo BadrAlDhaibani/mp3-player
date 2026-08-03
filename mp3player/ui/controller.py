@@ -31,6 +31,7 @@ from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
 from mp3player.core.library import scan_folder
 from mp3player.core.models import Track
 from mp3player.core.settings import Settings
+from mp3player.ui import theme
 
 POLL_MS = 33  # ~30 Hz
 
@@ -63,6 +64,7 @@ class PlayerController(QObject):
     playing_changed = Signal(bool)
     speed_changed = Signal(float)
     volume_changed = Signal(float)
+    theme_changed = Signal(str)  # the colour preset, by name
     failed = Signal(str)  # something the user should see, in one sentence
     # The output device coming and going. Separate from `failed` because it is a
     # *condition*, not an event: its message has to stay up until it stops being
@@ -79,6 +81,10 @@ class PlayerController(QObject):
         self.index = -1
 
         self._folder: Path | None = saved.music_folder
+        # Clamped here rather than in `core`, which has no list to clamp
+        # against. Doing it on the way in means the name that gets written back
+        # is always one this build can actually paint with.
+        self._theme = _known_theme(saved.theme)
         # Mirrored so the poll only emits `playing_changed` on an actual edge --
         # the engine's own flag flips by itself at end of track.
         self._was_playing = engine.is_playing
@@ -106,6 +112,10 @@ class PlayerController(QObject):
         Deliberately after connection rather than in `__init__`: the window
         renders itself from these signals, so it must be listening first.
         """
+        # Theme first: everything below computes a colour off the ramp, and the
+        # ramp is what this chooses. Emitting it after `speed_changed` would
+        # paint one frame in the previous palette.
+        self.theme_changed.emit(self._theme)
         self.volume_changed.emit(self.engine.volume)
         self.speed_changed.emit(self.engine.speed)
         self.folder_changed.emit(self._folder)
@@ -254,6 +264,21 @@ class PlayerController(QObject):
         self.volume_changed.emit(value)
         self._save_soon()
 
+    def set_theme(self, name: str) -> None:
+        """The colour preset. Nothing below the seam has an opinion about it.
+
+        The odd one out among the knobs: there is no engine attribute behind it,
+        because a theme is entirely a matter of paint. It still debounces its
+        save like the others.
+        """
+        self._theme = _known_theme(name)
+        self.theme_changed.emit(self._theme)
+        self._save_soon()
+
+    @property
+    def theme(self) -> str:
+        return self._theme
+
     # -- the poll ----------------------------------------------------------
 
     def _poll(self) -> None:
@@ -329,15 +354,26 @@ class PlayerController(QObject):
         self._save_timer.start()  # restarts the countdown; a drag writes once
 
     def _save_now(self) -> None:
+        # Rebuilt from scratch every time, so anything not named here is written
+        # back as its default. A new setting that isn't mirrored onto this
+        # object is therefore lost 800 ms after the next volume nudge, which is
+        # a bug that looks like the app forgetting rather than like a missing
+        # line.
         self._save_timer.stop()
         settings_mod.save(
             Settings(
                 music_folder=self._folder,
                 volume=self.engine.volume,
                 speed=self.engine.speed,
+                theme=self._theme,
             )
         )
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return min(max(float(value), low), high)
+
+
+def _known_theme(name: str) -> str:
+    """A palette name this build can paint with, or the default."""
+    return name if name in theme.palette_names() else theme.palette_names()[0]

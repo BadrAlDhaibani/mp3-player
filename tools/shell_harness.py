@@ -55,6 +55,7 @@ from mp3player.ui.main_window import (  # noqa: E402
     CAT_MUSIC,
     CAT_NOW,
     CAT_SETTINGS,
+    SET_THEME,
     MainWindow,
 )
 
@@ -213,6 +214,14 @@ def main() -> int:
     controller.start()
     app.processEvents()
 
+    # Pinned to the default before anything asserts on a colour. This harness
+    # runs against the *saved* settings, and every ACCENT comparison below is a
+    # statement about XMB Blue specifically -- left alone, the checks would pass
+    # or fail depending on which theme the machine happened to be set to. Put
+    # back at the end, with the speed and the volume.
+    controller.set_theme(settings_mod.DEFAULT_THEME)
+    app.processEvents()
+
     stage = window.stage
     bar, column, transport = stage.bar, stage.column, window.transport
 
@@ -244,7 +253,17 @@ def main() -> int:
     check("right -> Music", bar.index == CAT_MUSIC)
     press(window, Qt.Key_Right)
     check("right -> Settings", bar.index == CAT_SETTINGS)
-    check("settings column built, no presets", column.count == 4)
+    check("settings column built, no presets", column.count == 5)
+    # `ItemColumn` activates by index and has no notion of an id, so the list
+    # and the dispatch are held together by counting. Batch 10 inserted a row in
+    # the middle of it; without this the branches below just quietly do the
+    # wrong thing.
+    check(
+        "every settings row is where its branch thinks it is",
+        [item.label for item in column._items]
+        == ["Music folder", "Rescan folder", "Theme", "Full screen", "Quit"],
+        " / ".join(item.label for item in column._items),
+    )
     press(window, Qt.Key_Right)
     check("clamps at the last category", bar.index == CAT_SETTINGS)
     press(window, Qt.Key_Backspace)
@@ -457,6 +476,238 @@ def main() -> int:
         f"{theme._contrast(theme.TEXT_FAINT, theme.BG_MID):.1f}:1",
     )
     controller.set_speed(1.0)
+    app.processEvents()
+
+    print("\n-- theme presets")
+    # Everything above, five times over. A palette is a swap of the ramp's knots,
+    # so every invariant the ramp had is now an invariant five ramps have to
+    # hold -- and the one that broke in Batch 9 broke at *one* end of *one* of
+    # them, with every other check green.
+    check(
+        "the default palette is the one `core` names",
+        theme.PALETTES[0].name == settings_mod.DEFAULT_THEME,
+        f"{theme.PALETTES[0].name} vs {settings_mod.DEFAULT_THEME}",
+    )
+    check(
+        "...and its anchor is still ACCENT itself",
+        theme.PALETTES[0].anchor.getRgb() == theme.ACCENT.getRgb(),
+    )
+    faint = theme._contrast(theme.TEXT_FAINT, theme.BG_MID)
+    for palette in theme.PALETTES:
+        theme.set_palette(palette.name)
+        # The anchor is written by hand in the table, not derived from the
+        # knots -- which is the only reason this proves anything. A fitted
+        # value compared against itself would pass whatever the knots said.
+        at_normal = theme.wave_color(0.4)
+        check(
+            f"{palette.name}: 1.00x is the anchor it claims",
+            max(
+                abs(at_normal.red() - palette.anchor.red()),
+                abs(at_normal.green() - palette.anchor.green()),
+                abs(at_normal.blue() - palette.anchor.blue()),
+            )
+            <= 2,
+            f"{at_normal.getRgb()[:3]} vs {palette.anchor.getRgb()[:3]}",
+        )
+        hues = [theme.wave_color(f).hue() for f in (0.0, 0.4, 1.0)]
+        check(
+            f"{palette.name}: the ramp actually travels",
+            len(set(hues)) == 3,
+            " / ".join(str(h) for h in hues),
+        )
+        worst = 999.0
+        for fraction in (0.0, 0.4, 1.0):
+            theme.set_accent_fraction(fraction)
+            worst = min(worst, theme._contrast(theme.accent_text(), theme.BG_MID))
+        check(
+            f"{palette.name}: readable at every speed",
+            worst >= theme._TEXT_CONTRAST_FLOOR,
+            f"worst {worst:.1f}:1",
+        )
+        check(
+            f"{palette.name}: a focused readout never goes fainter than an unfocused one",
+            worst > faint,
+            f"{worst:.1f}:1 vs {faint:.1f}:1",
+        )
+
+    # The hole the bucket gate leaves. `set_accent_fraction` asks whether the
+    # *fraction* moved, and a palette swap doesn't move it -- so the stylesheet
+    # has to be re-applied on a different signal entirely, and the bar is the one
+    # thing in the app that would otherwise sit there in the old colour.
+    controller.set_theme("XMB Blue")
+    controller.set_speed(1.0)
+    app.processEvents()
+    before_qss, before_fraction = transport.styleSheet(), theme.accent_fraction()
+    controller.set_theme("Ember")
+    app.processEvents()
+    check(
+        "swapping the palette leaves the slider exactly where it was",
+        theme.accent_fraction() == before_fraction,
+        f"{theme.accent_fraction():.3f}",
+    )
+    check("...and the transport bar followed anyway", transport.styleSheet() != before_qss)
+    check(
+        "...to the new palette's colour",
+        theme.rgba(theme.accent()) in transport.styleSheet(),
+        theme.rgba(theme.accent()),
+    )
+    check(
+        "the wave is on the new ramp too",
+        theme.wave_color(wave._fraction).getRgb() == theme.accent().getRgb(),
+    )
+
+    print("\n-- stepping into the theme row")
+    # The one modal row in the app, so the checks are mostly about the ways out
+    # of it -- a mode you can enter and not leave is worse than no mode.
+    bar.set_index(CAT_SETTINGS)
+    column.set_index(SET_THEME)
+    app.processEvents()
+    check(
+        "the row reads out what is actually on screen",
+        column._items[SET_THEME].value == theme.palette().name,
+        column._items[SET_THEME].value,
+    )
+    check("...and nothing is stepped into yet", not column.stepping)
+    log.take()
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("Enter steps in", column.stepping and window._stepping)
+    check("...sounding a confirm, like any activation", sfx.CONFIRM in log.take())
+    check(
+        "...and the row says so in its readout",
+        "‹" in column._items[SET_THEME].value,
+        column._items[SET_THEME].value,
+    )
+
+    started_on = theme.palette().name
+    resting = column.index
+    was_category = bar.index
+    seen = [started_on]
+    blipped = []
+    for _ in range(len(theme.PALETTES) - 1):
+        clock.tick(200)  # past the move throttle, so each press is its own blip
+        log.take()
+        press(window, Qt.Key_Right)
+        app.processEvents()
+        seen.append(theme.palette().name)
+        blipped.append(sfx.MOVE in log.take())
+    check(
+        "Right walks every preset without repeating one",
+        len(set(seen)) == len(theme.PALETTES),
+        " -> ".join(seen),
+    )
+    # The whole point of the mode: Left/Right are category navigation
+    # everywhere else, and this is the one row allowed to spend them.
+    check(
+        "...and the crossbar never moved, though Right normally moves it",
+        bar.index == was_category,
+        f"category={bar.index}",
+    )
+    # The cursor deliberately doesn't move here, so the index comparison in
+    # `keyPressEvent` can't earn this one -- the branch has to sound it itself.
+    check("...blipping every time, because every press did something", all(blipped))
+    check("...without moving the cursor either", column.index == resting, f"index={column.index}")
+    check("...and the row followed each time", seen[-1] in column._items[SET_THEME].value)
+    press(window, Qt.Key_Right)
+    app.processEvents()
+    check("...and the last one wraps back to the first", theme.palette().name == started_on)
+    press(window, Qt.Key_Left)
+    app.processEvents()
+    check("Left walks the other way", theme.palette().name == seen[-1], theme.palette().name)
+    # The mode is about this row's value, not about the whole keyboard.
+    playing_before = controller.index
+    press(window, Qt.Key_Right, Qt.ControlModifier)
+    app.processEvents()
+    check(
+        "Ctrl+Right is still the next track, mode or no mode",
+        controller.index != playing_before,
+        f"{playing_before} -> {controller.index}",
+    )
+    check("...and it left the row stepped into", column.stepping)
+    check(
+        "the controller kept the name, so it will be saved",
+        controller.theme == theme.palette().name,
+        controller.theme,
+    )
+    check("the stepped-into row paints", not window.grab().isNull())
+
+    # Every way out. Enter first, because it is also the way in.
+    clock.tick(200)
+    log.take()
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("Enter steps back out", not column.stepping and not window._stepping)
+    check("...sounding a back", sfx.BACK in log.take())
+    check(
+        "...and the readout drops the chevrons",
+        column._items[SET_THEME].value == theme.palette().name,
+        column._items[SET_THEME].value,
+    )
+    # Settings is the last category, so Right clamps there and would prove
+    # nothing -- Left is the one with somewhere to go.
+    press(window, Qt.Key_Left)
+    app.processEvents()
+    check("...giving the horizontal arrows back to the crossbar", bar.index == CAT_MUSIC)
+    bar.set_index(CAT_SETTINGS)
+    column.set_index(SET_THEME)
+    app.processEvents()
+
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("stepped in again", column.stepping)
+    press(window, Qt.Key_Escape)
+    app.processEvents()
+    check("Esc steps out", not column.stepping)
+
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("stepped in once more", column.stepping)
+    press(window, Qt.Key_Down)
+    app.processEvents()
+    check(
+        "Down moves the cursor, which is itself the way out",
+        not column.stepping and column.index == resting + 1,
+        f"index={column.index}",
+    )
+
+    column.set_index(SET_THEME)
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("stepped in again, to leave by jumping", column.stepping)
+    press(window, Qt.Key_Home)
+    app.processEvents()
+    check(
+        "Home does the same -- any key that moves the cursor leaves the row",
+        not column.stepping and column.index == 0,
+    )
+
+    column.set_index(SET_THEME)
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("and once more, to leave by the crossbar", column.stepping)
+    bar.set_index(CAT_MUSIC)
+    app.processEvents()
+    check("changing category steps out too", not column.stepping)
+    bar.set_index(CAT_SETTINGS)
+    app.processEvents()
+    check(
+        "...and coming back does not put you back in it",
+        not column.stepping and "‹" not in column._items[SET_THEME].value,
+    )
+    # A name from a settings file this build doesn't know. `core` hands it up
+    # untouched on purpose; the clamp is here, and without it the app would paint
+    # with whatever palette happened to be loaded and then write the bad name
+    # back out again.
+    controller.set_theme("Nebula")
+    app.processEvents()
+    check(
+        "an unknown preset falls back to the default rather than sticking",
+        controller.theme == settings_mod.DEFAULT_THEME
+        and theme.palette().name == settings_mod.DEFAULT_THEME,
+        f"{controller.theme} / {theme.palette().name}",
+    )
+    check("the theme row paints at every preset", not window.grab().isNull())
+    bar.set_index(CAT_MUSIC)
     app.processEvents()
 
     print("\n-- activation")
@@ -1043,6 +1294,7 @@ def main() -> int:
     controller.open_folder(folder, remember=False)
     controller.set_speed(saved.speed)
     controller.set_volume(saved.volume)
+    controller.set_theme(saved.theme)
     controller.shutdown()
 
     total = len(PASSED) + len(FAILED)

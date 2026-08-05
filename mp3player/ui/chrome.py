@@ -17,7 +17,7 @@ margins that give the resize grips somewhere to live.
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -136,6 +136,11 @@ class ChromeWindow(QWidget):
         self._apply_margins()
 
         self._body: QWidget | None = None
+        # The window gradient, drawn once per size instead of per frame. Null
+        # to begin with, which is 0x0 and so never matches a real size -- the
+        # same trick the wave's buffers use to rebuild themselves on first paint
+        # without needing a `None` check in front of every use.
+        self._background = QPixmap()
 
     # -- composition -------------------------------------------------------
 
@@ -183,7 +188,36 @@ class ChromeWindow(QWidget):
     # -- painting ----------------------------------------------------------
 
     def paintEvent(self, event) -> None:
+        """Blit the cached gradient rather than evaluating it again.
+
+        The gradient is a function of the window's size and nothing else, and
+        the wave dirties the whole stage about 21 times a second -- so this was
+        re-evaluating a three-stop vertical ramp over roughly 1.8 million pixels,
+        21 times a second, to arrive at the same pixels every time. Fullscreen is
+        3.3x the area of the default window, which is most of why the app was
+        worse there.
+
+        A `QPixmap` rather than a `QImage`: it lives in whatever format the
+        window is already composited in, so the blit is a copy and not a
+        conversion. Same pixels either way -- the gradient is still
+        `theme.background_brush`, which the harness and `tools/render.py` go on
+        calling directly.
+        """
+        if self._background.size() != self.size():
+            self._rebuild_background()
         painter = QPainter(self)
+        painter.drawPixmap(0, 0, self._background)
+
+    def _rebuild_background(self) -> None:
+        """Redraw the cached gradient at the current size.
+
+        Driven from `paintEvent` rather than from `resizeEvent`, because a
+        window can also arrive at a new size without one -- the first show, and
+        a device-pixel-ratio change when the window is dragged to another
+        monitor. Comparing sizes costs nothing and cannot be forgotten.
+        """
+        self._background = QPixmap(self.size())
+        painter = QPainter(self._background)
         painter.fillRect(self.rect(), theme.background_brush(self.rect()))
 
     # -- resize grips ------------------------------------------------------

@@ -21,6 +21,7 @@ because it is the half that was pressed.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -28,7 +29,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from mp3player.core import log as log_mod
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.decode import DecodeError
-from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
+from mp3player.core.audio.engine import NO_STATS, AudioDeviceError, AudioEngine
 from mp3player.core.library import scan_folder
 from mp3player.core.models import Track
 from mp3player.core.settings import Settings
@@ -119,6 +120,16 @@ class PlayerController(QObject):
         # the callback's xrun tally, and whether the last settings write worked.
         self._xruns = engine.xruns
         self._save_failed = False
+        # The audio-health report. `_pending` accumulates every poll and is
+        # cleared when a line is actually written; `_since` is where the last
+        # line's interval started, which is what makes the shortfall meaningful
+        # (see `_log_xruns`). The `_worst_*` mirrors cover the whole launch, so
+        # the shutdown line describes the session rather than the last window.
+        self._pending = NO_STATS
+        self._since = (engine.rendered_s, log_mod.clock())
+        self._lost_s = 0.0
+        self._worst_slack_ms = math.inf
+        self._worst_peak = 0.0
 
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_MS)
@@ -162,7 +173,14 @@ class PlayerController(QObject):
     def shutdown(self) -> None:
         """Stop polling, flush settings, close the stream. Idempotent."""
         if self._timer.isActive():
-            _log.info("shutting down after %d late audio block(s)", self.engine.xruns)
+            stats = self.engine.take_stats()
+            _log.info(
+                "shutting down after %d late audio block(s), least headroom %.1f ms, "
+                "peak %.2f",
+                self.engine.xruns,
+                min(self._worst_slack_ms, stats.min_slack_ms),
+                max(self._worst_peak, stats.peak),
+            )
         self._timer.stop()
         self._reconnect_timer.stop()
         self._save_now()
@@ -348,15 +366,75 @@ class PlayerController(QObject):
         written, so a rate-limited report still accounts for every block since
         the last one rather than for the ones that happened to land in a
         window.
+
+        `xruns` alone turned out not to be enough. It counts what *PortAudio*
+        noticed, and on WASAPI it frequently notices nothing while the stream is
+        audibly popping -- every session logged `0 late audio block(s)` while the
+        app crackled. `take_stats()` measures the thing that actually goes wrong:
+        a Python callback that did not get the GIL in time. Both are reported,
+        because a disagreement between them is itself the diagnosis.
         """
         xruns = self.engine.xruns
         if xruns != self._xruns and log_mod.due("xruns", XRUN_GAP_S):
             _log.warning(
-                "%d late or dropped audio block(s), %d since launch",
+                "%d late or dropped audio block(s), %d since launch (%s)",
                 xruns - self._xruns,
                 xruns,
+                self.engine.status_flags or "no flag",
             )
             self._xruns = xruns
+
+        # Drained on every poll, whatever gets logged. The engine's window is
+        # only ever as long as one poll, so what accumulates here is what the
+        # throttled line reports -- the same discipline as the mirror above, for
+        # the same reason: a rate limit that also *discards* is a rate limit
+        # that lies about the rate.
+        self._pending = self._pending.plus(self.engine.take_stats())
+        self._worst_slack_ms = min(self._worst_slack_ms, self._pending.min_slack_ms)
+        self._worst_peak = max(self._worst_peak, self._pending.peak)
+
+        lost_s, quiet = self._audio_shortfall()
+        if not (quiet and self._pending.quiet) and log_mod.due("jitter", XRUN_GAP_S):
+            _log.warning(
+                "audio: %.0f ms lost, least headroom %.1f ms, worst render %.2f ms, "
+                "peak %.2f",
+                lost_s * 1000.0,
+                self._pending.min_slack_ms,
+                self._pending.max_render_ms,
+                self._pending.peak,
+            )
+            self._pending = NO_STATS
+
+    def _audio_shortfall(self) -> tuple[float, bool]:
+        """Seconds of audio never rendered since the last report, and whether
+        that is small enough to say nothing about.
+
+        The measure the batch was rebuilt around, because it is the only one
+        that survived a real machine. A starved callback is not called late, it
+        is *not called at all*, so the block it would have filled is simply
+        never made -- and wall time minus rendered time is exactly the audio the
+        user lost. `xruns` misses it entirely (PortAudio never raised a flag in
+        any session) and so does a gap counter (a 512-frame block against a
+        480-frame host period makes long gaps structural, six a second, forever).
+
+        Measured over the whole reporting interval rather than per poll on
+        purpose: a poll spans about three blocks, so rounding to whole blocks is
+        +/-10.7 ms of noise on a 33 ms window, and clamping that at zero every
+        time would manufacture a shortfall out of it. Over ten seconds the same
+        rounding is a tenth of a percent.
+        """
+        rendered, since = self._since
+        now = log_mod.clock()
+        elapsed = now - since
+        if elapsed < XRUN_GAP_S:
+            return self._lost_s, True
+
+        lost = max(0.0, elapsed - (self.engine.rendered_s - rendered))
+        self._since = (self.engine.rendered_s, now)
+        self._lost_s = lost
+        # A block and a half of slop over ten seconds is the quantisation and a
+        # reopen, not a fault. Below that there is nothing to report.
+        return lost, lost < 0.02
 
     def _set_playing(self, playing: bool) -> None:
         if playing != self._was_playing:

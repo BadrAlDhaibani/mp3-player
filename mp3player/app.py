@@ -110,7 +110,23 @@ def _show_crash_dialog(log_file: Path | None) -> None:
         )
 
 
+#: How long a thread may keep the GIL once another one has asked for it. The
+#: default is 5 ms, and the audio callback is Python: it must acquire the GIL
+#: every 10.7 ms, render a block, and return before the device runs dry. Five
+#: milliseconds of that budget spent waiting for a paint to reach its next
+#: bytecode boundary is most of the headroom the stream has.
+#:
+#: Measured, on a bare stream with one busy Python thread beside it: at the 5 ms
+#: default the callback ran 83.9 times a second against a nominal 93.75 -- ten
+#: percent of the audio was never rendered, and PortAudio reported nothing. At
+#: 1 ms it ran 94.0 times a second, which is every block. The cost is more
+#: context switches on a thread that spends its life inside Qt, and it did not
+#: show up in the frame cost.
+GIL_SWITCH_S = 0.001
+
+
 def main() -> int:
+    sys.setswitchinterval(GIL_SWITCH_S)
     _make_console_utf8_safe()
     log_file = log_mod.setup()
     _install_crash_handler(log_file)

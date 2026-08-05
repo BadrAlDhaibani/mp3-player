@@ -95,6 +95,7 @@ class WaveBackground(QWidget):
         # `QImage | None`, which was an Optional nobody could ever hit.
         self._buffer = QImage()
         self._glow = QImage()
+        self._mask = QImage()
         self._clock = QElapsedTimer()
 
         self._frames = 0
@@ -202,10 +203,12 @@ class WaveBackground(QWidget):
         self._paint_bloom(painter, width, height, row)
 
         # The band, applied once at the end rather than folded into every
-        # ribbon's alpha: one gradient fill against the finished image, and the
-        # falloff is then guaranteed identical for all of them.
+        # ribbon's alpha: one pass against the finished image, and the falloff is
+        # then guaranteed identical for all of them. Blitted from a mask built
+        # once per size rather than evaluated per frame -- it is a function of
+        # the buffer's height and nothing else, and this runs 21 times a second.
         painter.setCompositionMode(QPainter.CompositionMode_DestinationIn)
-        painter.fillRect(QRectF(0, 0, width, height), self._band(height, row))
+        painter.drawImage(0, 0, self._mask)
         painter.end()
 
         return image
@@ -221,6 +224,27 @@ class WaveBackground(QWidget):
                 max(1, int(height * theme.WAVE_SCALE_Y / theme.WAVE_GLOW_RADIUS)),
                 QImage.Format_ARGB32_Premultiplied,
             )
+            self._mask = self._build_mask(width, height)
+
+    def _build_mask(self, width: int, height: int) -> QImage:
+        """The band, as an image to blit instead of a gradient to evaluate.
+
+        Only the *alpha* of this is ever read -- it is used as a
+        `DestinationIn` mask -- so the colour is irrelevant and the gradient's
+        own stops carry the shape. One column would do the job and is what a
+        `QImage` of width 1 stretched across would give, but the stretch is
+        itself a scaled blit; at these sizes a full-width copy is the cheaper
+        of the two and has nothing to get wrong.
+        """
+        mask = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
+        mask.fill(Qt.transparent)
+        painter = QPainter(mask)
+        painter.fillRect(
+            QRectF(0, 0, width, height),
+            self._band(height, height * theme.CROSSBAR_Y_RATIO),
+        )
+        painter.end()
+        return mask
 
     def _add_glow(self, width: int, height: int) -> None:
         """The halo, as a blurred copy of the ribbons added back over them.

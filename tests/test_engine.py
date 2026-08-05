@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mp3player.core.audio import dsp, sfx
 from mp3player.core.audio import engine as engine_mod
-from mp3player.core.audio import sfx
 from mp3player.core.audio.engine import Mixer, StreamWatch
 
 SR = 48000
@@ -585,3 +585,90 @@ def test_a_detached_track_can_be_put_back_click_free() -> None:
     played = blocks * BLOCK / 48000
     assert abs(rebuilt.position - (position + played)) < 0.02
     assert float(np.abs(np.diff(block, axis=0)).max()) < 0.2  # no edge
+
+
+# -- the callback's own health -------------------------------------------
+#
+# `xruns` counts what PortAudio noticed, and on WASAPI it frequently notices
+# nothing while the stream is audibly popping. `Mixer.peak` and `block_peak`
+# are the half of the diagnosis that can be checked with no device at all: is
+# the mix clipping, or is it arriving late? They are different faults that
+# sound the same.
+
+
+def test_block_peak_matches_the_obvious_spelling() -> None:
+    """It exists to avoid allocating a second block, not to be different."""
+    for block in (
+        np.zeros((BLOCK, 2), dtype=np.float32),
+        np.full((BLOCK, 2), -0.7, dtype=np.float32),
+        np.linspace(-1.4, 0.9, BLOCK * 2, dtype=np.float32).reshape(BLOCK, 2),
+    ):
+        assert dsp.block_peak(block) == pytest.approx(float(np.abs(block).max()))
+
+
+def test_block_peak_of_nothing_is_zero() -> None:
+    """`render` is called with whatever it is given, including an empty block."""
+    assert dsp.block_peak(np.zeros((0, 2), dtype=np.float32)) == 0.0
+
+
+def test_a_quiet_mix_never_reports_a_peak_over_one() -> None:
+    mixer = Mixer(SR, volume=0.8)
+    mixer.set_track(*level_track(level=0.5), autoplay=True)
+    settle(mixer)
+    pump(mixer, 20)
+    assert mixer.peak <= 1.0
+
+
+def test_the_peak_is_read_before_the_clip_not_after() -> None:
+    """The whole point: after the clip the answer is always 1.0 and says
+    nothing. A brickwalled track at full volume is exactly the case that
+    crackles for a reason that has nothing to do with the callback."""
+    mixer = Mixer(SR, volume=1.0)
+    mixer.set_track(*level_track(level=1.0), autoplay=True)
+    settle(mixer)
+    mixer.play_sfx("move", 1.0)  # something to push it over
+    block = pump(mixer, 8)
+
+    assert mixer.peak > 1.0  # it was over before the clip
+    assert peak(block) <= 1.0  # and the output still is not
+
+
+def test_the_peak_is_a_running_maximum_not_the_last_block() -> None:
+    mixer = Mixer(SR, volume=1.0)
+    mixer.set_track(*level_track(level=1.0), autoplay=True)
+    settle(mixer)
+    pump(mixer, 4)
+    loud = mixer.peak
+
+    mixer.pause()
+    settle(mixer)
+    pump(mixer, 20)  # silence, which must not lower the high-water mark
+
+    assert mixer.peak == loud
+
+
+def test_only_a_clipping_mix_makes_stats_worth_a_log_line() -> None:
+    """Thin headroom and a slow render are both interesting *next to* audio that
+    was actually lost, and neither is a fault on its own -- the headroom floor
+    is a few milliseconds on a healthy stream. A peak over 1.0 is different: it
+    is wrong however well the callback is doing."""
+    assert engine_mod.CallbackStats(
+        min_slack_ms=2.0, max_render_ms=9.0, peak=0.99
+    ).quiet
+    assert not engine_mod.CallbackStats(
+        min_slack_ms=30.0, max_render_ms=0.3, peak=1.4
+    ).quiet
+
+
+def test_folding_a_window_takes_the_worst_of_each() -> None:
+    """Slack is a floor and the rest are ceilings, so `plus` is not one
+    operation applied four times. Folding against NO_STATS must be a no-op, or
+    a caller that drains every poll reports an infinite headroom forever."""
+    window = engine_mod.CallbackStats(min_slack_ms=8.0, max_render_ms=1.0, peak=0.4)
+    assert engine_mod.NO_STATS.plus(window) == window
+
+    worse = engine_mod.CallbackStats(min_slack_ms=3.0, max_render_ms=0.2, peak=0.9)
+    folded = window.plus(worse)
+    assert folded.min_slack_ms == 3.0  # the least headroom either saw
+    assert folded.max_render_ms == 1.0
+    assert folded.peak == 0.9

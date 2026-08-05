@@ -23,6 +23,7 @@ Threading rules (CLAUDE.md, conventions):
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,7 +35,13 @@ import sounddevice as sd
 
 from mp3player.core import log as log_mod
 from mp3player.core.audio import decode
-from mp3player.core.audio.dsp import Fader, fade_before_end, fade_frames, resample
+from mp3player.core.audio.dsp import (
+    Fader,
+    block_peak,
+    fade_before_end,
+    fade_frames,
+    resample,
+)
 from mp3player.core.audio.sfx import SfxBank
 
 _log = log_mod.get("engine")
@@ -43,6 +50,22 @@ _log = log_mod.get("engine")
 # PortAudio's default MME. Above ~50 ms a UI blip stops feeling connected to
 # the keypress that caused it.
 BLOCKSIZE = 512
+
+# What we ask PortAudio to keep buffered ahead of the speaker, rather than
+# taking sounddevice's `latency='high'` default. That default reports 22 ms on
+# WASAPI here, which sounds generous and is not: measured, the callback enters
+# with as little as **2 ms** of headroom at the 1st percentile, and this callback
+# is *Python*. It has to take the GIL every 10.7 ms, and any other thread holding
+# it for longer than that headroom means the block is never rendered at all --
+# not rendered late, never made. A bare stream doing nothing but zero-filling
+# lost 0.84 s of audio out of 8 s with one busy Python thread beside it, and
+# PortAudio raised no flag for any of it.
+#
+# 0.035 is not the number you read back: PortAudio adds the block, so this
+# reports 45.7 ms and buys a 1st-percentile headroom of ~17 ms -- eight times
+# what it had. That is the whole of the ceiling agreed for it, the decisions log
+# putting "a blip stops feeling connected to the keypress" at about 50 ms.
+SUGGESTED_LATENCY_S = 0.035
 
 MAX_SFX_VOICES = 8
 
@@ -69,6 +92,65 @@ DeviceInfo = dict[str, Any]
 
 class AudioDeviceError(RuntimeError):
     """No usable output device, or the stream refused to open."""
+
+
+@dataclass(frozen=True, slots=True)
+class CallbackStats:
+    """How the audio callback has been doing since the last time anyone asked.
+
+    Every field answers a question that `xruns` alone cannot. PortAudio only
+    reports an underflow when its own host layer notices one, and on WASAPI it
+    frequently does not -- so a stream can pop audibly while `xruns` sits at
+    zero, which is the state this player shipped in. What actually goes wrong
+    here is that the callback is *Python*: it has to take the GIL every ~10 ms,
+    and a busy paint on the UI thread can hold it past that deadline.
+
+      `min_slack_ms`    how far ahead of playback the buffer was, at its worst
+                        -- PortAudio's own `outputBufferDacTime - currentTime`.
+                        The leading indicator: it shrinks before anything is
+                        lost, and it is the number the buffer size buys.
+      `max_render_ms`   the longest the mixer itself took. Distinguishes "we
+                        were slow" from "we were not called", which want
+                        opposite fixes.
+      `peak`            the loudest sample before the output clip. Over 1.0
+                        means the mix is clipping, which sounds like crackle
+                        too and is a different bug entirely.
+
+    Deliberately *not* here: a count of over-long gaps between callbacks. That
+    was the first thing measured and it is nearly useless, because a blocksize
+    that does not divide the host period makes a double-length gap structural.
+    At 512 frames against WASAPI's 480-frame period, one callback in sixteen is
+    "late" by construction -- 6 a second, on an idle machine, forever. It buried
+    the real signal completely. See `PlayerController` for what replaced it.
+    """
+
+    min_slack_ms: float
+    max_render_ms: float
+    peak: float
+
+    @property
+    def quiet(self) -> bool:
+        """True when there is nothing here worth a line in the log."""
+        return self.peak <= 1.0
+
+    def plus(self, other: CallbackStats) -> CallbackStats:
+        """Fold another window into this one. Slack takes the min, the rest max.
+
+        What lets a caller drain the engine every poll and still report the
+        whole interval when the throttle finally lets a line through.
+        """
+        return CallbackStats(
+            min_slack_ms=min(self.min_slack_ms, other.min_slack_ms),
+            max_render_ms=max(self.max_render_ms, other.max_render_ms),
+            peak=max(self.peak, other.peak),
+        )
+
+
+#: A window in which nothing happened. What a caller draining the engine starts
+#: from, and resets to once it has said what it had to say. `min_slack_ms` is
+#: infinite rather than zero so that folding it against a real window gives the
+#: real window's figure rather than a floor nothing can beat.
+NO_STATS = CallbackStats(min_slack_ms=math.inf, max_render_ms=0.0, peak=0.0)
 
 
 class StreamWatch:
@@ -338,6 +420,11 @@ class Mixer:
         self._sfx_voices = [_SfxVoice() for _ in range(max(1, max_sfx))]
         self._sfx_next = 0
 
+        # The loudest sample seen before the output clip, as a running maximum.
+        # Written by the audio thread, read and reset by the UI's poll -- see
+        # `AudioEngine.take_stats` for why that race is the benign kind.
+        self.peak = 0.0
+
         self._scratch = np.zeros((BLOCKSIZE, 2), dtype=np.float32)
 
     # -- state the UI polls ------------------------------------------------
@@ -485,6 +572,13 @@ class Mixer:
         self._mix_music(out, frames)
         self._mix_sfx(out, frames)
         self._volume_fader.apply(out)
+        # Read *before* the clip, because after it the answer is always <= 1.0
+        # and the question is whether we were over. A mix that clips crackles
+        # for a completely different reason than a mix that arrives late, and
+        # the two are indistinguishable by ear.
+        peak = block_peak(out)
+        if peak > self.peak:
+            self.peak = peak
         np.clip(out, -1.0, 1.0, out=out)
 
     def _mix_music(self, out: np.ndarray, frames: int) -> None:
@@ -549,18 +643,34 @@ class AudioEngine:
         *,
         device: OutputDevice | None = None,
         blocksize: int = BLOCKSIZE,
+        latency: float = SUGGESTED_LATENCY_S,
         volume: float = 0.8,
         speed: float = 1.0,
     ) -> None:
         self.device = device or pick_output_device()
         self.blocksize = int(blocksize)
+        self.latency = float(latency)
         self.mixer = Mixer(self.device.sample_rate, volume=volume, speed=speed)
         self._stream: sd.OutputStream | None = None
         self.xruns = 0  # counted, never printed -- the callback stays silent
+        # Which flag PortAudio actually raised, rather than only that it raised
+        # one. `output_underflow` and `output_overflow` are different faults and
+        # a bare count cannot tell them apart.
+        self.status_flags = ""
         # Written by the audio thread, read by the UI's poll. A plain int
         # increment, which is atomic under the GIL and allocates nothing.
         self.blocks = 0
         self._watch = StreamWatch()
+
+        # Callback timing. See `CallbackStats` for what these are for and
+        # `take_stats` for the threading.
+        self.min_slack_s = math.inf
+        self.max_render_s = 0.0
+        # Half the buffer is comfortably above the prefill's first few steps and
+        # comfortably below where a warmed stream sits, so the latch trips
+        # within a handful of blocks without anything having to count them.
+        self._warm_at = self.latency / 2.0
+        self._warm = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -576,6 +686,7 @@ class AudioEngine:
                 channels=2,
                 dtype="float32",
                 blocksize=self.blocksize,
+                latency=self.latency,
                 callback=self._callback,
             )
             stream.start()
@@ -583,6 +694,10 @@ class AudioEngine:
             raise AudioDeviceError(f"could not open {self.device}: {exc}") from exc
         self._stream = stream
         self._watch.reset(self.blocks)
+        # This stream has its own prefill to climb, so the latch belongs to it
+        # rather than to the engine -- otherwise the first block after a
+        # reconnect is measured as a total loss of headroom.
+        self._warm = False
         # Which device, at what rate, with what latency -- the first three
         # questions anyone asks about a machine that sounds wrong, and the ones
         # no screenshot can answer.
@@ -611,6 +726,42 @@ class AudioEngine:
         if self._stream is None:
             return False
         return self._watch.stalled(self.blocks)
+
+    @property
+    def rendered_s(self) -> float:
+        """Seconds of audio the callback has actually produced since launch.
+
+        Against a wall clock this is the whole diagnosis, and the only measure
+        here that survived contact with a real machine. A starved callback is
+        not called late -- it is *not called*, and the block it would have
+        filled is simply never made. Wall time minus this is therefore the audio
+        that was lost, in seconds, which is also what the user heard.
+        """
+        return self.blocks * self.blocksize / self.device.sample_rate
+
+    def take_stats(self) -> CallbackStats:
+        """Read the callback's health and start a fresh window. Polled by the UI.
+
+        Extremes rather than a mirrored counter, which is why this resets
+        instead of following `_log_xruns`'s "the caller keeps the total"
+        pattern: you cannot subtract two minima to get the minimum in between,
+        and a worst-ever pinned by one hiccup at launch stops describing the app
+        about a second after it starts.
+
+        The reset races the audio thread, and it is the same benign race as
+        `_next_sfx_voice` reading `active`: the two threads only ever disagree
+        about whether *one* block landed in this window or the next. Nothing
+        here is a correctness signal -- it is a report.
+        """
+        stats = CallbackStats(
+            min_slack_ms=self.min_slack_s * 1000.0,
+            max_render_ms=self.max_render_s * 1000.0,
+            peak=self.mixer.peak,
+        )
+        self.min_slack_s = math.inf
+        self.max_render_s = 0.0
+        self.mixer.peak = 0.0
+        return stats
 
     def reopen(self) -> None:
         """Re-pick the device and open a new stream, keeping what was playing.
@@ -661,15 +812,41 @@ class AudioEngine:
         return self.device.sample_rate
 
     def _callback(
-        self, outdata: np.ndarray, frames: int, _time_info: object, status: object
+        self, outdata: np.ndarray, frames: int, time_info: Any, status: object
     ) -> None:
+        entered = time.perf_counter()
         if status:
             self.xruns += 1
+            self.status_flags = str(status)
         # The heartbeat `stalled` watches. First thing, so a mixer that somehow
         # threw still counts as the device being alive -- this number answers
         # "is the sound card still asking?" and nothing else.
         self.blocks += 1
+
+        # How far ahead of the speaker we are, on PortAudio's clock rather than
+        # ours. Measuring the gap since the previous callback instead was the
+        # obvious thing and it is the wrong thing: a blocksize that does not
+        # divide the host period makes long gaps structural (see
+        # `CallbackStats`). This shrinks only when the buffer is genuinely
+        # running down, which is the state that ends in a pop.
+        #
+        # Not measured until the buffer has filled. A stream's first callbacks
+        # report 0, one block, two blocks -- the prefill, climbing to the
+        # latency that was asked for -- and a minimum that includes them is
+        # pinned at zero for the rest of the session, which is what the first
+        # version of this did.
+        slack = time_info.outputBufferDacTime - time_info.currentTime
+        if self._warm:
+            if slack < self.min_slack_s:
+                self.min_slack_s = slack
+        elif slack >= self._warm_at:
+            self._warm = True
+
         self.mixer.render(outdata)
+
+        render = time.perf_counter() - entered
+        if render > self.max_render_s:
+            self.max_render_s = render
 
     # -- tracks ------------------------------------------------------------
 

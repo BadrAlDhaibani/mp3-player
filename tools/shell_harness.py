@@ -36,8 +36,8 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1  # noqa: E402
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent  # noqa: E402
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, QRectF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mp3player import app as app_mod  # noqa: E402
@@ -1613,6 +1613,44 @@ def main() -> int:
         reread.loadFromData(blob, "ICO") and not reread.isNull(),
     )
     icon_dir.cleanup()
+
+    print("\n-- the cached paints, which must be the pixels they replaced")
+    #
+    # Both of these exist to stop the app re-deriving, 21 times a second, a
+    # picture that is a function of the window's size and nothing else -- which
+    # is most of why it crackled at fullscreen, the callback being Python and
+    # needing the GIL every 10.7 ms. The claim being made is not "this looks
+    # fine", it is "these are the same bytes", and that is a claim an assertion
+    # can settle. `background_brush` and `_band` are still the single source of
+    # both; the caches only stop them being called per frame.
+    for width, height in ((720, 480), (980, 640), (1920, 1080)):
+        direct = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
+        painter = QPainter(direct)
+        painter.fillRect(0, 0, width, height, theme.background_brush(direct.rect()))
+        painter.end()
+
+        window.resize(width, height)
+        window._rebuild_background()
+        cached = window._background.toImage().convertToFormat(
+            QImage.Format_ARGB32_Premultiplied
+        )
+        check(
+            f"the window gradient is unchanged at {width}x{height}",
+            cached.size() == direct.size() and cached == direct,
+        )
+
+    wave = window.stage.wave
+    for width, height in ((180, 480), (245, 640), (480, 1080)):
+        row = height * theme.CROSSBAR_Y_RATIO
+        direct = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
+        direct.fill(Qt.transparent)
+        painter = QPainter(direct)
+        painter.fillRect(QRectF(0, 0, width, height), wave._band(height, row))
+        painter.end()
+        check(
+            f"the wave's band mask is unchanged at {width}x{height}",
+            wave._build_mask(width, height) == direct,
+        )
 
     controller.shutdown()
     log_mod.close()

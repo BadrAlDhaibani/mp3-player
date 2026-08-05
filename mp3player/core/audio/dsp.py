@@ -15,6 +15,19 @@ import numpy as np
 FADE_MS = 10.0
 
 
+def block_peak(block: np.ndarray) -> float:
+    """The largest absolute sample in `block`, without building a second one.
+
+    `np.abs(block).max()` is the obvious spelling and allocates a whole extra
+    block to do it, which is exactly what the audio callback may not do. Two
+    reductions over the array already in hand cost a couple of microseconds and
+    nothing else.
+    """
+    if len(block) == 0:
+        return 0.0
+    return max(float(block.max()), -float(block.min()))
+
+
 def fade_frames(sample_rate: int, ms: float = FADE_MS) -> int:
     """How many frames a full 0 -> 1 fade spans at `sample_rate`."""
     return max(1, round(sample_rate * ms / 1000.0))

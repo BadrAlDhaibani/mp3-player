@@ -50,16 +50,29 @@ legal text, and where the two disagree the licence wins.
 > Batch 14 (the four design defects — 256 tests, 286 harness checks, nothing
 > moved on screen) ·
 > Batch 15 (the download story — 256 tests, 294 harness checks, an icon, a
-> smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release upload**)
+> smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release upload**) ·
+> Batch 16 (the crackle — 263 tests, 300 harness checks, and audio that stops
+> dropping blocks)
 >
-> **v1 is shipped; Batches 8 through 15 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 15 is ticked except the release
+> **v1 is shipped; Batches 8 through 16 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 16 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **The roadmap is finished.** There is no Batch 16. What is left is one
-> outward-facing action, three human judgements, and the post-v1 feature list —
-> all set out below.
+> **The roadmap is finished.** Batch 16 was not on it: the user reported audible
+> pops and asked for them to be investigated, which is where it came from. What
+> is left is one outward-facing action, three human judgements, and the post-v1
+> feature list — all set out below.
+>
+> **The audio was dropping blocks and nothing in the app could see it.** Fixed
+> in Batch 16. Two things to carry forward, because both are counter-intuitive:
+> **`xruns` has always read zero and always will** — PortAudio's flag is not set
+> by WASAPI for this failure, so `AudioEngine.take_stats()` and the "audio: N ms
+> lost" log line are the health metric now. And **the audio callback is Python**,
+> so it shares the GIL with every paintEvent in `ui/` and it is the one with a
+> 10.7 ms deadline. The buffer is 45.7 ms (`SUGGESTED_LATENCY_S`) and
+> `main()` sets `sys.setswitchinterval(0.001)`. **Neither number is decorative;
+> read the decisions log before changing either.**
 >
 > **The app now writes a log**, at `%APPDATA%/XMBPlayer/xmbplayer.log`, next to
 > `settings.json`. `core/log.py` owns it; `log.get("engine")` is how anything
@@ -193,7 +206,7 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **293/294 with
+> position read, it predates Batch 9, and it passes on a re-run. **299/300 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
@@ -376,6 +389,13 @@ here and write down why.
 | **A Qt object built from a Python temporary is a segfault, not an error** | `QBuffer(QByteArray())` takes a reference to something that is collected immediately, and the process dies inside a later `image.save()` — no exception, no traceback, and not on the line that looks wrong. The fix is to name the `QByteArray` in a local so it outlives the buffer. Written down because the shape is general: any PySide6 constructor taking a reference to another Qt object needs that object held on the Python side for as long as the wrapper lives, and the failure mode is the least debuggable one available. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
+| **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
+| **`sys.setswitchinterval(0.001)`, in `main()`** | The other half of the same problem, and free. The default is 5 ms — that is how long a thread may keep the GIL *after another one has asked for it*, and the audio thread's entire budget is 10.7 ms. Same bare-stream measurement: 5 ms default gives 83.9 callbacks/s, 1 ms gives 94.0, which is every block. Either lever alone fixes the loss; both together is what takes the *worst* gap down as well as the average. Not a latency trade and not visible anywhere — the cost is more context switches on a thread that spends its life inside Qt, and it did not show up in the frame cost. |
+| ~~Late audio blocks are what `xruns` counts~~ → **`xruns` counts what PortAudio noticed, which here is nothing** | Every session this app has ever logged ends `0 late audio block(s)`, including the ones that popped continuously. PortAudio's `status` flag is set by its host layer and WASAPI's does not set it for this failure. The counter stays — a flag that does fire is worth having, and it now records *which* flag — but it is not the health metric. |
+| **Audio health is measured as seconds of audio never rendered, against a wall clock** | The one measure that survived a real machine. A starved callback is not called late, it is **not called**, so `blocks × blocksize / rate` against elapsed time is exactly the audio that was lost — and it is what the user heard. Measured over the *reporting* interval rather than per poll: a 33 ms poll spans about three blocks, so rounding to whole blocks is ±10.7 ms of noise, and clamping that at zero every time manufactures a shortfall out of quantisation. Over ten seconds the same rounding is a tenth of a percent. `min_slack_ms` (PortAudio's own `outputBufferDacTime - currentTime`) rides alongside as the leading indicator: it shrinks *before* anything is lost, and it is the number the buffer size buys. |
+| **A gap between callbacks is not a fault, and counting them measured nothing** | The first instrument written, and it was worthless: at blocksize 512 against WASAPI's 480-frame host period, PortAudio must buffer a remainder, so one callback in sixteen is preceded by a double-length gap **by construction** — 6 a second, on a completely idle machine, forever. It reported 297 late callbacks in 45 s with the wave running and 267 with the wave stopped, which reads as "the wave is irrelevant" and is really "this metric is noise". The slack/shortfall pair reported 100 ms lost per 10 s and then zero, on the same runs. |
+| **The window gradient and the wave's band are cached, because both are functions of size** | `ChromeWindow.paintEvent` was evaluating a three-stop vertical ramp over the whole dirty rect, and `wave._render` a five-stop one over the whole buffer, ~21 times a second, to arrive at the same pixels every time. The wave dirties the entire stage (all four children are full-size and transparent), and fullscreen is 3.3x the area of the default window — which is most of why the app was worse there. Both are now built once per size and blitted. **Verified as byte-identical rather than as looking fine**: 0 differing pixels at 720x480, 980x640 and 1920x1080, for both, and that comparison is a harness check rather than a note. `theme.background_brush` and `wave._band` remain the single source of each. |
+
 ### Open questions
 
 *None currently.*
@@ -404,6 +424,7 @@ mp3player/
       dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
       engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
                          #   + StreamWatch: has the callback stopped being called?
+                         #   + CallbackStats: is it making its deadline? (xruns can't say)
       sfx.py             # synthesized UI sounds -> numpy arrays
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
@@ -670,6 +691,27 @@ don't invent a second way to do a thing we've already solved.
   and running it. Batch 14 spent a batch removing exactly this class of bug —
   a lenient path that silently stopped working — and a `try` whose `catch` has
   never executed is the same thing waiting to happen.
+- **The audio callback is Python, so it competes with the paint path for the
+  GIL — and it is the one with a deadline.** Everything in `ui/` that costs
+  milliseconds costs them out of the audio thread's 10.7 ms budget, whatever
+  the CPU headroom says. This is not a threading bug to be found and fixed; it
+  is a standing property of the design, and the two things that hold it back
+  are buffer depth and `sys.setswitchinterval`. Before optimising a paint,
+  check whether the audio actually needs it — Batch 16's UI work bought 15% of
+  a wave frame and the audio was already clean without it.
+- **A metric whose baseline is structural measures nothing, and it will look
+  like a real number the whole time.** Counting over-long gaps between audio
+  callbacks produced ~6 a second on a completely idle machine, because 512
+  frames do not divide WASAPI's 480-frame period. It was not a *noisy* signal,
+  it was a signal whose floor swamped the effect — which is worse, because the
+  numbers moved plausibly and pointed at the wrong culprit. Before trusting a
+  new counter, run it against the case where the answer must be zero.
+- **"Invisible" is a claim about bytes, so compare bytes.** Both of Batch 16's
+  paint caches are asserted at three sizes as `0 differing pixels`, not looked
+  at and pronounced fine. This does not replace the render — the conventions
+  above are still right that only a picture says whether something *reads* —
+  but where the claim is "identical", a render is the weaker instrument and an
+  assertion is available.
 - **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
   `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
@@ -1955,6 +1997,97 @@ Batch 7's code.
 
 ---
 
+### Batch 16 — The crackle ✅
+
+Not on any roadmap. The user reported occasional pops, worse at fullscreen and
+present even with the app idle, and asked for it to be dug into.
+
+- [x] Instrument the callback: headroom, render time, pre-clip peak, audio lost
+- [x] `sys.setswitchinterval(0.001)` and an explicit output latency
+- [x] Cache the window gradient and the wave's band mask
+- [x] Core tests, harness checks, renders, a real run
+
+**`xruns` had been lying by omission since Batch 2.** Every session in the log
+ends `0 late audio block(s)`, including every session that crackled. PortAudio's
+status flag is set by the host layer and WASAPI's does not set it for this
+failure, so the app's only audio-health number was structurally incapable of
+seeing the fault. That is the first thing to know about this batch: **the
+instrument was the bug's best hiding place.**
+
+**The first replacement instrument was also wrong, and the control run is what
+said so.** Counting over-long gaps between callbacks gave 297 late in 45 s
+fullscreen — and 267 with the wave timer *stopped*, which reads as "the wave has
+nothing to do with it". Both numbers are noise: 512 frames against WASAPI's
+480-frame period forces a double-length gap six times a second by construction,
+on an idle machine, forever. A metric with a structural floor does not fail
+loudly; it produces plausible numbers that point somewhere else. It is a
+convention now, and the wave was cleared of a charge it was not guilty of.
+
+**What the fault actually is: the audio callback is Python.** It takes the GIL
+every 10.7 ms, and at sounddevice's default `latency='high'` — which reads back
+as a comfortable-sounding 22 ms — it was entering with **2.0 ms** of headroom at
+the 1st percentile. Past that the block is not rendered late, it is never
+rendered. Settled on a bare stream with no Qt anywhere, doing nothing but
+zero-filling, with one busy Python thread beside it: **83.9 callbacks a second
+against a nominal 93.75**, i.e. a tenth of the audio absent, and not one
+PortAudio flag. Thirty lines in the scratchpad, and it is the same lesson as
+Batches 13 and 15 — check the runtime, not the file.
+
+Two levers, and either alone restores every block: `sys.setswitchinterval(0.001)`
+(the default 5 ms is how long a paint may keep the GIL after the audio thread has
+asked for it) and `SUGGESTED_LATENCY_S = 0.035`, which reads back as 45.7 ms.
+Both, because the switch interval fixes the average and the buffer fixes the
+worst case. The latency ceiling was agreed with the user beforehand at ~45 ms.
+
+Measured on this machine, fullscreen at 1920x1080, a track playing, `Mono`:
+
+| | audio lost / 10 s | least headroom | `xruns` |
+|---|---|---|---|
+| before, idle | **57–164 ms** | 2.0 ms | 0 |
+| before, hammering arrow keys | **175–1638 ms** | 2.0 ms | 0 |
+| after, idle | **0** | 10.7 ms | 0 |
+| after, hammering arrow keys | 0, after the first window | 10.7 ms | 0 |
+
+The one residual is the first ten-second window under load — 49 ms in one run,
+285 ms in another, nothing in the fifty seconds after it. That is
+`play_index`'s **synchronous decode**, which is a decisions-log row of its own
+("decode stays on the UI thread in v1"), lands during a track change when the
+music is faded out anyway, and is left where it is rather than quietly turned
+into a threading batch.
+
+**The UI half was worth doing and was not what fixed it**, which is worth
+recording in that order. The window gradient was being re-evaluated over ~1.8 M
+pixels 21 times a second to produce the same pixels, and the wave's band mask
+likewise over its buffer; both are functions of size alone and are now built once
+and blitted. That took the wave's frame from 5.1–5.8 ms to 4.61 ms at fullscreen.
+The audio was already clean before it. **The two changes that were allowed to
+cost something visible — dropping the wave's frame rate, capping the buffer's
+height — were therefore not made at all**, which is the right answer to "only if
+I can't tell": there was nothing left to buy.
+
+Both caches are asserted **byte-identical** rather than looked at: 0 differing
+pixels at 720x480, 980x640 and 1920x1080, in the harness. That is a new
+convention, and it does not displace the render — it is that where the claim is
+"nothing changed", an assertion is the stronger instrument and one was available.
+
+Verified: **263 tests green** (7 new, core-only as the convention requires — the
+allocation-free peak against the obvious spelling and against an empty block, a
+quiet mix never reporting over 1.0, the peak being read before the clip and being
+a running maximum, the log gate, and the stats fold — which has to take the *min*
+of one field and the max of the others, and must be a no-op against `NO_STATS` or
+a caller draining every poll reports infinite headroom). `tools/shell_harness.py`
+**300/300** on the first run with the known WASAPI flake passing; 6 new, and they
+are the byte-identical claims. `ruff check .` and `mypy` clean. Rendered Music at
+1920x1080, Now Playing at 720x480 and Settings at 980x640, all at three speeds,
+and looked at them: nothing moved. Ran the real entrypoint with a mapped window —
+exit 0, settings written, `45.7 ms` in the log, four clean lines and no warnings.
+
+Not done: the `.exe`, for the same reason as Batches 9, 10, 12, 13 and 14 —
+nothing here changes what PyInstaller reads. **The release upload is still open**
+and is still the only thing standing between the repo and a download.
+
+---
+
 ## Running it
 
 ```bash
@@ -2037,3 +2170,26 @@ Measured on this machine (Realtek headphones, Windows 11), Batch 0:
 | WDM-KS | device unavailable |
 
 WASAPI shared mode rejects any rate but the device mix rate (48000 here).
+
+**These are host-API latencies, not what the app asks for.** Batch 16 stopped
+taking PortAudio's `latency='high'` default: it reads back as the 22 ms above and
+leaves a *Python* callback with 2.0 ms of headroom at the 1st percentile, which
+is not enough to survive the paint path holding the GIL. `SUGGESTED_LATENCY_S`
+is 0.035 and reads back as **45.7 ms**. The 22 ms row stands as the measurement
+it always was — WASAPI against MME's 186 — and is no longer the number the app
+runs at.
+
+Callback headroom on this machine, blocksize 512, 48 kHz, measured over 8 s with
+one busy Python thread alongside (`outputBufferDacTime - currentTime`):
+
+| suggested | reported | p1 headroom | callbacks/s (nominal 93.75) |
+|---|---|---|---|
+| `'high'` (the old default) | 22.0 ms | 2.0 ms | **83.9** |
+| `'high'` + 1 ms switch interval | 22.0 ms | 2.0 ms | 94.0 |
+| 0.035 | **45.7 ms** | 17.7 ms | 94.0 |
+| 0.035 + 1 ms switch interval | 45.7 ms | 16.7 ms | 94.0 |
+
+A buffer *fills* over a stream's first few callbacks — 0, then one block, then
+two — so anything measuring minimum headroom has to wait for it. `AudioEngine`
+latches on half the requested latency; the first version of that check reported
+`0.0 ms` for every session, forever, and was reporting the prefill.

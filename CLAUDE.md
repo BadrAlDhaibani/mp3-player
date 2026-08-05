@@ -50,11 +50,12 @@ legal text, and where the two disagree the licence wins.
 > Batch 14 (the four design defects — 256 tests, 286 harness checks, nothing
 > moved on screen) ·
 > Batch 15 (the download story — 256 tests, 294 harness checks, an icon, a
-> smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release itself**)
+> smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release upload**)
 >
-> **v1 is shipped; Batches 8 through 15 landed on top of it.** Every box
-> through Batch 15 is ticked except the release step in Batch 15 and the ones
-> listed under *Open, and waiting on a human* below.
+> **v1 is shipped; Batches 8 through 15 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 15 is ticked except the release
+> *upload* — the zip attached to a GitHub release, which needs a browser — and
+> the ones listed under *Open, and waiting on a human* below.
 >
 > **The roadmap is finished.** There is no Batch 16. What is left is one
 > outward-facing action, three human judgements, and the post-v1 feature list —
@@ -131,13 +132,15 @@ legal text, and where the two disagree the licence wins.
 > cannot be closed from inside a session. **Raise them; don't silently sit on
 > them, and don't treat them as blocking.**
 >
-> 0. **Cut the release** *(open since Batch 15)*. The artifact exists and is
->    verified; what is left is `git tag -a v1.1.0`, `git push origin v1.1.0`, and
->    a GitHub release with `dist/XMB-Player-1.1.0-windows.zip` attached — steps 6
->    and 7 of [`docs/RELEASING.md`](docs/RELEASING.md). Deliberately not done:
->    the user chose to build everything and push nothing, and `gh` is not
->    installed on this machine, so the upload is a browser job. **This is the
->    only thing standing between the repo and a download a stranger can use.**
+> 0. **Attach the zip to a GitHub release** *(open since Batch 15; step 6 done)*.
+>    **`v1.1.0` is tagged and pushed** — annotated, on `31a08af`, the commit the
+>    artifact was built from. What is left is step 7 alone: draft a release
+>    against the tag at
+>    <https://github.com/BadrAlDhaibani/mp3-player/releases/new> and attach
+>    `dist/XMB-Player-1.1.0-windows.zip`. **`gh` is not installed on this
+>    machine, so this is a browser job and cannot be closed from inside a
+>    session.** It is the only thing standing between the repo and a download a
+>    stranger can use.
 >
 > 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
 >    unticked box in a batch that is otherwise finished, and now the only
@@ -179,16 +182,18 @@ legal text, and where the two disagree the licence wins.
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
-> Also: the `v1` git tag is **still behind `HEAD`** and does not describe the
-> current code. Batches 8 through 15 all landed after it, and the version the
-> code declares is `1.1.0`. Retagging is step 6 of `docs/RELEASING.md` and has
-> not been done — see *Open, and waiting on a human* below.
+> **`v1.1.0` now exists and points at `31a08af`**, which is the commit this
+> artifact was built from — checked rather than assumed: nothing under
+> `mp3player/` is newer than the build, and the only files edited after it
+> (`tools/shell_harness.py`, `docs/RELEASING.md`) do not enter the exe. The old
+> `v1` tag is left where it is as the historical marker it always was; it
+> describes Batch 7's code and nothing since.
 >
 > ### Known flake — don't debug it
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **285/286 with
+> position read, it predates Batch 9, and it passes on a re-run. **293/294 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
@@ -196,12 +201,14 @@ legal text, and where the two disagree the licence wins.
 > **The roadmap is empty. Nothing is queued, and nothing should be started
 > without asking.**
 >
-> The one piece of Batch 15 left is the release: `git tag -a v1.1.0`, push it,
-> and attach `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release. Steps 6
-> and 7 of `docs/RELEASING.md`, and **held back deliberately** — it was put to
-> the user, who chose to build everything and push nothing, and `gh` is not
-> installed here so the upload is a browser job regardless. The zip is built and
-> waiting. Don't push a tag without being asked to.
+> The one piece of Batch 15 left is **step 7 and only step 7**: attach
+> `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release drafted against
+> `v1.1.0`. The tag was cut and pushed on **2026-08-05**, when the user asked for
+> the release — steps 1 through 6 of `docs/RELEASING.md` were re-run first, not
+> taken on trust: ruff and mypy clean, 256 tests, and the harness **294/294 with
+> the flake passing**. The upload is a browser job because `gh` is not installed
+> here. **Don't push a tag or publish a release without being asked to** — that
+> was true before this and is still true for whatever the next version is.
 >
 > After that the queue goes back to the post-v1 list in the v1 scope section —
 > shuffle/repeat, export, subfolders, multiple folders. **None of that is
@@ -1785,7 +1792,7 @@ Not done: the `.exe`, for the same reason as Batches 9, 10, 12 and 13 — nothin
 here changes what PyInstaller reads. **Batch 15 owns the release rebuild**, and
 it is the batch that changes the build again.
 
-### Batch 15 — The download story ✅ *(all but the release itself)*
+### Batch 15 — The download story ✅ *(all but the release upload)*
 
 Everything between "the code is fine" and "a stranger can download this and run
 it".
@@ -1795,7 +1802,8 @@ it".
 - [x] `README.md` — a Download section, and the SmartScreen warning explained
 - [x] `docs/RELEASING.md` — the checklist
 - [x] Rebuild the exe (current as of Batch 11, but 12–15 change the build again)
-- [ ] Tag, push, attach the zip, cut the release
+- [x] Tag and push — `v1.1.0` on `31a08af`, cut 2026-08-05 when it was asked for
+- [ ] Attach the zip and publish the GitHub release *(browser job; no `gh` here)*
 - [x] **Beyond the original list:** the desktop shortcut gets the icon too, and
       the README's CI badge pointed at a repo that does not exist
 
@@ -1921,12 +1929,29 @@ read `1.1.0` / `XMB Player` / the GPL line, `LICENSE`, `THIRD_PARTY_NOTICES.md`
 and `licenses/` are at the top of the app folder, libsndfile's `COPYING` is still
 in the zip, and all seven icon sizes came back out of the binary.
 
-**Not done: the release itself.** Decided with the user rather than skipped —
-`gh` is not installed on this machine, so attaching a 60 MB zip is a browser
-job, and pushing a tag is an outward-facing act that was not authorised in this
-session. The tag, the push and the GitHub release are steps 6 and 7 of
-`docs/RELEASING.md` and the artifact is built and sitting in `dist/`. **The `v1`
-tag is still behind `HEAD` and still does not describe this code.**
+**The release was held back one session and then cut.** At the end of the batch
+itself it was decided with the user rather than skipped — pushing a tag is an
+outward-facing act that was not authorised then. **In the following session it
+was, and step 6 ran: `v1.1.0` is an annotated tag on `31a08af`, pushed to
+`origin`.**
+
+Which commit to tag was the only question worth asking, and it was answered by
+looking rather than by the log. `31a08af` is dated two days after the build, so
+"tag the commit that was built" needed checking: nothing under `mp3player/` is
+newer than the exe's mtime, and the only files touched afterwards are
+`tools/shell_harness.py` and `docs/RELEASING.md`, neither of which PyInstaller
+reads. So `HEAD` *is* the built tree. **The build date being later than the
+commit date is not evidence of anything on its own** — a batch whose whole diff
+is docs and tools will always look like that.
+
+Steps 1–5 were re-run rather than taken on trust, which is the point of a
+checklist that lives in a file: ruff and mypy clean, **256 tests**,
+`tools/shell_harness.py` **294/294 with the flake passing**.
+
+**Still not done: step 7.** `gh` is not installed on this machine, so attaching a
+60 MB zip is a browser job — draft against the tag and attach
+`dist/XMB-Player-1.1.0-windows.zip`. The old `v1` tag stays where it is, marking
+Batch 7's code.
 
 ---
 

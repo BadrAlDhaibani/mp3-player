@@ -1,3 +1,5 @@
+https://github.com/user-attachments/assets/2c7f0e35-23ff-4956-8acb-5d21d80266a2
+
 # XMB Player
 
 A small desktop MP3 player wearing a **PlayStation 3 XMB** skin. Point it at a

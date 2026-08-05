@@ -2140,6 +2140,13 @@ venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
 venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
 venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
 
+# the four that exist for shots that end up on a page rather than in front of
+# you -- the README's screenshots are these. `--track` because most of a real
+# library is untagged and draws the note glyph, `--volume` because `VOL 0%` with
+# the slider pinned left reads as a broken build.
+venv/Scripts/python.exe tools/render.py out.png --no-caption --across
+venv/Scripts/python.exe tools/render.py out.png --what now --track 1 --volume 0.7
+
 # the Batch 6 harness -- audition the UI sounds; `m` is the one that matters
 venv/Scripts/python.exe tools/sfx_harness.py
 venv/Scripts/python.exe tools/sfx_harness.py "song.mp3"

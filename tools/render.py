@@ -59,20 +59,31 @@ def label_for(speed: float) -> str:
     return f"{speed:.2f}x"
 
 
-def stack(shots, path: Path) -> None:
+def stack(shots, path: Path, across: bool = False, caption: bool = True) -> None:
     """One frame per speed, top to bottom, each captioned. Same idea as the
-    filmstrip: the comparison is the point, so they go in one file."""
+    filmstrip: the comparison is the point, so they go in one file.
+
+    `across` lays them left to right instead, and `caption` turns off the label
+    and the divider. Both are for shots that end up somewhere other than in
+    front of whoever rendered them -- a caption is an affordance for looking at
+    a comparison, and it reads as tool output on a page."""
     width, height = shots[0][1].width(), shots[0][1].height()
-    sheet = QPixmap(width, height * len(shots))
+    n = len(shots)
+    sheet = QPixmap(width * n, height) if across else QPixmap(width, height * n)
     sheet.fill(QColor(0, 0, 0))
 
     painter = QPainter(sheet)
     for row, (label, shot) in enumerate(shots):
-        painter.drawPixmap(0, row * height, shot)
-        painter.setPen(QColor(255, 220, 120))
-        painter.drawText(10, row * height + 18, label)
-        painter.setPen(QColor(255, 255, 255, 70))
-        painter.drawLine(0, row * height, width, row * height)
+        x, y = (row * width, 0) if across else (0, row * height)
+        painter.drawPixmap(x, y, shot)
+        if caption:
+            painter.setPen(QColor(255, 220, 120))
+            painter.drawText(x + 10, y + 18, label)
+            painter.setPen(QColor(255, 255, 255, 70))
+            if across:
+                painter.drawLine(x, 0, x, height)
+            else:
+                painter.drawLine(0, y, width, y)
     painter.end()
 
     sheet.save(str(path))
@@ -112,6 +123,26 @@ def main() -> int:
         "--play", action="store_true", default=True,
         help="load a track, so the marker and the transport have something to say",
     )
+    parser.add_argument(
+        "--track", type=int, default=0,
+        help="which track to load. Worth setting when the cover is in the shot: "
+             "most of a real library is untagged and draws the note glyph.",
+    )
+    parser.add_argument(
+        "--volume", type=float, default=0.0,
+        help="0 by default, because this renders pictures and the startup swell "
+             "is not one of them. Raise it when the readout is in the shot -- "
+             "`VOL 0%%` with the slider pinned left looks like a broken build.",
+    )
+    parser.add_argument(
+        "--across", action="store_true",
+        help="lay the frames left to right instead of stacking them",
+    )
+    parser.add_argument(
+        "--no-caption", action="store_true",
+        help="drop the speed/theme label and the divider -- for a shot that ends "
+             "up on a page rather than in front of you",
+    )
     args = parser.parse_args()
 
     width, height = (int(n) for n in args.size.lower().split("x"))
@@ -122,8 +153,9 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     saved = settings_mod.load()
-    # Silent: this renders pictures, and the startup swell is not one of them.
-    engine = AudioEngine(volume=0.0, speed=saved.speed)
+    # Silent by default: this renders pictures, and the startup swell is not one
+    # of them. `--volume` is for when the transport's readout is in the shot.
+    engine = AudioEngine(volume=args.volume, speed=saved.speed)
     engine.start()
     controller = PlayerController(engine, saved)
     # Never write settings from a tool that only renders pictures. Set before
@@ -147,7 +179,7 @@ def main() -> int:
     app.processEvents()
 
     if args.play and controller.tracks:
-        controller.play_index(0)
+        controller.play_index(max(0, min(args.track, len(controller.tracks) - 1)))
         if args.what != "now":
             stage.column.set_index(max(0, min(args.select, stage.column.count - 1)))
             stage.column.settle()
@@ -179,7 +211,7 @@ def main() -> int:
             caption = f"{theme.palette().name}  ·  {label_for(speed)}"
             shots.append((caption, window.grab()))
 
-    stack(shots, Path(args.out))
+    stack(shots, Path(args.out), across=args.across, caption=not args.no_caption)
 
     controller.shutdown()
     return 0

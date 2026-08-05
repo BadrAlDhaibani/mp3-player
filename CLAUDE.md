@@ -48,11 +48,17 @@ legal text, and where the two disagree the licence wins.
 > mypy clean) ·
 > Batch 13 (diagnosability — 253 tests, 267 harness checks, and a log file) ·
 > Batch 14 (the four design defects — 256 tests, 286 harness checks, nothing
-> moved on screen)
+> moved on screen) ·
+> Batch 15 (the download story — 256 tests, 294 harness checks, an icon, a
+> smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release itself**)
 >
-> **v1 is shipped; Batches 8 through 14 landed on top of it.** Every box
-> through Batch 14 is ticked except the ones listed under *Open, and waiting on a
-> human* below.
+> **v1 is shipped; Batches 8 through 15 landed on top of it.** Every box
+> through Batch 15 is ticked except the release step in Batch 15 and the ones
+> listed under *Open, and waiting on a human* below.
+>
+> **The roadmap is finished.** There is no Batch 16. What is left is one
+> outward-facing action, three human judgements, and the post-v1 feature list —
+> all set out below.
 >
 > **The app now writes a log**, at `%APPDATA%/XMBPlayer/xmbplayer.log`, next to
 > `settings.json`. `core/log.py` owns it; `log.get("engine")` is how anything
@@ -65,8 +71,23 @@ legal text, and where the two disagree the licence wins.
 > **Every rule that is switched off has its reason written next to it in that
 > file — read the comment before re-enabling anything.** `ruff format` is
 > deliberately not part of this; see the decisions log. There is a CI workflow at
-> `.github/workflows/ci.yml` and **it has never run**, because there is no GitHub
-> remote until Batch 15.
+> `.github/workflows/ci.yml`.
+>
+> **The remote exists and always did — Batches 12 and 13 are wrong about that.**
+> `origin` is `github.com/BadrAlDhaibani/mp3-player`, `main` is pushed, and the
+> workflow has been running. What was actually broken was the README's CI badge,
+> which named `badraldhaibani/xmb-player` — a repo that does not exist — so the
+> badge 404'd on the project's front page. Batch 15 fixed it. Treat the "no
+> remote until Batch 15" lines further down as the historical record they are.
+>
+> **The build now draws an icon and tests what it built.** `tools/make_icon.py`
+> draws the crossbar from `theme.py` at seven sizes and assembles the `.ico`;
+> `build_exe.py` generates it alongside the version resource, and afterwards
+> **launches the exe, waits for it to open an audio device, and closes it** —
+> exit 0, settings flushed, or the zip is not written. A window appears for a few
+> seconds during a build; that is the test, and it is deliberately *not*
+> offscreen. `docs/RELEASING.md` is the full checklist and is the file to follow
+> when cutting a release.
 >
 > **The app now has a licence and a version number.** GPL-2.0-or-later
 > (`LICENSE`), the dependency picture in `THIRD_PARTY_NOTICES.md`, three
@@ -87,31 +108,40 @@ legal text, and where the two disagree the licence wins.
 > found this" section — see there for why that is a property of the work rather
 > than luck.
 >
-> **Only Batch 15 remains, and it is not started.** It came out of an audit run
-> in one sitting (recorded in *The ship-prep audit* below, so nobody re-derives
-> it): a download a stranger can actually use. Note that Batch 11 found one of
-> the audit's own claims to be wrong (see its writeup) — **the audit is a record
-> of one sitting, not a verified spec. Check a claim against the file before
-> acting on it.** Batch 12 is a milder version of the same lesson, and **Batch 13
-> is the sharpest yet: the audit's central claim about the crash path — that
-> PySide6 terminates the process on a slot exception — is not true of 6.11, and
-> the truth is worse. Check a claim against the *runtime*, not only against the
-> file.** Batch 14, for the record, found the audit's four defect descriptions
-> accurate — the only place it departed from the brief is the accent cache, where
-> "invalidate on write" would have relocated the requirement rather than removed
-> it.
+> **Every batch on the list is now done.** They came out of an audit run in one
+> sitting (recorded in *The ship-prep audit* below, so nobody re-derives it).
+> Note that Batch 11 found one of the audit's own claims to be wrong (see its
+> writeup) — **the audit is a record of one sitting, not a verified spec. Check a
+> claim against the file before acting on it.** Batch 12 is a milder version of
+> the same lesson, and **Batch 13 is the sharpest yet: the audit's central claim
+> about the crash path — that PySide6 terminates the process on a slot exception
+> — is not true of 6.11, and the truth is worse. Check a claim against the
+> *runtime*, not only against the file.** Batch 14, for the record, found the
+> audit's four defect descriptions accurate — the only place it departed from the
+> brief is the accent cache, where "invalidate on write" would have relocated the
+> requirement rather than removed it. **Batch 15 departed once more, and again
+> the runtime settled it**: the plan said to smoke-test the exe offscreen, and
+> offscreen has no window handle to close, so the exit code it asked for could
+> not exist.
 >
 > ### Open, and waiting on a human
 >
-> None of these is a bug or a missing feature. All three are judgements that can
-> only be made by someone looking at or listening to the running app, so they
+> None of these is a bug or a missing feature. The last three are judgements that
+> can only be made by someone looking at or listening to the running app, so they
 > cannot be closed from inside a session. **Raise them; don't silently sit on
-> them, and don't treat them as blocking** — in particular they do not block the
-> ship-prep batches, none of which touches a sound, a curve or a palette.
+> them, and don't treat them as blocking.**
+>
+> 0. **Cut the release** *(open since Batch 15)*. The artifact exists and is
+>    verified; what is left is `git tag -a v1.1.0`, `git push origin v1.1.0`, and
+>    a GitHub release with `dist/XMB-Player-1.1.0-windows.zip` attached — steps 6
+>    and 7 of [`docs/RELEASING.md`](docs/RELEASING.md). Deliberately not done:
+>    the user chose to build everything and push nothing, and `gh` is not
+>    installed on this machine, so the upload is a browser job. **This is the
+>    only thing standing between the repo and a download a stranger can use.**
 >
 > 1. **Tune the synthesized sounds by ear** *(open since Batch 6)*. The only
->    unticked box in a batch that is otherwise finished — everything else
->    unticked belongs to Batch 15, which has not started. Shipping without it was
+>    unticked box in a batch that is otherwise finished, and now the only
+>    unticked box anywhere except the release above. Shipping without it was
 >    decided with the user — the
 >    numbers are unverified, not known wrong. Run `tools/sfx_harness.py` and
 >    listen, especially `m` (a held arrow key) and `p` (blips over music). The
@@ -136,25 +166,23 @@ legal text, and where the two disagree the licence wins.
 >
 > ### State of the build
 >
-> **The `.exe` is current as of Batch 11 and is stamped `1.1.0`.** Batches 12,
-> 13 and 14 all left it alone, and all for the same reason: metadata, config, CI,
-> a new pure-Python module in `core/` and four targeted source fixes are every
-> one of them outside what PyInstaller reads. It was rebuilt at 11
-> because Batch 11 changed the build itself — a version resource and the first
-> bundled data files — and a build-script change that is never run is a
-> build-script change that is never checked. It carries Batches 9 and 10's
-> UI work along with it. **Batch 15 owns the release rebuild**, because
-> Batch 15 changes the build again (an icon, a smoke test); the Batch 11 one
-> proves the mechanism, not the artifact.
+> **The `.exe` is current as of Batch 15, stamped `1.1.0`, and carries the
+> icon.** It was rebuilt because Batch 15 changed the build again, and it passed
+> its own smoke test inside the build: exit 0, settings flushed, four clean lines
+> in the log. `dist/XMB Player/` and `dist/XMB-Player-1.1.0-windows.zip` are
+> **the release artifact** — verified against the binary rather than the build
+> log (version resource read back, all seven icon sizes read back out of
+> `RT_ICON`, the licences at the top of the folder and libsndfile's `COPYING`
+> still inside the zip).
 >
 > Rebuilding is still not part of development, which runs live source, and
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
-> Also: the `v1` git tag is **behind `HEAD`** and does not describe the current
-> code. Batches 8 through 14 all landed after it, and the version the code now
-> declares is `1.1.0`. Retagging is Batch 15's job, not something to do in
-> passing.
+> Also: the `v1` git tag is **still behind `HEAD`** and does not describe the
+> current code. Batches 8 through 15 all landed after it, and the version the
+> code declares is `1.1.0`. Retagging is step 6 of `docs/RELEASING.md` and has
+> not been done — see *Open, and waiting on a human* below.
 >
 > ### Known flake — don't debug it
 >
@@ -165,18 +193,21 @@ legal text, and where the two disagree the licence wins.
 >
 > ### Next
 >
-> **Batch 15 — the download story**, and it is the last one on the list: an
-> icon generated from `theme.py`, a smoke test of the exe the build just made, a
-> README section explaining the SmartScreen warning, `docs/RELEASING.md`, the
-> rebuild, and the tag and release. It is also the batch that finally *runs* the
-> CI workflow, since it is what pushes a GitHub remote. **Confirm it with the
-> user before starting** — one batch at a time, no building ahead.
+> **The roadmap is empty. Nothing is queued, and nothing should be started
+> without asking.**
 >
-> After 15 the app is shippable and the queue goes back to the post-v1 list in
-> the v1 scope section — shuffle/repeat, export, subfolders, multiple folders.
-> **None of that is started.** A spectrum visualizer was offered and **declined**
-> in Batch 9 (the accent ramp was wanted instead), so don't re-offer it as though
-> it were untouched.
+> The one piece of Batch 15 left is the release: `git tag -a v1.1.0`, push it,
+> and attach `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release. Steps 6
+> and 7 of `docs/RELEASING.md`, and **held back deliberately** — it was put to
+> the user, who chose to build everything and push nothing, and `gh` is not
+> installed here so the upload is a browser job regardless. The zip is built and
+> waiting. Don't push a tag without being asked to.
+>
+> After that the queue goes back to the post-v1 list in the v1 scope section —
+> shuffle/repeat, export, subfolders, multiple folders. **None of that is
+> started.** A spectrum visualizer was offered and **declined** in Batch 9 (the
+> accent ramp was wanted instead), so don't re-offer it as though it were
+> untouched.
 >
 > ### Before writing any of it
 >
@@ -190,8 +221,10 @@ legal text, and where the two disagree the licence wins.
 > "folder is gone" line running off the right edge mid-word at 720 px, Batch 8's
 > long artist drawing straight through its own title, and Batch 9's daycore
 > readout coming out fainter than the unselected rows around it — that last one
-> with all 178 checks green, and Batch 10's Aurora and Vapor opening on the same
-> teal — two presets wearing one colour, with all 227 checks green.
+> with all 178 checks green, Batch 10's Aurora and Vapor opening on the same
+> teal — two presets wearing one colour, with all 227 checks green — and Batch
+> 15's icon glow coming out as concentric rings (Batch 5's bug, a third time)
+> with a neighbour dot drawn hanging half off the tile.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
@@ -329,6 +362,11 @@ here and write down why.
 | **A best-effort `except` names the failure it is being lenient about** | `refresh_devices` caught `Exception` around two *private* sounddevice calls. The lenient case is real — PortAudio refusing to come down or go back up is what an unplugged device does, on a 2 s timer, for as long as the headphones are out — and it is exactly `sd.PortAudioError`, because both calls route their return codes through `sd._check`. What the same clause also caught was a rename of `_terminate` or `_initialize`: an `AttributeError` that stopped reconnection working *forever* while the retry timer went on firing and the "audio device lost" line stayed up, indistinguishable from the device still being unplugged. Loose, it reaches `sys.excepthook` — one log entry, one dialog, and the retries continue exactly as they would have. Batch 13 is what made that a sane outcome rather than a crash. |
 | **The cover is read by the controller and handed up as a signal** | `main_window` called `core.tags.read_art` directly: file I/O and a full ID3 parse performed by a widget, in the project whose one architectural rule is that widgets don't do that. A signal (`art_changed`, carrying `bytes \| None`) rather than a property the window asks for, because *when* a track changes is the controller's to know and a property leaves the widget deciding when to hit the disk. **The `core` hands up bytes / `ui` makes pixels seam did not move** — `_cover_image` still turns them into a `QImage` or into `None`, and `core.tags` still has no image library. Only the read moved, and it moved to the one place that was already paying 70–210 ms for a decode. |
 | **The Settings rows are one table of `(label, value, action)`** | `_settings_items` and `_activate_settings` were two lists held in the same order by counting. Batch 10 already hit it — inserting `Theme` in the middle shifted `Full screen` and `Quit`, so activating one would have run the other — and the `SET_FOLDER … SET_QUIT` constants named the indices without removing the requirement that two lists agree. `_settings_rows()` removes it: the label and what activating it does are the same tuple. The constants stay, demoted to what outside callers (the harness) use to talk about a row without counting. |
+| **The icon is drawn at build time from `theme.py`, never checked in** | Same reasoning as the version resource one row down, and the same reasoning as there being no `.wav` files for the UI sounds: a checked-in binary is a second copy of something the source already defines, and this one would drift from the palette silently — a theme change would leave the icon wearing the old accent with nothing to notice it. `tools/make_icon.py` draws the crossbar off `CROSSBAR_Y_RATIO`, the background gradient and `ACCENT`, and `build_exe.py` generates it into the same scratch directory as the version resource. It is the one place the build imports Qt; a third of a second against a 71 s build, and a subprocess to avoid it would buy only a second way to fail. |
+| **Seven sizes, each drawn at its own size, PNG payloads throughout** | Windows picks per slot — 16 in the tray, 32 on the desktop, 48 in Explorer, 256 for the preview — and a missing size is scaled from the nearest, badly. **Never downscaled**, because the detail is three hairlines and a hairline is what downscaling destroys first: 16 px rendered natively is one crisp pixel where 256 halved four times is four shades of grey. That is the conventions' "ask which axis the detail is in" rule reaching its limit — here the answer is "both, and it is one pixel wide". The container is assembled by hand because Qt's ICO writer takes one image per file, and the payloads are PNGs because an ICO entry may be either and Windows has taken PNG since Vista. Known and accepted: `System.Drawing.Icon` mishandles the 256 entry. That is a GDI+ limitation, the shell reads it correctly, and this project declares Windows 11. |
+| **The smoke test runs on the real platform, not offscreen** | *The plan for Batch 15 said offscreen; the runtime said otherwise.* Offscreen gives the app no window handle, so `WM_CLOSE` has nothing to arrive at — measured, a graceful `taskkill /T` is ignored outright and only `/F` ends it, which discards the exit code and the shutdown path in one go. On the real platform the same close lands in 0.3 s with **exit 0 and `settings.json` written**, i.e. `aboutToQuit` fired and `shutdown()` ran. A window appearing for a few seconds during a build is what that costs. `%APPDATA%` is redirected at a temp directory, because a build step that rewrites your saved music folder is worse than the bug it is looking for. |
+| **A build that fails the smoke test is not zipped** | The zip is written *after* the check, so a broken build leaves an error message and no archive. An archive sitting next to a failure is an archive that eventually gets uploaded — and the failure this catches is specifically the silent one, where `--collect-binaries` stops finding libsndfile or PortAudio, PyInstaller reports success, and the exe dies on first import. `--skip-smoke` exists for a machine with no audio output, where the app correctly puts up a modal box and never opens a stream; the flag's own help text says it is not for saving ten seconds. |
+| **A Qt object built from a Python temporary is a segfault, not an error** | `QBuffer(QByteArray())` takes a reference to something that is collected immediately, and the process dies inside a later `image.save()` — no exception, no traceback, and not on the line that looks wrong. The fix is to name the `QByteArray` in a local so it outlives the buffer. Written down because the shape is general: any PySide6 constructor taking a reference to another Qt object needs that object held on the Python side for as long as the wrapper lives, and the failure mode is the least debuggable one available. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 ### Open questions
@@ -377,7 +415,9 @@ mp3player/
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
 tools/                   # dev harnesses + the build -- runnable, kept, not shipped
+  make_icon.py           # the .ico, drawn from theme.py; imported by build_exe
 tests/                   # core only, no display needed
+docs/RELEASING.md        # the release checklist -- the steps CI cannot run
 README.md                # for someone who has never seen the project
 ```
 
@@ -597,7 +637,32 @@ don't invent a second way to do a thing we've already solved.
   audit is one sitting's findings rather than a spec. Batch 13 extends that:
   its central claim was about how PySide6 behaves, it was wrong, and thirty
   seconds of a throwaway script in `scratchpad/` settled it. A claim about a
-  dependency's behaviour is a claim to run, not a claim to read.
+  dependency's behaviour is a claim to run, not a claim to read. Batch 15 is
+  the same lesson about the *plan* rather than a dependency: it specified an
+  offscreen smoke test, offscreen turned out to have no window handle to close,
+  and one probe settled it. Both times the throwaway script was cheaper than
+  the argument.
+- **Verify the artifact, not the build log.** `Copying icon to EXE` proves
+  PyInstaller read a file and says nothing about whether Windows can. Reading
+  the `RT_ICON` resources back out of the finished binary does. This is Batch
+  11's missing-licence finding generalised — it inspected a built *zip* rather
+  than the dependency table and found two licences nobody had listed — and the
+  cost is a few minutes at the end of a release. A build step reports what it
+  attempted; only the output reports what happened.
+- **A second parser is worth more than a second look.** `System.Drawing.Icon`
+  returned 128x128 when asked for 256 from a file that Qt, PyInstaller and the
+  Windows shell all read correctly. That is a documented GDI+ limitation rather
+  than a defect, and knowing *which* it is took one more reader — where staring
+  at the first result would have produced either a shrug or a day rewriting a
+  file that was already right. Anything hand-assembled to a binary format
+  (this project: the ICO container, the Windows version resource) should be
+  read back by something that did not write it.
+- **A fallback you have not broken on purpose is a fallback you have not
+  tested.** The shortcut script's icon step is best-effort and degrades to the
+  interpreter's icon; the way that was checked was by renaming `make_icon.py`
+  and running it. Batch 14 spent a batch removing exactly this class of bug —
+  a lenient path that silently stopped working — and a `try` whose `catch` has
+  never executed is the same thing waiting to happen.
 - **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
   `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
@@ -1174,7 +1239,7 @@ lives.
 | ~~The Settings rows are a hand-maintained parallel array~~ *(done, Batch 14)* | 14 |
 | ~~`read_art` called straight from the widget layer — the one real leak past the controller seam~~ *(done, Batch 14 — a signal, not a method; see there)* | 14 |
 | ~~`refresh_devices` swallows every exception around *private* sounddevice API~~ *(done, Batch 14)* | 14 |
-| No icon; no automated smoke test of the built exe; nothing in the README for someone who just wants to download it | 15 |
+| ~~No icon; no automated smoke test of the built exe; nothing in the README for someone who just wants to download it~~ *(done, Batch 15 — the smoke test is not offscreen; see there)* | 15 |
 
 ### One finding deliberately not in a batch
 
@@ -1720,17 +1785,19 @@ Not done: the `.exe`, for the same reason as Batches 9, 10, 12 and 13 — nothin
 here changes what PyInstaller reads. **Batch 15 owns the release rebuild**, and
 it is the batch that changes the build again.
 
-### Batch 15 — The download story
+### Batch 15 — The download story ✅ *(all but the release itself)*
 
 Everything between "the code is fine" and "a stranger can download this and run
 it".
 
-- [ ] An icon, generated at build time from `theme.py`
-- [ ] `build_exe.py` smoke-tests the exe it just built
-- [ ] `README.md` — a Download section, and the SmartScreen warning explained
-- [ ] `docs/RELEASING.md` — the checklist
-- [ ] Rebuild the exe (current as of Batch 11, but 12–15 change the build again)
+- [x] An icon, generated at build time from `theme.py`
+- [x] `build_exe.py` smoke-tests the exe it just built
+- [x] `README.md` — a Download section, and the SmartScreen warning explained
+- [x] `docs/RELEASING.md` — the checklist
+- [x] Rebuild the exe (current as of Batch 11, but 12–15 change the build again)
 - [ ] Tag, push, attach the zip, cut the release
+- [x] **Beyond the original list:** the desktop shortcut gets the icon too, and
+      the README's CI badge pointed at a repo that does not exist
 
 **Generate the `.ico` rather than checking one in.** The app has no icon
 anywhere — not in the build, not in the shortcut, which admits as much in a
@@ -1764,6 +1831,105 @@ smoke-test, tag, push the tag, attach the zip.
 
 ---
 
+**The remote already existed, which the plan above did not know.** Batches 12
+and 13 both say "there is no GitHub remote until Batch 15" and CI "has never
+run". `origin` is `github.com/BadrAlDhaibani/mp3-player`, `main` is pushed and up
+to date, and the workflow has therefore been running for some time. What had
+*not* been checked is the README's badge, which pointed at
+`badraldhaibani/xmb-player` — a different repo name, so the badge on the front
+page of the project was a 404 rendering as a broken image. Fixed. **This is the
+fifth time a claim in this file has been wrong about something outside the
+source, and it was again settled by looking rather than by reading.**
+
+**The smoke test does not run offscreen, and the brief above says it should.**
+This is the batch's one substantive departure and the runtime is what settled
+it, exactly as in Batch 13. Under `QT_QPA_PLATFORM=offscreen` the app has no
+window handle, so there is nothing to send `WM_CLOSE` to: measured, a `taskkill
+/T` is ignored entirely and the only way to end the process is `/F`, which
+throws away the exit code and the shutdown path together — i.e. precisely the
+half worth checking. On the real platform the same close lands in **0.3 s with
+exit 0 and a `settings.json` written**, which proves `aboutToQuit` fired and
+`controller.shutdown()` ran. So a window appears for a few seconds during a
+build, and that is the price of the check being worth anything. `%APPDATA%` is
+redirected at a temp directory throughout, because a build step that quietly
+rewrites your saved music folder is a worse bug than the one it is hunting.
+
+Note what the smoke test actually waits for: the `stream open:` line in the log,
+which only exists because of Batch 13. Before that batch there was nothing to
+watch for and the check would have had to be a sleep. **A build that fails it is
+not zipped**, because an archive sitting next to an error message is an archive
+that eventually gets uploaded anyway.
+
+**The icon is drawn rather than checked in**, which keeps the standing streak —
+there are no `.wav` files for the UI sounds either — and means it cannot drift
+from the palette. `tools/make_icon.py` draws the crossbar itself: the rule, the
+column, the selection where they cross, four neighbours, and the window's own
+top-lit gradient behind it, all off `theme.py` constants including
+`CROSSBAR_Y_RATIO`. Seven sizes, each **drawn at its own size and never
+downscaled** — the detail here is three hairlines, which is the thing that
+survives downscaling worst.
+
+**The renders found two bugs, for the sixth batch running, and one of them was
+Batch 5's bug again.** The first draft built the glow the way Batch 5's first
+draft did — a stack of translucent rounded rects — and it came out as visible
+concentric rings, because overlapping fills accumulate alpha and step at every
+edge. That is the third time this project has drawn a border and called it a
+glow. One `QRadialGradient` fixes it and is less code. The second was
+arithmetic nobody would have caught by reading: the neighbour dots were placed
+three plates from a centre that sits at 0.42 of the width, so the right-hand one
+was drawn hanging half off the tile. Both were obvious in one PNG and invisible
+to everything else.
+
+**Then `write_ico` segfaulted, and the crash was two lines from the cause.**
+`QBuffer(QByteArray())` hands the C++ side a pointer to a Python temporary that
+is then collected, and the process dies inside `image.save()` — not an
+exception, no traceback, and not on the line that looks wrong. Naming the
+`QByteArray` in a local is the whole fix. It is a decisions-log row because the
+same shape will recur anywhere a Qt object is constructed from an expression.
+
+**And the icon was verified against the artifact rather than the build log.**
+PyInstaller prints `Copying icon to EXE`, which proves it read the file and
+nothing about whether Windows can. Reading the `RT_ICON` resources back out of
+the finished exe does: seven entries, byte-identical payloads, all seven
+decoding. That is Batch 11's missing-licence lesson generalised — the build log
+is a claim, the artifact is the evidence — and it earned its keep on the way
+past, because `System.Drawing.Icon` had already been observed returning 128x128
+when asked for 256. That is a documented GDI+ limitation and not a defect in the
+file, which is exactly the sort of thing a second parser tells you and a first
+one cannot.
+
+Also landed: the desktop shortcut gets the icon, which the audit's own wording
+asked for ("no icon anywhere — not in the build, **not in the shortcut**, which
+admits as much in a comment"). It is written to `%LOCALAPPDATA%/XMBPlayer/`
+rather than into the repo, because `build_exe.py` empties both `build/` and
+`dist/` and a shortcut pointing at a file the next build deletes is worse than
+no icon. The generation is best-effort and **the fallback was tested by breaking
+it** — an untested fallback is the exact class of bug Batch 14 spent a batch
+removing.
+
+Verified: **256 tests green** (unchanged, and unchanged is right — `tests/` is
+core-only and every line of this batch is a tool, a doc or a build step).
+`tools/shell_harness.py` **294/294** on the first run, with the known WASAPI
+flake passing; 8 new, and they are in the harness rather than in `tests/` because
+the icon is Qt and that suite needs no display. They cover every size drawing,
+the crossing being the anchor accent, the corner being transparent, and the ICO
+container's own arithmetic — the header, every entry's offset landing inside the
+file, the entries being contiguous, and 256 being stored as 0 because the field
+is one byte. `ruff check .` and `mypy` clean. Built the exe (150 MB unpacked,
+60 MB zipped, 71 s): the smoke test passed inside the build, the file properties
+read `1.1.0` / `XMB Player` / the GPL line, `LICENSE`, `THIRD_PARTY_NOTICES.md`
+and `licenses/` are at the top of the app folder, libsndfile's `COPYING` is still
+in the zip, and all seven icon sizes came back out of the binary.
+
+**Not done: the release itself.** Decided with the user rather than skipped —
+`gh` is not installed on this machine, so attaching a 60 MB zip is a browser
+job, and pushing a tag is an outward-facing act that was not authorised in this
+session. The tag, the push and the GitHub release are steps 6 and 7 of
+`docs/RELEASING.md` and the artifact is built and sitting in `dist/`. **The `v1`
+tag is still behind `HEAD` and still does not describe this code.**
+
+---
+
 ## Running it
 
 ```bash
@@ -1775,8 +1941,16 @@ run.bat                          # console: tracebacks and prints land here
 venv/Scripts/python.exe -m mp3player.app
 powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .lnk
 
-# the standalone build -- distribution only, never the edit-run loop
-venv/Scripts/python.exe tools/build_exe.py    # -> dist/XMB Player/ + a zip
+# the standalone build -- distribution only, never the edit-run loop.
+# Generates the icon and the version resource, builds, then LAUNCHES the exe and
+# closes it (a window appears for a few seconds; that is the test). A build that
+# fails that is not zipped. See docs/RELEASING.md for the whole checklist.
+venv/Scripts/python.exe tools/build_exe.py         # -> dist/XMB Player/ + a zip
+venv/Scripts/python.exe tools/build_exe.py --skip-smoke   # no audio device only
+
+# the icon, drawn from theme.py. `--preview` is the one to look at.
+venv/Scripts/python.exe tools/make_icon.py out.ico
+venv/Scripts/python.exe tools/make_icon.py out.png --preview   # all 7 sizes
 
 # the three checks CI runs, in the order it runs them. All configured in
 # pyproject.toml, which also says why each disabled rule is disabled.
@@ -1793,7 +1967,7 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 266/267 with *that* line failing
+# predates Batch 9, and it passes on a re-run. 293/294 with *that* line failing
 # is the known one; anything else failing is yours.
 #
 # It writes its log to a temp file, not to yours -- and its crash-probe section

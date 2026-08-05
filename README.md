@@ -5,7 +5,7 @@ folder, browse the tracks, play them — and warp the audio into **nightcore**
 (sped up, pitched up) or **daycore** (slowed down, pitched down) live, with a
 slider, while it plays.
 
-[![CI](https://github.com/badraldhaibani/xmb-player/actions/workflows/ci.yml/badge.svg)](https://github.com/badraldhaibani/xmb-player/actions/workflows/ci.yml)
+[![CI](https://github.com/BadrAlDhaibani/mp3-player/actions/workflows/ci.yml/badge.svg)](https://github.com/BadrAlDhaibani/mp3-player/actions/workflows/ci.yml)
 
 Windows · Python 3.13 · PySide6 · numpy · sounddevice · soundfile
 
@@ -45,6 +45,42 @@ It does not *write* tags either — nothing here edits your files.
 
 ---
 
+## Download
+
+Grab the latest `XMB-Player-<version>-windows.zip` from
+[**Releases**](https://github.com/BadrAlDhaibani/mp3-player/releases), unzip it
+anywhere, and run `XMB Player.exe` inside.
+
+There is no installer and nothing to set up. It writes one folder,
+`%APPDATA%/XMBPlayer`, holding your settings and a small log; deleting the
+unzipped folder and that one removes it completely.
+
+Keep the whole folder together — the exe needs the files beside it. Making a
+shortcut to the exe is the tidy way to get it onto your desktop or Start menu.
+
+### "Windows protected your PC"
+
+You will get this the first time, and it is expected:
+
+> **Windows protected your PC**
+>
+> Microsoft Defender SmartScreen prevented an unrecognised app from starting.
+
+Click **More info**, then **Run anyway**.
+
+The warning is not about anything found in the file. SmartScreen shows it for
+any executable that has no code-signing certificate and no download history, and
+a certificate costs a few hundred pounds a year — which is not a sensible thing
+to buy for a novelty MP3 player. So the honest options were to explain the
+warning or to pretend it doesn't happen, and this is the first one.
+
+If you would rather not click through a warning from a stranger — entirely
+reasonable — [run it from source](#from-source) instead. It is the same
+application; the exe is only these files with a Python interpreter stapled to
+the front.
+
+---
+
 ## Running it
 
 ### From source
@@ -78,6 +114,14 @@ Produces `dist/XMB Player/XMB Player.exe` and a zip beside it. It is a folder
 rather than a single file on purpose: one-file PyInstaller unpacks ~120 MB of Qt
 to a temp directory on *every* launch, which is several seconds of nothing
 before the window appears.
+
+The icon and the Windows version stamp are drawn and written at build time from
+`theme.py` and `__version__`, so neither is checked in and neither can drift.
+When it finishes, the build launches the exe, waits until it has opened an audio
+device, and closes it again — a window will appear for a few seconds. That is
+the only check that catches a missing libsndfile or PortAudio, because nothing
+in the bytecode points at either and a broken build still reports success.
+`docs/RELEASING.md` is the full checklist.
 
 ---
 
@@ -177,7 +221,12 @@ Three more tools, each for a thing that can only be judged by a sense:
 venv/Scripts/python.exe tools/sfx_harness.py            # hear the UI sounds
 venv/Scripts/python.exe tools/filmstrip.py out.png      # see an animation
 venv/Scripts/python.exe tools/engine_harness.py         # the audio engine, no Qt
+venv/Scripts/python.exe tools/make_icon.py i.png --preview   # the icon, all sizes
 ```
+
+[`docs/RELEASING.md`](docs/RELEASING.md) is the checklist for cutting a release,
+and it is a separate file for the same reason the harness is a local step: most
+of what it lists cannot run on a machine with no display and no sound card.
 
 `CLAUDE.md` is the project's memory: the decisions log says what was settled and
 why, and the conventions are the patterns worth reusing. Read those before

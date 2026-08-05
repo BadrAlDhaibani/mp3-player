@@ -20,6 +20,7 @@ controller flushes on shutdown.
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -1539,6 +1540,79 @@ def main() -> int:
         renamed_escaped,
     )
     sd._terminate, sd._initialize = real_terminate, real_initialize
+
+    print("\n-- the application icon, drawn from theme.py at build time")
+    # It lives in `tools/` and is Qt, so `tests/` cannot have it -- that suite is
+    # core-only and needs no display. It draws no text, which is the one thing
+    # the offscreen platform genuinely cannot do, so it belongs here instead.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import make_icon
+
+    frames = {size: make_icon.draw(size) for size in make_icon.SIZES}
+    check(
+        "every size draws, at the size asked for",
+        all(
+            not image.isNull() and image.width() == size and image.height() == size
+            for size, image in frames.items()
+        ),
+    )
+
+    # The mark has to survive being 16 px, and the accent square at the crossing
+    # is what carries it. Sampling the exact centre of that square is the
+    # cheapest possible statement of "there is still something blue in there";
+    # whether it *reads* is a picture, and `--preview` is how to look.
+    big = frames[256]
+    centre = big.pixelColor(
+        round(big.width() * make_icon.COLUMN_X_RATIO),
+        round(big.height() * theme.CROSSBAR_Y_RATIO),
+    )
+    check(
+        "the crossing is painted in the anchor accent",
+        (centre.red(), centre.green(), centre.blue())
+        == (theme.ACCENT.red(), theme.ACCENT.green(), theme.ACCENT.blue()),
+        f"{centre.name()} vs {theme.ACCENT.name()}",
+    )
+    check(
+        "the corner is transparent, so the tile has rounded corners",
+        big.pixelColor(0, 0).alpha() == 0,
+    )
+
+    icon_dir = tempfile.TemporaryDirectory(prefix="xmb-icon-")
+    ico = make_icon.write_ico(Path(icon_dir.name) / "probe.ico")
+    blob = ico.read_bytes()
+    reserved, kind, count = struct.unpack("<HHH", blob[:6])
+    check(
+        "the container header is a well-formed icon directory",
+        (reserved, kind, count) == (0, 1, len(make_icon.SIZES)),
+        f"reserved={reserved} type={kind} count={count}",
+    )
+
+    # The arithmetic that decides whether Windows can read the file at all: a
+    # wrong offset or length is a silently unusable icon, and PyInstaller copies
+    # it into the exe without looking.
+    entries = [
+        struct.unpack("<BBBBHHII", blob[6 + i * 16 : 22 + i * 16]) for i in range(count)
+    ]
+    check(
+        "every entry's declared size and offset lands inside the file",
+        all(off + length <= len(blob) for *_, length, off in entries),
+    )
+    expected = 6 + 16 * count
+    contiguous = True
+    for *_, length, offset in entries:
+        contiguous = contiguous and offset == expected
+        expected += length
+    check("the entries are contiguous and in the declared order", contiguous)
+    check(
+        "256 is stored as 0, because the field is one byte",
+        entries[-1][0] == 0 and make_icon.SIZES[-1] == 256,
+    )
+    reread = QImage()
+    check(
+        "and Qt reads the result back as an icon",
+        reread.loadFromData(blob, "ICO") and not reread.isNull(),
+    )
+    icon_dir.cleanup()
 
     controller.shutdown()
     log_mod.close()

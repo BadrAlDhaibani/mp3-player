@@ -25,9 +25,35 @@ $ErrorActionPreference = 'Stop'
 
 $root    = Split-Path -Parent $PSScriptRoot
 $pythonw = Join-Path $root 'venv\Scripts\pythonw.exe'
+$python  = Join-Path $root 'venv\Scripts\python.exe'
 
 if (-not (Test-Path $pythonw)) {
     Write-Error "No windowed interpreter at $pythonw -- create the venv first: python -m venv venv"
+}
+
+# The icon is drawn from theme.py by tools/make_icon.py, the same way the build
+# draws the exe's. It goes to LOCALAPPDATA rather than into the repo because
+# build_exe.py empties both build/ and dist/, and a shortcut pointing at a file
+# that the next build deletes is worse than no icon at all.
+#
+# Best-effort on purpose: a missing or broken PySide6 should cost you the icon
+# and not the shortcut, so this falls back to the interpreter's own.
+$iconDir  = Join-Path $env:LOCALAPPDATA 'XMBPlayer'
+$iconPath = Join-Path $iconDir 'XMB Player.ico'
+$icon     = "$pythonw,0"
+
+try {
+    if (-not (Test-Path $iconDir)) {
+        New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
+    }
+    & $python (Join-Path $PSScriptRoot 'make_icon.py') $iconPath | Out-Null
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $iconPath)) {
+        $icon = "$iconPath,0"
+    } else {
+        Write-Warning "Could not draw the icon; using the interpreter's."
+    }
+} catch {
+    Write-Warning "Could not draw the icon ($($_.Exception.Message)); using the interpreter's."
 }
 
 $linkPath = Join-Path $Destination 'XMB Player.lnk'
@@ -38,8 +64,7 @@ $link.TargetPath       = $pythonw
 $link.Arguments        = '-m mp3player.app'
 $link.WorkingDirectory = $root
 $link.Description      = 'XMB Player -- nightcore/daycore MP3 player'
-# No icon of our own yet; the interpreter's is better than a blank page.
-$link.IconLocation     = "$pythonw,0"
+$link.IconLocation     = $icon
 $link.Save()
 
 # Release the COM object rather than leaving it to the GC -- this script is
@@ -48,3 +73,4 @@ $link.Save()
 
 Write-Host "Created: $linkPath"
 Write-Host "  -> $pythonw -m mp3player.app  (cwd $root)"
+Write-Host "  icon: $icon"

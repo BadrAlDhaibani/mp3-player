@@ -19,6 +19,11 @@ dist/
 # the .ico and the version resource are.
 *.lnk
 
+# A resume-input brief: the project's facts, measurements and framing guardrails,
+# extracted for an LLM tailoring a CV. It is about the author rather than about
+# the app, so it stays on this machine.
+PORTFOLIO.md
+
 # audio: never commit music or spike renders
 *.mp3
 *.wav

@@ -19,6 +19,7 @@ controller flushes on shutdown.
 
 from __future__ import annotations
 
+import itertools
 import os
 import struct
 import sys
@@ -1541,14 +1542,21 @@ def main() -> int:
     )
     sd._terminate, sd._initialize = real_terminate, real_initialize
 
-    print("\n-- the application icon, drawn from theme.py at build time")
-    # It lives in `tools/` and is Qt, so `tests/` cannot have it -- that suite is
-    # core-only and needs no display. It draws no text, which is the one thing
-    # the offscreen platform genuinely cannot do, so it belongs here instead.
+    print("\n-- the application icon, drawn from theme.py")
+    # Two modules now: `mp3player.ui.icon` draws the mark -- the running app
+    # wears it too, via `setWindowIcon` -- and `tools/make_icon` assembles the
+    # `.ico` the build stamps into the exe. Both are Qt, so `tests/` can have
+    # neither: that suite is core-only and needs no display. The mark draws no
+    # text, which is the one thing the offscreen platform genuinely cannot do, so
+    # it belongs here instead.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import make_icon
 
-    frames = {size: make_icon.draw(size) for size in make_icon.SIZES}
+    from mp3player.ui import icon as icon_mod
+
+    was_palette = theme.palette().name
+
+    frames = {size: icon_mod.draw(size) for size in icon_mod.SIZES}
     check(
         "every size draws, at the size asked for",
         all(
@@ -1557,25 +1565,105 @@ def main() -> int:
         ),
     )
 
-    # The mark has to survive being 16 px, and the accent square at the crossing
-    # is what carries it. Sampling the exact centre of that square is the
-    # cheapest possible statement of "there is still something blue in there";
-    # whether it *reads* is a picture, and `--preview` is how to look.
     big = frames[256]
-    centre = big.pixelColor(
-        round(big.width() * make_icon.COLUMN_X_RATIO),
-        round(big.height() * theme.CROSSBAR_Y_RATIO),
-    )
+    mono = theme.palette_by_name(icon_mod.PALETTE_NAME)
+
+    def core_pixel(image):
+        at = image.width() // 2
+        return image.pixelColor(at, at)
+
+    found = core_pixel(big)
     check(
-        "the crossing is painted in the anchor accent",
-        (centre.red(), centre.green(), centre.blue())
-        == (theme.ACCENT.red(), theme.ACCENT.green(), theme.ACCENT.blue()),
-        f"{centre.name()} vs {theme.ACCENT.name()}",
+        f"the label is {icon_mod.PALETTE_NAME}'s anchor",
+        (found.red(), found.green(), found.blue())
+        == (mono.anchor.red(), mono.anchor.green(), mono.anchor.blue()),
+        f"{found.name()} vs {mono.anchor.name()}",
     )
+
+    # **The invariant that replaced the palette pin, and it is a stronger one.**
+    # Until Batch 17's second pass the icon took the *active* palette, so this
+    # section had to pin the default before asserting on a colour -- the theme-row
+    # section above walks all five and leaves the module wherever it stopped. The
+    # mark is now fixed to one palette by design, so the check is that driving the
+    # app's theme through every preset does not move a single pixel of it.
+    everywhere = set()
+    for name in theme.palette_names():
+        theme.set_palette(name)
+        everywhere.add(core_pixel(icon_mod.draw(256)).name())
+    theme.set_palette(was_palette)
     check(
-        "the corner is transparent, so the tile has rounded corners",
-        big.pixelColor(0, 0).alpha() == 0,
+        "and it does not move when the app's theme does, across all five",
+        len(everywhere) == 1 and everywhere == {mono.anchor.name()},
+        f"{sorted(everywhere)}",
     )
+
+    # "One colour" as an assertion rather than an impression: every pixel the mark
+    # actually paints has to sit inside the hue band Mono's own knots describe,
+    # and no more saturated than its most saturated knot. This is what would catch
+    # a stray `ACCENT` or a hard-coded colour creeping back into the drawing.
+    hue_lo = min(value for _, value in mono.hue)
+    hue_hi = max(value for _, value in mono.hue)
+    sat_hi = max(value for _, value in mono.saturation)
+    strays = []
+    for x in range(0, big.width(), 3):
+        for y in range(0, big.height(), 3):
+            pixel = big.pixelColor(x, y)
+            if pixel.alpha() < 250 or pixel.valueF() < 0.35:
+                continue  # transparent, or the dark edge pen
+            in_hue = hue_lo - 0.02 <= pixel.hueF() <= hue_hi + 0.02
+            in_sat = pixel.saturationF() <= sat_hi + 0.02
+            if not (in_hue and in_sat):
+                strays.append((x, y, pixel.name()))
+    check(
+        "every painted pixel is inside Mono's own hue and saturation band",
+        not strays,
+        f"{len(strays)} strays, e.g. {strays[:3]}",
+    )
+
+    # The odd-even fill rule, written down as the bug it was. `crescent_path`
+    # unions a round cap onto the sweep, and the path is stroked as well as
+    # filled -- so without `WindingFill` *before* `simplified()` the pen traces
+    # the cap's hidden half straight across the ribbon and takes a lens-shaped
+    # bite out of the thick end. Sampling the ribbon's centre line right at the
+    # start is where that bite lands.
+    cap_at = icon_mod.sweep_point(256, 0.0)
+    seam = big.pixelColor(round(cap_at.x()), round(cap_at.y()))
+    check(
+        "the cap/sweep union is filled, not punched out by odd-even winding",
+        seam.alpha() == 255,
+        f"{seam.name()} alpha={seam.alpha()}",
+    )
+
+    # It is a *crescent*: full width through the top, then away to a point. Both
+    # halves matter -- a taper that starts at once leaves the cap standing alone
+    # as a blob, which is what made the first draft read as an eye.
+    widths = [icon_mod.ribbon_width(256, step / 24) for step in range(25)]
+    check(
+        "the sweep holds its width and then tapers, never the other way",
+        all(later <= earlier + 1e-9 for earlier, later in itertools.pairwise(widths))
+        and widths[-1] < widths[0] / 4,
+        f"{widths[0]:.1f} -> {widths[-1]:.1f} px",
+    )
+
+    # There is no tile any more, so *all four* corners have to be clear -- the
+    # old check looked at one, which was enough for a rounded square and says
+    # nothing about a shape that is round in the middle of the canvas.
+    opaque_corners = [
+        (x, y)
+        for x, y in ((0, 0), (255, 0), (0, 255), (255, 255))
+        if big.pixelColor(x, y).alpha() != 0
+    ]
+    check("all four corners are transparent -- there is no tile", not opaque_corners)
+
+    # Batch 15's icon drew a neighbour dot hanging half off the tile, which was
+    # arithmetic nobody would catch by reading. Every size, because the small
+    # ones have their own layout and their own pixel floors.
+    outside = [
+        size
+        for size in icon_mod.SIZES
+        if not QRectF(0, 0, size, size).contains(icon_mod.mark_bounds(size))
+    ]
+    check("the mark stays inside the canvas at every size", not outside, f"{outside}")
 
     icon_dir = tempfile.TemporaryDirectory(prefix="xmb-icon-")
     ico = make_icon.write_ico(Path(icon_dir.name) / "probe.ico")
@@ -1583,7 +1671,7 @@ def main() -> int:
     reserved, kind, count = struct.unpack("<HHH", blob[:6])
     check(
         "the container header is a well-formed icon directory",
-        (reserved, kind, count) == (0, 1, len(make_icon.SIZES)),
+        (reserved, kind, count) == (0, 1, len(icon_mod.SIZES)),
         f"reserved={reserved} type={kind} count={count}",
     )
 
@@ -1605,7 +1693,7 @@ def main() -> int:
     check("the entries are contiguous and in the declared order", contiguous)
     check(
         "256 is stored as 0, because the field is one byte",
-        entries[-1][0] == 0 and make_icon.SIZES[-1] == 256,
+        entries[-1][0] == 0 and icon_mod.SIZES[-1] == 256,
     )
     reread = QImage()
     check(
@@ -1613,6 +1701,7 @@ def main() -> int:
         reread.loadFromData(blob, "ICO") and not reread.isNull(),
     )
     icon_dir.cleanup()
+    theme.set_palette(was_palette)
 
     print("\n-- the cached paints, which must be the pixels they replaced")
     #

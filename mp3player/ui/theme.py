@@ -429,6 +429,23 @@ def _along(knots: Knots, fraction: float) -> float:
     return knots[-1][1]
 
 
+def ramp_color(
+    pal: Palette, fraction: float, *, alpha: int = 255, hue_shift: float = 0.0
+) -> QColor:
+    """A *named* palette's colour at a point along the speed slider.
+
+    Split out of `wave_color` so something can ask for one particular ramp
+    regardless of which palette is in force. The only caller that wants that is
+    `ui/icon.py`, whose mark is fixed to Mono however the app is themed -- see
+    the decisions log. Everything that paints the app itself wants the active
+    palette and should keep calling `wave_color`.
+    """
+    hue = (_along(pal.hue, fraction) + hue_shift) % 1.0
+    color = QColor.fromHsvF(hue, _along(pal.saturation, fraction), 1.0)
+    color.setAlpha(max(0, min(255, alpha)))
+    return color
+
+
 def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> QColor:
     """The wave's colour at a point along the speed slider.
 
@@ -438,10 +455,22 @@ def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> 
     default palette that anchor is ACCENT, so 1.00x is the icy blue it always
     was.
     """
-    hue = (_along(_palette.hue, fraction) + hue_shift) % 1.0
-    color = QColor.fromHsvF(hue, _along(_palette.saturation, fraction), 1.0)
-    color.setAlpha(max(0, min(255, alpha)))
-    return color
+    return ramp_color(_palette, fraction, alpha=alpha, hue_shift=hue_shift)
+
+
+def palette_by_name(name: str) -> Palette:
+    """Look one up. Raises rather than falling back -- see `ui/icon.py`.
+
+    `PlayerController` clamps an unknown *setting* to the default on purpose (a
+    file written by a later build should not lose the user's theme). This is the
+    other case: a name written in source, which if it stops matching is a typo or
+    a rename, and a silent fallback there would leave the icon quietly wearing
+    the wrong palette with nothing to notice it.
+    """
+    for pal in PALETTES:
+        if pal.name == name:
+            return pal
+    raise LookupError(f"no palette named {name!r}; have {palette_names()}")
 
 
 # -- the live accent -------------------------------------------------------

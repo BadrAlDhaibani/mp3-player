@@ -13,6 +13,12 @@ build/
 dist/
 *.spec
 
+# tools/make_shortcut.ps1 writes one of these next to run.bat, so there is a
+# console-free way to launch from the repo folder. It holds absolute paths to
+# this machine's venv, so it is generated rather than committed -- same reason
+# the .ico and the version resource are.
+*.lnk
+
 # audio: never commit music or spike renders
 *.mp3
 *.wav

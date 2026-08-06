@@ -104,15 +104,21 @@ yet. It reads the `.mp3` files sitting directly in that folder, top level only.
 python -m venv venv
 venv/Scripts/python.exe -m pip install -r requirements.txt
 
-run.bat                                    # keeps a console open
-venv/Scripts/python.exe -m mp3player.app   # same thing, directly
+# shortcuts on the Desktop and next to run.bat -- no console window, real icon
+powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1 -Here
 ```
 
-There's no build step — both run the live source. For a desktop shortcut with no
-console window:
+Then double-click **XMB Player**. There's no build step: the shortcut points at
+`pythonw.exe` and runs the live source, so edits show up on the next launch.
+
+For debugging there's `run.bat`, which keeps a console so tracebacks and prints
+land somewhere visible — a `.bat` always gets a console window, which is why the
+quiet launcher is a shortcut instead. Either way the app also writes
+`%APPDATA%\XMBPlayer\xmbplayer.log`.
 
 ```bash
-powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1
+run.bat                                    # console, for debugging
+venv/Scripts/python.exe -m mp3player.app   # same thing, directly
 ```
 
 To build the standalone exe: `venv/Scripts/python.exe tools/build_exe.py`. It

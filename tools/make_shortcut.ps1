@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Put an "XMB Player" shortcut on the Desktop.
+    Put an "XMB Player" shortcut on the Desktop, and optionally in the repo.
 
 .DESCRIPTION
     Points at venv\Scripts\pythonw.exe -- the windowed interpreter -- so
@@ -8,17 +8,28 @@
     source, so edits show up on the next launch with no rebuild (CLAUDE.md,
     decisions log). Re-run this only if the repo moves.
 
-    Use run.bat instead while debugging; pythonw.exe swallows stdout and any
-    traceback with it.
+    -Here also drops a .lnk next to run.bat. That is the console-free way to
+    launch from the repo folder: a .bat *always* gets a console window, because
+    cmd.exe is a console program and Windows creates one before the first line
+    runs -- so there is nothing run.bat could be changed to that would suppress
+    it. A shortcut is the fix, not a flag.
+
+    Use run.bat while debugging; pythonw.exe swallows stdout and any traceback
+    with it. Since Batch 13 the app also writes
+    %APPDATA%\XMBPlayer\xmbplayer.log, which is where a crash goes either way.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File tools\make_shortcut.ps1
+    powershell -ExecutionPolicy Bypass -File tools\make_shortcut.ps1 -Here
 #>
 
 [CmdletBinding()]
 param(
     # Where to write the .lnk. Defaults to the Desktop.
-    [string] $Destination = [Environment]::GetFolderPath('Desktop')
+    [string] $Destination = [Environment]::GetFolderPath('Desktop'),
+
+    # Also write one into the repo root, beside run.bat. Gitignored: it holds
+    # absolute paths to this machine's venv.
+    [switch] $Here
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,21 +67,25 @@ try {
     Write-Warning "Could not draw the icon ($($_.Exception.Message)); using the interpreter's."
 }
 
-$linkPath = Join-Path $Destination 'XMB Player.lnk'
+$targets = @($Destination)
+if ($Here) { $targets += $root }
 
 $shell = New-Object -ComObject WScript.Shell
-$link  = $shell.CreateShortcut($linkPath)
-$link.TargetPath       = $pythonw
-$link.Arguments        = '-m mp3player.app'
-$link.WorkingDirectory = $root
-$link.Description      = 'XMB Player -- nightcore/daycore MP3 player'
-$link.IconLocation     = $icon
-$link.Save()
+foreach ($folder in $targets) {
+    $linkPath = Join-Path $folder 'XMB Player.lnk'
+    $link = $shell.CreateShortcut($linkPath)
+    $link.TargetPath       = $pythonw
+    $link.Arguments        = '-m mp3player.app'
+    $link.WorkingDirectory = $root
+    $link.Description      = 'XMB Player -- nightcore/daycore MP3 player'
+    $link.IconLocation     = $icon
+    $link.Save()
+    Write-Host "Created: $linkPath"
+}
 
 # Release the COM object rather than leaving it to the GC -- this script is
 # often run from a shell that stays open.
 [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
 
-Write-Host "Created: $linkPath"
 Write-Host "  -> $pythonw -m mp3player.app  (cwd $root)"
 Write-Host "  icon: $icon"

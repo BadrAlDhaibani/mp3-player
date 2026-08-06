@@ -104,9 +104,17 @@ Expect `LICENSE`, `THIRD_PARTY_NOTICES.md` and `licenses/` beside the exe, and
 file properties reading the new version, `XMB Player`, and the GPL copyright
 line.
 
-**Look at the icon in Explorer**, at both Large and Extra Large. It is drawn
-fresh from `theme.py` on every build, so a palette change moves it, and the
-16 px frame is the one that stops reading first.
+**Look at the icon in Explorer**, at both Large and Extra Large, and **in the
+taskbar** — they read different things, and the taskbar is the one that has
+surprised this project. The mark has no tile, so also check it against a *light*
+Explorer background, not just a dark taskbar; `make_icon.py --preview` shows all
+four backgrounds at once. Below 24 px the sweep stops tapering (`SIMPLE_BELOW` in
+`mp3player/ui/icon.py`), and 16 px is the frame that stops reading first.
+
+The taskbar button needs `app._claim_taskbar_identity` to have run — a window
+icon alone is not enough on Windows. It works on the packaged exe and **cannot**
+work on a source launch from the Store-Python venv; see the conventions in
+CLAUDE.md before filing that as a regression.
 
 > Batch 11 found two missing third-party licence texts by inspecting a built
 > zip rather than trusting the dependency table. Unzipping the artifact

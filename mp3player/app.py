@@ -23,6 +23,7 @@ from mp3player.core import log as log_mod
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.engine import AudioDeviceError, AudioEngine
 from mp3player.ui.controller import PlayerController
+from mp3player.ui.icon import app_icon
 from mp3player.ui.main_window import MainWindow
 
 _log = log_mod.get("app")
@@ -124,6 +125,46 @@ def _show_crash_dialog(log_file: Path | None) -> None:
 #: show up in the frame cost.
 GIL_SWITCH_S = 0.001
 
+#: Windows groups taskbar buttons by AppUserModelID, and takes the button's icon
+#: from whatever that ID resolves to. A process that never sets one inherits its
+#: *executable's* -- which for a source launch is `pythonw.exe`, so the taskbar
+#: showed the Python logo no matter what `setWindowIcon` said. See
+#: `_claim_taskbar_identity`. Microsoft's form is
+#: CompanyName.ProductName.SubProduct.Version; the version is deliberately left
+#: off, because putting it in would make 1.1.0 and 1.2.0 group separately and
+#: un-pin each other.
+APP_USER_MODEL_ID = "BadrAlDhaibani.XMBPlayer"
+
+
+def _claim_taskbar_identity() -> None:
+    """Make the taskbar read our window icon instead of the interpreter's.
+
+    `QApplication.setWindowIcon` is necessary and **not sufficient** on Windows:
+    the taskbar button belongs to an AppUserModelID, not to a window, and with no
+    explicit ID the shell falls back to the host executable's own icon. Under
+    `pythonw.exe` that is the Python logo, which is exactly what the app showed
+    for the whole of Batch 17 while its window icon was set correctly the entire
+    time. A `.lnk`'s icon does not help either -- that colours the shortcut, not
+    the process it starts.
+
+    Must run **before the first window exists**; the shell reads the ID when the
+    button is created and does not revisit it.
+
+    Best-effort, and narrowly so: `AttributeError` if a future Windows drops the
+    export, `OSError` if the call itself fails. Both cost a wrong icon and
+    nothing else, so they must not take the app down on the way to a window --
+    but anything else reaches the excepthook, per the convention about an
+    `except` naming what it is lenient about.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except (AttributeError, OSError) as exc:
+        _log.warning("could not set the taskbar identity: %s", exc)
+
 
 def main() -> int:
     sys.setswitchinterval(GIL_SWITCH_S)
@@ -132,10 +173,21 @@ def main() -> int:
     _install_crash_handler(log_file)
     _log.info("XMB Player %s starting", __version__)
 
+    # Before QApplication, so it is unambiguously before the first window.
+    _claim_taskbar_identity()
+
     app = QApplication(sys.argv)
     app.setApplicationName("XMB Player")
     app.setApplicationVersion(__version__)
     app.setOrganizationName(settings_mod.APP_NAME)
+
+    # The taskbar, Alt+Tab and the window manager read this, and *only* this --
+    # the exe's own resource covers the packaged build, but a source launch is
+    # `pythonw.exe`, so without this line the app runs under the Python feather
+    # whatever the shortcut that started it is wearing. Drawn from `theme.py`
+    # rather than loaded, so there is no file to find at runtime and nothing to
+    # bundle. Set before any window exists, so nothing has to be told twice.
+    app.setWindowIcon(app_icon())
 
     saved = settings_mod.load()
 

@@ -52,17 +52,47 @@ legal text, and where the two disagree the licence wins.
 > Batch 15 (the download story — 256 tests, 294 harness checks, an icon, a
 > smoke test, and a `.exe` rebuilt at 1.1.0 — **all but the release upload**) ·
 > Batch 16 (the crackle — 263 tests, 300 harness checks, and audio that stops
-> dropping blocks)
+> dropping blocks) ·
+> Batch 17 (the icon and the console — 263 tests, 305 harness checks, a crescent
+> sweep, and no cmd window)
 >
-> **v1 is shipped; Batches 8 through 16 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 16 is ticked except the release
+> **v1 is shipped; Batches 8 through 17 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 17 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **The roadmap is finished.** Batch 16 was not on it: the user reported audible
-> pops and asked for them to be investigated, which is where it came from. What
-> is left is one outward-facing action, three human judgements, and the post-v1
-> feature list — all set out below.
+> **The roadmap is finished.** Batches 16 and 17 were not on it: the user reported
+> audible pops, and then asked for a nicer icon and for the console to stop
+> opening. What is left is one outward-facing action, three human judgements, and
+> the post-v1 feature list — all set out below.
+>
+> **Launch it with the shortcut, not `run.bat`.** `XMB Player.lnk` sits in the
+> repo root *and* on the Desktop, both pointing at `pythonw.exe`, both carrying
+> the icon; `make_shortcut.ps1 -Here` regenerates them and is the thing to re-run
+> if the repo moves. `run.bat` still exists and is still worth having, but it is
+> **for debugging** — and a `.bat` cannot be made console-free, so don't try:
+> `cmd.exe` is a console program and Windows opens the window before the first
+> line runs.
+>
+> **The icon is a crescent sweep, and it lives in `mp3player/ui/icon.py`, not in
+> `tools/`.** One ribbon most of the way round a centred label, tapering, in
+> **`Mono`'s colours whatever the app is themed as** — the one place in this
+> project that deliberately ignores the palette, because an icon is an identity.
+> **No tile**, so it carries a thin dark edge to survive a white background, and
+> `make_icon.py --preview` draws four backgrounds for exactly that reason.
+> `tools/make_icon.py` is now just the ICO container and the preview sheet.
+> **`dist/` still has the old crossbar icon**; see the end of Batch 17 for why
+> that is a version question rather than a rebuild.
+>
+> **The taskbar shows the Python logo on a source launch and that is not fixable
+> from here.** `setWindowIcon` is set, the AppUserModelID is set, `WM_GETICON`
+> returns real handles — all three verified — and the shell ignores them because
+> **this venv is Microsoft Store Python and every process in it carries MSIX
+> package identity**, so the button belongs to the Store package. The packaged
+> `.exe` is unaffected and was verified showing the crescent. Fixing the source
+> launch means rebuilding the venv on a python.org interpreter, which is the
+> user's call. **Don't re-investigate this; it is measured, and it is in the
+> conventions.**
 >
 > **The audio was dropping blocks and nothing in the app could see it.** Fixed
 > in Batch 16. Two things to carry forward, because both are counter-intuitive:
@@ -195,6 +225,15 @@ legal text, and where the two disagree the licence wins.
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
+> **Batch 17 is the first thing since 15 that the build would read differently.**
+> The icon changed — new mark, and the drawing moved to `mp3player/ui/icon.py` —
+> so `dist/` is stale in exactly one respect: the exe still wears the crossbar.
+> It was deliberately *not* rebuilt, because `v1.1.0` is tagged and the pending
+> release upload points at that artifact, so a rebuild now would produce a zip
+> that does not match its own tag. **Rebuilding means bumping `__version__`,
+> which is the user's call and has not been asked for.** Nothing else about the
+> artifact is out of date.
+>
 > **`v1.1.0` now exists and points at `31a08af`**, which is the commit this
 > artifact was built from — checked rather than assumed: nothing under
 > `mp3player/` is newer than the build, and the only files edited after it
@@ -223,6 +262,11 @@ legal text, and where the two disagree the licence wins.
 > here. **Don't push a tag or publish a release without being asked to** — that
 > was true before this and is still true for whatever the next version is.
 >
+> **Batch 17 adds a second thing the next release has to carry**, and it is not a
+> box to tick here: the packaged exe still wears the old crossbar icon, and
+> fixing that means a version bump. Raise it when a release comes up; don't bump
+> it on your own initiative.
+>
 > After that the queue goes back to the post-v1 list in the v1 scope section —
 > shuffle/repeat, export, subfolders, multiple folders. **None of that is
 > started.** A spectrum visualizer was offered and **declined** in Batch 9 (the
@@ -242,13 +286,21 @@ legal text, and where the two disagree the licence wins.
 > long artist drawing straight through its own title, and Batch 9's daycore
 > readout coming out fainter than the unselected rows around it — that last one
 > with all 178 checks green, Batch 10's Aurora and Vapor opening on the same
-> teal — two presets wearing one colour, with all 227 checks green — and Batch
+> teal — two presets wearing one colour, with all 227 checks green — Batch
 > 15's icon glow coming out as concentric rings (Batch 5's bug, a third time)
-> with a neighbour dot drawn hanging half off the tile.
+> with a neighbour dot drawn hanging half off the tile, and Batch 17's four in a
+> row: the ribbon showing straight *through* the note and then a bite out of the
+> crescent's cap (odd-even fill, twice, and it looks like an alpha bug both
+> times), a conical gradient applied backwards, and a crescent that read
+> unmistakably as **an eye**.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
-> rather than writing another one.
+> rather than writing another one. For the icon it is
+> `tools/make_icon.py --preview`, and note that it draws **four backgrounds**:
+> a tile-less mark is legible per background, not in general. And for anything
+> the *shell* draws — a taskbar button, a shortcut — the instrument is a
+> screenshot, because every API involved will report success.
 >
 > Then read the decisions log and the conventions below before writing anything.
 > They are the accumulated agreements, not suggestions.
@@ -290,7 +342,7 @@ here and write down why.
 | **WASAPI output, device mix rate, blocksize 512** | Measured in Batch 0: MME 186 ms, DirectSound 240 ms, **WASAPI 22 ms**. Anything above ~50 ms makes UI blips feel disconnected from the keypress. |
 | **Stream sample rate is negotiated, not fixed** | WASAPI shared mode only accepts the device's mix rate (48 kHz here, not 44.1). Costs nothing — the file's rate is folded into the resample ratio anyway. |
 | **Dev launcher runs live source; `.exe` only at v1** | PyInstaller with PySide6 is 80–150 MB and 30–60 s per build — rebuilding after every edit would dominate development. A shortcut pointing at `pythonw.exe` gives the same double-click feel with zero rebuild cost. |
-| **Two launchers: `run.bat` (console) + shortcut (no console)** | The console is worth having while debugging — tracebacks and prints go somewhere visible. The shortcut is for the real-app feel. Same live source behind both. |
+| ~~Two launchers: `run.bat` (console) + shortcut (no console)~~ → **the shortcut is *the* launcher; `run.bat` is a debugging tool** | *Revised in Batch 17, at the user's ask: they had been launching with `run.bat` and did not want the console any more.* Both halves of the original reasoning still hold — the console is worth having while debugging, the shortcut is the real-app feel — but presenting them as a pair made the console the default, because `run.bat` is the thing sitting in the repo folder next to everything else. `make_shortcut.ps1 -Here` now writes a `.lnk` there too, so the console-free launcher is the one you meet first, and `run.bat`'s own header says it is not the one to use. **A `.bat` cannot be made console-free**: `cmd.exe` is a console subsystem program, so Windows creates the window before the first line of the file runs. There is no flag, no `start /b`, no `@echo off` trick — the fix has to be a different launcher, and on Windows that is a shortcut. Batch 13's log file is also why this costs less than it would have: a crash is recorded whether or not anyone is watching a console. |
 | **`Mixer` is split out of `AudioEngine`** | The callback body is where every subtle bug will live (fades, seek timing, end-of-track), and it needed to be testable block-by-block with no device, no threads and no real time. `AudioEngine` is left as a thin shell over PortAudio. Batch 2: 41 offline tests against `Mixer`, none needing a sound card. |
 | **End of track is polled, not pushed** | The roadmap said "end-of-track callback", but the conventions forbid calling anything from the audio thread. The callback sets a flag; `take_finished()` reports it once to the 30 Hz poll. No callable is exposed at all — a footgun nobody needs. |
 | **Seeks are serial-tagged, not consume-and-clear** | A slider drag posts a stream of seeks. If the audio thread cleared the request slot, a seek posted microseconds later could be dropped. The audio thread only ever *reads* the slot and records which serial it applied, so the last seek always wins. |
@@ -382,7 +434,14 @@ here and write down why.
 | **A best-effort `except` names the failure it is being lenient about** | `refresh_devices` caught `Exception` around two *private* sounddevice calls. The lenient case is real — PortAudio refusing to come down or go back up is what an unplugged device does, on a 2 s timer, for as long as the headphones are out — and it is exactly `sd.PortAudioError`, because both calls route their return codes through `sd._check`. What the same clause also caught was a rename of `_terminate` or `_initialize`: an `AttributeError` that stopped reconnection working *forever* while the retry timer went on firing and the "audio device lost" line stayed up, indistinguishable from the device still being unplugged. Loose, it reaches `sys.excepthook` — one log entry, one dialog, and the retries continue exactly as they would have. Batch 13 is what made that a sane outcome rather than a crash. |
 | **The cover is read by the controller and handed up as a signal** | `main_window` called `core.tags.read_art` directly: file I/O and a full ID3 parse performed by a widget, in the project whose one architectural rule is that widgets don't do that. A signal (`art_changed`, carrying `bytes \| None`) rather than a property the window asks for, because *when* a track changes is the controller's to know and a property leaves the widget deciding when to hit the disk. **The `core` hands up bytes / `ui` makes pixels seam did not move** — `_cover_image` still turns them into a `QImage` or into `None`, and `core.tags` still has no image library. Only the read moved, and it moved to the one place that was already paying 70–210 ms for a decode. |
 | **The Settings rows are one table of `(label, value, action)`** | `_settings_items` and `_activate_settings` were two lists held in the same order by counting. Batch 10 already hit it — inserting `Theme` in the middle shifted `Full screen` and `Quit`, so activating one would have run the other — and the `SET_FOLDER … SET_QUIT` constants named the indices without removing the requirement that two lists agree. `_settings_rows()` removes it: the label and what activating it does are the same tuple. The constants stay, demoted to what outside callers (the harness) use to talk about a row without counting. |
-| **The icon is drawn at build time from `theme.py`, never checked in** | Same reasoning as the version resource one row down, and the same reasoning as there being no `.wav` files for the UI sounds: a checked-in binary is a second copy of something the source already defines, and this one would drift from the palette silently — a theme change would leave the icon wearing the old accent with nothing to notice it. `tools/make_icon.py` draws the crossbar off `CROSSBAR_Y_RATIO`, the background gradient and `ACCENT`, and `build_exe.py` generates it into the same scratch directory as the version resource. It is the one place the build imports Qt; a third of a second against a 71 s build, and a subprocess to avoid it would buy only a second way to fail. |
+| **The icon is drawn from `theme.py`, never checked in** | Same reasoning as the version resource one row down, and the same reasoning as there being no `.wav` files for the UI sounds: a checked-in binary is a second copy of something the source already defines, and this one would drift from the palette silently — a theme change would leave the icon wearing the old accent with nothing to notice it. `build_exe.py` generates the `.ico` into the same scratch directory as the version resource. It is the one place the build imports Qt; a third of a second against a 71 s build, and a subprocess to avoid it would buy only a second way to fail. |
+| ~~The drawing lives in `tools/make_icon.py`~~ → **it lives in `mp3player/ui/icon.py`, because the app wears it too** | *Moved in Batch 17.* Nothing called `setWindowIcon`, so a source launch ran under `pythonw.exe`'s own Python feather in the taskbar and in Alt+Tab **whatever the shortcut that started it was wearing** — the icon existed from Batch 15 and had never once been seen during development, only in Explorer and in the packaged exe's resource. That makes the mark shipped code, not a build asset, so it belongs in `ui/` next to the `theme.py` it is drawn from. `tools/make_icon.py` keeps the half only a build needs: the ICO container, the preview sheet, the CLI. `app_icon()` adds every size as its own pixmap rather than handing Qt one big one to scale down, because the small sizes have their own pixel floors and their own simplified mark — **6.7 ms at startup for all seven against 2.8 ms for the four a window strictly needs, so the subset was dropped rather than kept as a second list that could disagree with `SIZES`.** |
+| ~~The mark is a beamed note riding the wave~~ → **it is a crescent sweep** | *Both chosen with the user in Batch 17; the note lasted one round and was rejected on sight.* The note replaced Batch 15's crossbar for a good reason that still stands — the crossbar was true to the shell and said nothing about music, and at 32 px it read as a plus sign. What the note got wrong was everything else: it was busy, it was two colours travelling in opposite directions, and it was a literal picture of a note. The brief for the replacement was **one colour, tasteful, circular, made of ribbons**. So: one ribbon travelling most of a turn around a centred label, holding full width through the top and tapering clockwise to a point. Its silhouette is a *ring*, which is the property that made it the pick — a ring is still a ring at twelve pixels where a beam and its counter are not. |
+| **The icon is fixed to `Mono`, and is the only thing in the app that ignores the theme** | Chosen with the user: "use the colours of the mono theme". Every other pixel this project draws takes the live palette, on purpose, and the icon is the one place that is wrong — an icon is an *identity*, and one that turns coral on Ember is five identities. `Mono`'s ramp is also what makes "one colour" true rather than aspirational: its saturation knots run 0.16–0.34, so the sweep's conical gradient moves through cyan, pale and faintly violet **within one hue family**, which is variation in temperature rather than in colour. `theme.ramp_color` was split out of `wave_color` so a named palette can be sampled without being made active, and `theme.palette_by_name` **raises** rather than falling back — a rename should break the build, not silently repaint the icon. |
+| **No tile, therefore a thin dark edge** | Also chosen with the user. The mark is the whole icon: no rounded square, no rim, all four corners transparent. That is more distinctive in a row of tiles and it costs something real — a tile-less mark is legible *per background*, and Mono's middle is a near-white that vanishes on Explorer's white list view. One low-alpha `BG_BOTTOM` pen fixes that and is invisible on dark. A soft radial shadow was tried first and is a grey blob on anything pale, which is a tile by another name and the worst of both. `make_icon.py --preview` draws every size over **four backgrounds** for exactly this reason; a single dark strip cannot answer the question this icon raises. |
+| **Below 24 px the sweep stops tapering** | A taper that reaches a point needs several pixels to do it in, and on a 16 px canvas the last third is sub-pixel and antialiases into a grey smear that makes the ring look broken. So the small sizes get a constant-width, shorter arc. Same shape of decision as the 32 px cutoff for the dark edge: each element is dropped or simplified at the size where it stops paying, and the job at 16 px is to be *recognisable*, not to be the same drawing. |
+| ~~The app sets its own window icon, and that is the only thing the taskbar reads~~ → **the taskbar reads the AppUserModelID, and a packaged interpreter overrules both** | *Written earlier in Batch 17 and wrong; corrected the same day by looking at the taskbar.* `setWindowIcon` is necessary and **not sufficient**. A Windows taskbar button belongs to an AppUserModelID, not to a window, and a process that never sets one inherits its executable's icon — which under `pythonw.exe` is the Python logo, which is exactly what the app showed while its window icon was set perfectly the whole time. `app._claim_taskbar_identity` sets one, before `QApplication`, because the shell reads it when the button is created and does not revisit it. **On the packaged build that is the whole fix and it is verified** — built to a scratch folder, launched, taskbar photographed, crescent present. See the row below for why it changes nothing on this machine. |
+| **Microsoft Store Python owns its windows' taskbar icon, and nothing in the app can take it back** | Measured, after the AUMID fix did not move the icon: `GetCurrentPackageFullName` in this venv returns `PythonSoftwareFoundation.Python.3.13_..._qbz5n2kfra8p0`, so **every process in it carries MSIX package identity**, and the shell binds those windows to the *package's* application entry and uses its icon. All three of the things that would normally win were verified present and are ignored: the AUMID reads back over `GetCurrentProcessExplicitAppUserModelID` with `S_OK`, `WM_GETICON` returns real big and small handles, and the class icon is set. The escape is not a code change — the Store binary lives inside the package, so anything running it is packaged. **A source launch on this machine will show the Python logo until the venv is rebuilt on a non-Store interpreter.** This is the same root cause as the `%APPDATA%` redirection already in the conventions, one consequence further on, and it is the second time this venv has quietly changed the meaning of something outside the source. |
 | **Seven sizes, each drawn at its own size, PNG payloads throughout** | Windows picks per slot — 16 in the tray, 32 on the desktop, 48 in Explorer, 256 for the preview — and a missing size is scaled from the nearest, badly. **Never downscaled**, because the detail is three hairlines and a hairline is what downscaling destroys first: 16 px rendered natively is one crisp pixel where 256 halved four times is four shades of grey. That is the conventions' "ask which axis the detail is in" rule reaching its limit — here the answer is "both, and it is one pixel wide". The container is assembled by hand because Qt's ICO writer takes one image per file, and the payloads are PNGs because an ICO entry may be either and Windows has taken PNG since Vista. Known and accepted: `System.Drawing.Icon` mishandles the 256 entry. That is a GDI+ limitation, the shell reads it correctly, and this project declares Windows 11. |
 | **The smoke test runs on the real platform, not offscreen** | *The plan for Batch 15 said offscreen; the runtime said otherwise.* Offscreen gives the app no window handle, so `WM_CLOSE` has nothing to arrive at — measured, a graceful `taskkill /T` is ignored outright and only `/F` ends it, which discards the exit code and the shutdown path in one go. On the real platform the same close lands in 0.3 s with **exit 0 and `settings.json` written**, i.e. `aboutToQuit` fired and `shutdown()` ran. A window appearing for a few seconds during a build is what that costs. `%APPDATA%` is redirected at a temp directory, because a build step that rewrites your saved music folder is worse than the bug it is looking for. |
 | **A build that fails the smoke test is not zipped** | The zip is written *after* the check, so a broken build leaves an error message and no archive. An archive sitting next to a failure is an archive that eventually gets uploaded — and the failure this catches is specifically the silent one, where `--collect-binaries` stops finding libsndfile or PortAudio, PyInstaller reports success, and the exe dies on first import. `--skip-smoke` exists for a machine with no audio output, where the app correctly puts up a modal box and never opens a stream; the flag's own help text says it is not for saving ten seconds. |
@@ -429,6 +488,9 @@ mp3player/
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
                          #   + PALETTES: the five speed-driven colour ramps
+    icon.py              # the app icon: a crescent sweep, Mono's ramp, no tile
+                         #   app_icon() -> QIcon, for setWindowIcon; also the
+                         #   source tools/make_icon.py builds the .ico from
     motion.py            # Tween: one easing helper, shared by the three animators
     sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
@@ -443,7 +505,8 @@ mp3player/
   app.py                 # entrypoint
 spike/                   # throwaway Batch 0 proofs, kept for reference
 tools/                   # dev harnesses + the build -- runnable, kept, not shipped
-  make_icon.py           # the .ico, drawn from theme.py; imported by build_exe
+  make_icon.py           # the .ico container + preview sheet; the *drawing*
+                         #   is mp3player/ui/icon.py. Imported by build_exe
 tests/                   # core only, no display needed
 docs/RELEASING.md        # the release checklist -- the steps CI cannot run
 README.md                # for someone who has never seen the project
@@ -528,6 +591,29 @@ don't invent a second way to do a thing we've already solved.
 - **In Qt stylesheets, subcontrol comes before pseudo-state** —
   `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
   discards a malformed rule *and everything after it* without a word.
+- **A `QPainterPath` fills odd-even by default, so overlapping subpaths punch
+  holes — and if you also stroke it, forgetting `simplified()` is visible too.**
+  Combine shapes that are *meant* to be one solid mark and every intersection
+  comes out transparent. `setFillRule(Qt.WindingFill)` **then** `simplified()` is
+  the fix: the rule decides what counts as inside, and the union is what removes
+  the interior edges a pen would otherwise trace. Batch 17 hit both halves within
+  an hour — first the note's stem/head overlaps showing the background through
+  them, then the crescent's round cap drawn with a lens-shaped bite out of it
+  where the pen crossed the ribbon. Worth knowing what they look like from the
+  outside, because neither looks like a winding bug: the first reads as an alpha
+  or z-order mistake and the second as a geometry one, and both send you looking
+  somewhere else. Same family as the stylesheet rule above — Qt does the wrong
+  thing quietly and correctly, per its own documented default.
+- **`setWindowIcon` is not the taskbar icon.** On Windows the button belongs to an
+  **AppUserModelID**, and a process that sets none inherits its executable's
+  icon — so a PySide6 app run through `pythonw.exe` shows the Python logo with a
+  perfectly correct window icon set. `SetCurrentProcessExplicitAppUserModelID`,
+  before the first window, is the other half. And it is still not enough if the
+  interpreter is packaged; see the Store Python note at the end of this list.
+  The general lesson is the cheap one: **the icon a user sees and the icon an API
+  sets are different questions, and the only instrument for the first is a
+  screenshot of the taskbar.** One was worth more here than three correct
+  API calls.
 - **Animate by easing one float property; never hand-roll a frame timer.**
   `ui/motion.py` wraps `QPropertyAnimation`; the property's setter is where
   `update()` goes. Anything that animates also needs `settle()`, so a hidden
@@ -712,12 +798,21 @@ don't invent a second way to do a thing we've already solved.
   above are still right that only a picture says whether something *reads* —
   but where the claim is "identical", a render is the weaker instrument and an
   assertion is available.
-- **This venv is Microsoft Store Python, so `%APPDATA%` is redirected.**
-  `settings.json` from `run.bat` lands in
+- **This venv is Microsoft Store Python, so `%APPDATA%` is redirected — and the
+  taskbar icon is not ours.** `settings.json` from `run.bat` lands in
   `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
   while the packaged `.exe` writes the real `AppData/Roaming/XMBPlayer/`. They
   are two different files. The exe showing a first-run screen while the source
-  build remembers your folder is this, not a bug.
+  build remembers your folder is this, not a bug. **The second consequence,
+  found in Batch 17:** every process in this venv carries MSIX package identity
+  (`GetCurrentPackageFullName` returns the package, rather than
+  `APPMODEL_ERROR_NO_PACKAGE`), so the shell uses the *Store Python package's*
+  icon for its windows and ignores the window icon and the AppUserModelID
+  alike. Both were verified set. There is no code fix; the venv would have to be
+  rebuilt on a python.org interpreter. **Before spending an hour on a Windows
+  shell integration that refuses to work, check whether the interpreter is
+  packaged** — it is two lines of `ctypes` and it is the answer surprisingly
+  often.
 
 ---
 
@@ -2088,16 +2183,194 @@ and is still the only thing standing between the repo and a download.
 
 ---
 
+### Batch 17 — The icon, and the console that was not wanted ✅
+
+Not on any roadmap either. The user asked for "a nice fun app icon fitting the
+app's nature", and for the cmd window to stop opening when they launch the app.
+**Then they rejected the icon and reported the taskbar still showing a Python
+logo**, which is the second half of this writeup and the more interesting one.
+
+- [x] `mp3player/ui/icon.py` — the drawing moves into shipped code
+- [x] `app.py` sets the window icon, so the *running* app wears it
+- [x] `make_shortcut.ps1 -Here` — a console-free launcher next to `run.bat`
+- [x] Harness checks, `run.bat` / README / `docs/RELEASING.md` / this file
+- [x] ~~The mark: a beamed note riding the wave~~ → **a crescent sweep**,
+      Mono's colours, no tile *(second pass; the note was rejected on sight)*
+- [x] `app._claim_taskbar_identity` — the AppUserModelID, which is what the
+      taskbar actually reads *(second pass)*
+- [x] `make_icon.py --preview` over four backgrounds; `--theme` removed
+
+**The console was not a bug and could not be fixed where it was.** The user was
+launching with `run.bat`, and a `.bat` cannot be made console-free — `cmd.exe` is
+a console subsystem program, so Windows creates the window before the first line
+of the file runs. There is no flag and no `start /b` trick; the fix has to be a
+different launcher. The one that was already in the repo, `make_shortcut.ps1`,
+had been writing a `pythonw.exe` shortcut to the *Desktop* since Batch 3 — so
+what was actually missing was one in the repo folder, where `run.bat` lives and
+where the hand reaches. `-Here` writes both. Gitignored, because it holds
+absolute paths to this machine's venv. **This is the decisions log's "two
+launchers" row being demoted rather than deleted**: the console is still worth
+having, it is just not the default any more, and `run.bat`'s own header now says
+so in four lines.
+
+**The icon existed for two batches and had never been seen.** Batch 15 drew it,
+stamped it into the exe and put it on the shortcut, and every one of those is a
+place the *file* is displayed. Nothing called `setWindowIcon`, so the running
+app — which on this machine is always a source launch — showed `pythonw.exe`'s
+Python feather in the taskbar and in Alt+Tab, and a `.lnk`'s icon does not travel
+into the process it starts. That is what moved the drawing out of `tools/` and
+into `mp3player/ui/icon.py`: the mark is shipped code that a build happens to
+also consume, not a build asset. `tools/make_icon.py` keeps the ICO container,
+the preview sheet and the CLI, which is the half only a release needs.
+
+**The renders found two bugs, for the seventh batch running, and the first one
+is worth the convention it earned.** The note came out with the ribbon showing
+straight *through* both heads and a notch in the beam — which reads as an alpha
+mistake or a z-order mistake, and sends you looking at brushes. It is neither: a
+`QPainterPath` fills **odd-even** by default, so every place the mark overlaps
+itself (stem into head, beam into stem) counts as outside and is punched out.
+`simplified()` does not save you; it honours whichever rule it was given.
+`setFillRule(Qt.WindingFill)` first is the whole fix. The harness check for it is
+the bug written down: sample *inside* the stem/head overlap and demand an opaque
+anchor accent.
+
+The second was the one this file keeps predicting. All checks green, and at 16 px
+the mark was a light blue blob — because the beamed pair has a counter, the
+triangle between the two stems and the beam, and in a 14 px tile that counter is
+one pixel and fills with antialiasing. 16 px gets a quarter note instead: one
+head, one stem, nothing to lose. **Neither of these was visible to an assertion
+and both were obvious in one PNG**, which is now seven batches in a row.
+
+**The note is `palette().anchor`, not `ACCENT`, and that was a third render.**
+Those are the same colour on the default palette and are not on the other four,
+so the first version left an icy blue note sitting on Ember's amber-to-pink
+ribbon looking like two icons overlaid. Worth noting because it is the Batch 9
+lesson arriving somewhere new: `ACCENT` is the *anchor*, and code that wants "the
+accent" almost always wants the live one.
+
+That in turn broke a harness check in a way worth recording, because the failure
+was in the *harness* and not in the code: the icon section had been comparing
+against `theme.ACCENT` while the theme-row section above it walks all five
+palettes and leaves the module on whichever it stopped at. It had passed for two
+batches only because the old mark was painted in the constant. It pins the
+default now, the same way the top of the file already does — **a colour assertion
+that depends on what ran before it is not an assertion.**
+
+Verified: **263 tests green** (unchanged, and unchanged is right — `tests/` is
+core-only and the icon is Qt). `tools/shell_harness.py` **305/305** on the first
+run with the known WASAPI flake passing; 5 new, replacing the two that described
+the crossbar: both note heads in the anchor, the odd-even overlap, the beam
+ascending with the wave, and the mark staying inside the tile *at every size*
+(Batch 15 drew a neighbour dot hanging half off the edge; the small sizes have
+their own layout, so the check covers all seven). `ruff check .` and `mypy`
+clean. Looked at the `--preview` sheet, at 16/24/32/48 blown up
+nearest-neighbour, and at 256 at 2x, plus Ember and Vapor to check the ramp
+travels with the palette. Read the icon back off a real `QWidget` — seven sizes
+inherited, the 48 px head measuring the anchor. Ran the real entrypoint through
+`pythonw.exe`, the way the shortcut does: exit 0, `45.7 ms` in the log, four
+clean lines, 0 late audio blocks.
+
+---
+
+**The second pass replaced the mark and fixed the taskbar, and the two are
+unrelated problems that arrived in one sentence.**
+
+**The note was rejected on sight, and the brief for the replacement was the
+useful part**: one colour, tasteful, circular, made of ribbons. Four concepts
+were put up; **crescent sweep** was picked, with *Mono's* colours and **no tile**.
+All three are decisions-log rows now. What is worth carrying forward is why the
+note was wrong, because it was not badly drawn: it was busy, it was two colours
+travelling in opposite directions, and it was a *literal picture* of a note. The
+crescent is one ribbon, one hue family, and its silhouette is a ring — which is
+the property that survives 16 px.
+
+**Three renders, three bugs, and the first two were the same Qt default twice.**
+The odd-even fill rule bit the note (background showing through both heads) and
+then bit the crescent (a lens-shaped bite out of the cap where the pen crossed
+the ribbon) — the second because `setFillRule` was there and `simplified()` was
+not, and a path that is *stroked* as well as filled needs both. The convention
+now says so. The third was the conical gradient: **Qt measures its stops
+counterclockwise and this sweep runs clockwise**, so the ramp was applied
+backwards with a hard seam where it wrapped, and it read as a z-order mistake.
+`_stop_at` is the one-line fix and carries the explanation.
+
+And a fourth, which was a *design* bug rather than an API one: the first crescent
+tapered from the very start, which left the round cap standing alone next to a
+small centred dot, and the whole thing read unmistakably as **an eye**. Holding
+full width for the first half of the sweep and enlarging the label into a record
+label is what fixed it. Two constants, and nothing would have found it but
+looking.
+
+**`--preview` now draws four backgrounds instead of one**, which is not a nicety:
+with no tile the icon is legible *per background*, and the case that decides
+whether the dark edge is doing its job is Mono's near-white against Explorer's
+white list view. A single dark strip cannot answer the question this icon raises.
+The radial shadow that was tried first passed on dark and was a grey blob on
+everything else.
+
+**The taskbar was a different bug, and `setWindowIcon` was never going to fix
+it.** A Windows taskbar button belongs to an **AppUserModelID**, not to a window;
+set none and the shell uses the host executable's icon, which under `pythonw.exe`
+is the Python logo. So the app claims one before `QApplication` exists. That is a
+decisions-log row and a convention, and **on the packaged build it is the whole
+fix** — verified the way this project verifies things, by building to a scratch
+folder (so `dist/` and the tagged artifact were untouched), launching it, and
+photographing the taskbar: crescent present.
+
+**On this machine it changes nothing, and that took three measurements to
+believe.** The AUMID reads back through `GetCurrentProcessExplicitAppUserModelID`
+with `S_OK`. `WM_GETICON` returns real big *and* small handles, plus a class
+icon. And the icon is still Python's. The answer is
+`GetCurrentPackageFullName`: this venv is Microsoft Store Python, **every process
+in it carries MSIX package identity**, and the shell binds those windows to the
+*package's* app entry and uses its icon. There is no code fix — the Store binary
+lives inside the package, so anything running it is packaged. The venv would have
+to be rebuilt on a python.org interpreter, and `py --list` shows only the Store
+3.13, so that is a decision for the user rather than a change to make.
+
+This is the same root cause as the `%APPDATA%` redirection that has been in the
+conventions since Batch 7, one consequence further along, and it is **the second
+time this venv has quietly changed the meaning of something outside the source**.
+The general lesson is cheaper than the specific one and is a convention now:
+before spending an hour on a Windows shell integration that refuses to work,
+check whether the interpreter is packaged. Two lines of `ctypes`.
+
+Verified after the second pass: **263 tests green** (unchanged — `tests/` is
+core-only and all of this is Qt, `ctypes` or a tool). `tools/shell_harness.py`
+**305/305**, and the icon section was rewritten rather than extended: the label
+being Mono's anchor, **the mark not moving a pixel while the app's theme is
+driven through all five presets** (which is a strictly stronger check than the
+palette pin it replaced, and it removed the pin), every painted pixel sitting
+inside Mono's own hue and saturation band, the odd-even union, the sweep holding
+its width and *then* tapering, all four corners transparent, and the mark inside
+the canvas at every size. `ruff check .` and `mypy` clean. Looked at the preview
+sheet over all four backgrounds, and at a label-size comparison. Read the icon
+back off a real `QWidget`. Launched through `pythonw.exe` — exit 0, `45.7 ms`,
+four clean lines.
+
+**Not done, and it needs a decision that is not mine: the `.exe` in `dist/` still
+carries the crossbar icon.** This is the first batch since 15 where "nothing here
+changes what PyInstaller reads" is false — `make_icon.py` is exactly what it
+reads. But `v1.1.0` is tagged and its artifact is the one the pending release
+upload refers to, so rebuilding now would leave a zip that does not match its
+tag. **Rebuilding means bumping the version, and that is the user's call.** Until
+then the source build has the new icon and the packaged one does not. (The scratch
+build made to verify the taskbar was deleted; it never touched `dist/`.)
+
+---
+
 ## Running it
 
 ```bash
 # deps (already installed in venv/)
 venv/Scripts/python.exe -m pip install -r requirements.txt
 
-# the app
-run.bat                          # console: tracebacks and prints land here
+# the app. The shortcuts are the launcher -- pythonw.exe, so no console window,
+# and they carry the real icon. `-Here` also writes one into the repo root, next
+# to run.bat, which is the point: a .bat *cannot* be console-free.
+powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1 -Here
 venv/Scripts/python.exe -m mp3player.app
-powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .lnk
+run.bat                          # DEBUGGING only: tracebacks and prints land here
 
 # the standalone build -- distribution only, never the edit-run loop.
 # Generates the icon and the version resource, builds, then LAUNCHES the exe and
@@ -2106,9 +2379,12 @@ powershell -ExecutionPolicy Bypass -File tools/make_shortcut.ps1   # desktop .ln
 venv/Scripts/python.exe tools/build_exe.py         # -> dist/XMB Player/ + a zip
 venv/Scripts/python.exe tools/build_exe.py --skip-smoke   # no audio device only
 
-# the icon, drawn from theme.py. `--preview` is the one to look at.
+# the icon. Drawn by mp3player/ui/icon.py, which the app itself uses for
+# setWindowIcon; this only assembles it. `--preview` is the one to look at: all 7
+# sizes over 4 backgrounds, because the mark has no tile. There is no --theme --
+# the icon is fixed to Mono on purpose (decisions log).
 venv/Scripts/python.exe tools/make_icon.py out.ico
-venv/Scripts/python.exe tools/make_icon.py out.png --preview   # all 7 sizes
+venv/Scripts/python.exe tools/make_icon.py out.png --preview
 
 # the three checks CI runs, in the order it runs them. All configured in
 # pyproject.toml, which also says why each disabled rule is disabled.

@@ -55,13 +55,25 @@ from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.core.models import Track  # noqa: E402
 from mp3player.core.tags import read_art  # noqa: E402
 from mp3player.ui import main_window, theme  # noqa: E402
-from mp3player.ui.controller import SAVE_FAILED_TEXT, PlayerController  # noqa: E402
+from mp3player.ui.controller import (  # noqa: E402
+    REPEAT_ALL,
+    REPEAT_OFF,
+    REPEAT_ONE,
+    SAVE_FAILED_TEXT,
+    PlayerController,
+)
 from mp3player.ui.main_window import (  # noqa: E402
     CAT_MUSIC,
     CAT_NOW,
     CAT_SETTINGS,
+    SET_REPEAT,
+    SET_SHUFFLE,
     SET_THEME,
     MainWindow,
+)
+from mp3player.ui.widgets.transport import (  # noqa: E402
+    REPEAT_ALL_GLYPH,
+    REPEAT_ONE_GLYPH,
 )
 
 # The Now Playing info block, by slot. Named because the numbers moved once
@@ -236,6 +248,11 @@ def main() -> int:
     # or fail depending on which theme the machine happened to be set to. Put
     # back at the end, with the speed and the volume.
     controller.set_theme(settings_mod.DEFAULT_THEME)
+    # Same argument, and it now covers behaviour rather than only colour: every
+    # advance check below is a statement about the defaults, and a machine left
+    # on `Repeat: One` would fail them while the app was working correctly.
+    controller.set_shuffle(settings_mod.DEFAULT_SHUFFLE)
+    controller.set_repeat(settings_mod.DEFAULT_REPEAT)
     app.processEvents()
 
     stage = window.stage
@@ -269,7 +286,7 @@ def main() -> int:
     check("right -> Music", bar.index == CAT_MUSIC)
     press(window, Qt.Key_Right)
     check("right -> Settings", bar.index == CAT_SETTINGS)
-    check("settings column built, no presets", column.count == 5)
+    check("settings column built, no presets", column.count == 7)
     # `ItemColumn` activates by index and has no notion of an id, so the list
     # and the dispatch are held together by counting. Batch 10 inserted a row in
     # the middle of it; without this the branches below just quietly do the
@@ -277,7 +294,8 @@ def main() -> int:
     check(
         "every settings row is where its branch thinks it is",
         [item.label for item in column._items]
-        == ["Music folder", "Rescan folder", "Theme", "Full screen", "Quit"],
+        == ["Music folder", "Rescan folder", "Shuffle", "Repeat", "Theme",
+            "Full screen", "Quit"],
         " / ".join(item.label for item in column._items),
     )
     press(window, Qt.Key_Right)
@@ -1357,6 +1375,8 @@ def main() -> int:
     controller.set_speed(saved.speed)
     controller.set_volume(saved.volume)
     controller.set_theme(saved.theme)
+    controller.set_shuffle(saved.shuffle)
+    controller.set_repeat(saved.repeat)
 
     print("\n-- a settings write that fails")
     # `save` returning False is faked rather than the disk being filled: the
@@ -1479,9 +1499,9 @@ def main() -> int:
 
     print("\n-- the Settings rows are one table")
     rows = window._settings_rows()
-    check("five rows, in the order the constants name",
-          [r.label for r in rows] == ["Music folder", "Rescan folder", "Theme",
-                                      "Full screen", "Quit"],
+    check("seven rows, in the order the constants name",
+          [r.label for r in rows] == ["Music folder", "Rescan folder", "Shuffle",
+                                      "Repeat", "Theme", "Full screen", "Quit"],
           str([r.label for r in rows]))
     # The point of the fix: the label and what activating it does are the same
     # tuple, so inserting a row cannot shift one without the other. These pin
@@ -1491,6 +1511,8 @@ def main() -> int:
         for index, expected in (
             (main_window.SET_FOLDER, window._choose_folder),
             (main_window.SET_RESCAN, controller.rescan),
+            (main_window.SET_SHUFFLE, controller.toggle_shuffle),
+            (main_window.SET_REPEAT, controller.cycle_repeat),
             (main_window.SET_THEME, window._start_stepping),
             (main_window.SET_FULLSCREEN, window.toggle_fullscreen),
             (main_window.SET_QUIT, window.close),
@@ -1509,6 +1531,185 @@ def main() -> int:
     window._activate_settings(len(rows))
     window._activate_settings(-1)
     check("an index off the end of the table is a no-op", True)
+
+    print("\n-- repeat: three modes, and the cycle is the whole control")
+    controller.set_repeat(REPEAT_ALL)
+    app.processEvents()
+    walked = []
+    for _ in range(4):
+        controller.cycle_repeat()
+        walked.append(controller.repeat)
+    check("cycling walks all three and wraps",
+          walked == [REPEAT_ONE, REPEAT_OFF, REPEAT_ALL, REPEAT_ONE], str(walked))
+    # The same clamp the theme has, for the same reason: `core` stores whatever
+    # was in the file so a later build's mode survives a round trip, and this is
+    # the half that has to know what to do with it.
+    controller.set_repeat("shuffle-album")
+    check("a mode this build doesn't know clamps to the default",
+          controller.repeat == REPEAT_ALL, controller.repeat)
+
+    print("\n-- shuffle deals a bag, and walks it")
+    controller.play_index(0)
+    app.processEvents()
+    controller.set_shuffle(True)
+    app.processEvents()
+    order = list(controller._order)
+    check("the order is a permutation -- every track exactly once",
+          sorted(order) == list(range(len(controller.tracks))),
+          f"{len(order)} of {len(controller.tracks)}")
+    check("...of indices, leaving the list itself in scan order",
+          [t.title for t in controller.tracks]
+          == [t.title for t in scan_folder(controller.folder).tracks])
+    check("turning it on doesn't move the track you're listening to",
+          controller.index == 0 and order[0] == 0, f"{controller.index}, {order[:3]}")
+    # Walked as arithmetic rather than by playing 31 files: `_next_index` is the
+    # whole of what shuffle changes, and each real advance costs a decode.
+    steps = []
+    for position in range(len(order)):
+        controller._cursor = position
+        controller.index = order[position]
+        steps.append(controller._next_index(+1))
+    check("next walks the bag in order",
+          [index for index, _ in steps[:-1]] == order[1:], str(steps[:3]))
+    check("...and only the last step reports a wrap",
+          [wrapped for _, wrapped in steps] == [False] * (len(order) - 1) + [True])
+    controller._cursor, controller.index = 1, order[1]
+    check("previous walks it backwards", controller._next_index(-1)[0] == order[0])
+
+    print("\n-- what the end of a track does under each mode")
+    last = len(controller.tracks) - 1
+    controller.set_shuffle(False)
+    controller.set_repeat(REPEAT_ALL)
+    controller.play_index(last)
+    app.processEvents()
+    controller._advance()
+    app.processEvents()
+    check("repeat all wraps off the end, as it always has", controller.index == 0)
+
+    controller.set_repeat(REPEAT_OFF)
+    controller.play_index(last)
+    app.processEvents()
+    was_playing = engine.is_playing
+    controller._advance()
+    app.processEvents()
+    check("repeat off stops there instead", controller.index == last)
+    # And it stops by *doing nothing*, which is the whole implementation: the
+    # mixer has already paused itself by the time `take_finished` is true, so
+    # the poll's own `_set_playing` edge two lines later reports the stop. This
+    # calls `_advance` mid-track rather than waiting out a real file, so the
+    # claim it can make is that nothing here touched the transport.
+    check("...by doing nothing at all -- the mixer has already paused itself",
+          engine.is_playing == was_playing)
+
+    # A press is not a consequence: running off the end under `Repeat: Off`
+    # stops, but *asking* for the next track still wraps.
+    controller.step(+1)
+    app.processEvents()
+    check("a manual Next still wraps under repeat off", controller.index == 0)
+
+    controller.set_repeat(REPEAT_ONE)
+    controller.play_index(2)
+    app.processEvents()
+    controller._advance()
+    app.processEvents()
+    check("repeat one plays the same track again", controller.index == 2)
+    check("...and does it without reloading -- seek, not decode",
+          engine.is_playing and engine.has_track)
+    # The other half of the same decision: repeat-one must not trap Next.
+    controller.step(+1)
+    app.processEvents()
+    check("...but Next still moves on", controller.index == 3)
+
+    print("\n-- the modes reach the screen")
+    controller.set_shuffle(True)
+    controller.set_repeat(REPEAT_ONE)
+    app.processEvents()
+    rows = window._settings_rows()
+    check("the Shuffle row reads its state", rows[SET_SHUFFLE].value == "On")
+    check("the Repeat row reads its state", rows[SET_REPEAT].value == "One")
+    check("the shuffle button is lit", transport.shuffle_button.isChecked())
+    check("the repeat button swaps its glyph, like play/pause does",
+          transport.repeat_button.isChecked()
+          and transport.repeat_button.text() == REPEAT_ONE_GLYPH)
+    check("the stylesheet has something to light them with",
+          "QPushButton:checked" in transport.styleSheet())
+    bar.set_index(CAT_NOW)
+    app.processEvents()
+    tail = page.state.lines[POSITION_LINE]
+    check("Now Playing says so on the line about where you are",
+          "Shuffle" in tail and "Repeat one" in tail, tail)
+
+    controller.set_shuffle(False)
+    controller.set_repeat(REPEAT_ALL)
+    app.processEvents()
+    check("the repeat button is dark at `off`, not at `all`",
+          transport.repeat_button.isChecked()
+          and transport.repeat_button.text() == REPEAT_ALL_GLYPH)
+    controller.set_repeat(REPEAT_OFF)
+    app.processEvents()
+    check("...and dark at off", not transport.repeat_button.isChecked())
+    controller.set_repeat(REPEAT_ALL)
+    app.processEvents()
+    # Silent at the defaults for the same reason the length line drops its
+    # "plays in" at 1.00x: a readout that never changes stops being read.
+    check("...and says nothing when the modes are what they have always been",
+          "Shuffle" not in page.state.lines[POSITION_LINE]
+          and "Repeat" not in page.state.lines[POSITION_LINE],
+          page.state.lines[POSITION_LINE])
+
+    print("\n-- S and R, the first letter keys this app has bound")
+    clock.tick()
+    log.take()
+    press(window, Qt.Key_S)
+    app.processEvents()
+    check("S turns shuffle on", controller.shuffle)
+    check("...and confirms, once", log.take() == [sfx.CONFIRM])
+    clock.tick()
+    where = column.index
+    press(window, Qt.Key_S)
+    app.processEvents()
+    check("S again turns it off", not controller.shuffle)
+    check("...and that is a `back`", log.take() == [sfx.BACK])
+    check("neither press moved the cursor", column.index == where)
+
+    clock.tick()
+    press(window, Qt.Key_R)
+    app.processEvents()
+    check("R cycles repeat", controller.repeat == REPEAT_ONE)
+    # `move`, not `confirm`: this is walking a value, like the theme row's
+    # arrows. Exactly one, because the cursor did not move and so the index
+    # comparison in `keyPressEvent` adds nothing.
+    check("...with one `move` and nothing else", log.take() == [sfx.MOVE])
+
+    print("\n-- and the rows they share their state with")
+    clock.tick()
+    controller.set_shuffle(False)
+    controller.set_repeat(REPEAT_ALL)
+    bar.set_index(CAT_SETTINGS)
+    column.set_index(SET_SHUFFLE)
+    app.processEvents()
+    log.take()
+    column.activate()
+    app.processEvents()
+    check("activating the Shuffle row toggles it", controller.shuffle)
+    # The row's action is the controller's own method, so the only blip is the
+    # one `_activate` already makes for every activation. A wrapper here would
+    # be a second noise for one press.
+    check("...and blips once, not twice", log.take() == [sfx.CONFIRM])
+    clock.tick()
+    column.set_index(SET_REPEAT)
+    app.processEvents()
+    log.take()
+    column.activate()
+    app.processEvents()
+    check("activating the Repeat row cycles it", controller.repeat == REPEAT_ONE)
+    check("...also once", log.take() == [sfx.CONFIRM])
+
+    # Back to the user's own, for the same reason the theme goes back: shutdown
+    # flushes, and what it flushes had better not be the harness's.
+    controller.set_shuffle(saved.shuffle)
+    controller.set_repeat(saved.repeat)
+    app.processEvents()
 
     print("\n-- re-enumerating devices fails loudly when it fails wrongly")
     # Never the real PortAudio: the stream is still open and `refresh_devices`

@@ -41,6 +41,9 @@ worth naming one, it's the most interesting sentence on this page].
   live. Remembered next launch, along with your folder, volume and speed.
 - **Reads your tags.** Title, artist, album and embedded cover art. Untagged
   files just show their filename.
+- **Shuffle and repeat.** `S` and `R`, or the two buttons in the bottom bar, or
+  the rows in Settings. Repeat goes all → one → off; shuffle deals a fresh order
+  and plays every track once before dealing another. Both remembered.
 
 ### Screens
 
@@ -85,6 +88,8 @@ not, [run it from source](#running-from-source) instead — it's the same app.
 | `Enter` on **Theme** | step into the row, then `←` `→` to browse, `Enter` or `Esc` to leave |
 | `Backspace` | back a category |
 | `Space` | play / pause |
+| `S` | shuffle on / off |
+| `R` | repeat: all → one → off |
 | `Ctrl` + `←` `→` | previous / next track |
 | `Shift` + `←` `→` | seek 5 seconds |
 | `Home` `End` `PgUp` `PgDn` | jump around a list |

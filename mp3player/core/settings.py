@@ -24,6 +24,18 @@ DEFAULT_SPEED = 1.0
 # here it is a token, up there it means something.
 DEFAULT_THEME = "XMB Blue"
 
+# Whether "next" walks a shuffled order rather than the scan order.
+DEFAULT_SHUFFLE = False
+
+# What happens at the end of a track: "off", "all" or "one". A bare name for
+# the same reason the theme is one -- the legal list lives in `ui/controller.py`,
+# which is the half that has to act on it, and a mode a later build knows
+# survives a round trip through this one instead of being helpfully destroyed.
+#
+# "all" rather than "off" because it is what the app has always done: running
+# off the last track loops to the first (decisions log, Batch 3).
+DEFAULT_REPEAT = "all"
+
 MIN_VOLUME, MAX_VOLUME = 0.0, 1.0
 
 DAYCORE_SPEED = 0.80
@@ -58,6 +70,18 @@ def _clamp(value: object, default: float, low: float, high: float) -> float:
     return min(max(number, low), high)
 
 
+def _as_bool(value: object, default: bool) -> bool:
+    """A real JSON boolean, or the default.
+
+    Strictly `isinstance(value, bool)` rather than a truthiness test: `1`,
+    `"true"` and `[0]` are all things a hand-edited file can contain, and
+    guessing at them is how a setting comes back as something nobody typed.
+    Note that `isinstance(True, int)` is True, so the check has to be this way
+    round -- an int test would accept the bool, but not the reverse.
+    """
+    return value if isinstance(value, bool) else default
+
+
 def _as_folder(value: object) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -83,6 +107,8 @@ class Settings:
     volume: float = DEFAULT_VOLUME
     speed: float = DEFAULT_SPEED
     theme: str = DEFAULT_THEME
+    shuffle: bool = DEFAULT_SHUFFLE
+    repeat: str = DEFAULT_REPEAT
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +116,8 @@ class Settings:
             "volume": self.volume,
             "speed": self.speed,
             "theme": self.theme,
+            "shuffle": self.shuffle,
+            "repeat": self.repeat,
         }
 
     @classmethod
@@ -106,6 +134,8 @@ class Settings:
             volume=_clamp(raw.get("volume"), DEFAULT_VOLUME, MIN_VOLUME, MAX_VOLUME),
             speed=_clamp(raw.get("speed"), DEFAULT_SPEED, MIN_SPEED, MAX_SPEED),
             theme=_as_name(raw.get("theme"), DEFAULT_THEME),
+            shuffle=_as_bool(raw.get("shuffle"), DEFAULT_SHUFFLE),
+            repeat=_as_name(raw.get("repeat"), DEFAULT_REPEAT),
         )
 
 

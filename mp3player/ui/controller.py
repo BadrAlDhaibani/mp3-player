@@ -14,14 +14,16 @@ Two rules from CLAUDE.md land here in particular:
 
 Nothing here decides what the app *sounds* like, and `play_sfx` is the only
 mention of sound in the file. Batch 6 moved that to `ui/sounds.py`, because this
-layer genuinely cannot tell the cases apart: `step(+1)` is a press of Next and
-also the end of a track, and only one of those should blip. The window knows,
-because it is the half that was pressed.
+layer genuinely cannot tell a press from a consequence: only the window knows,
+being the half that was pressed. `step` is still silent for that reason, and so
+is `_advance` -- which is the same move for a different cause, and is the whole
+reason the two are separate methods now that `repeat` exists.
 """
 
 from __future__ import annotations
 
 import math
+import random
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -62,6 +64,15 @@ RECONNECT_GAP_S = 30.0
 # and the log is where the path and the reason go.
 SAVE_FAILED_TEXT = "Could not save settings"
 
+# What the end of a track means. Stored as a bare name (`core/settings.py` keeps
+# no list, for the same reason it keeps no list of palettes), so this is the
+# list, and `_known_repeat` is the clamp -- exactly the theme's seam.
+#
+# The order is the cycle order, and it starts where the app has always been:
+# `ALL` is Batch 3's wrapping auto-advance, unchanged and still the default.
+REPEAT_ALL, REPEAT_ONE, REPEAT_OFF = "all", "one", "off"
+REPEAT_MODES = (REPEAT_ALL, REPEAT_ONE, REPEAT_OFF)
+
 
 class PlayerController(QObject):
     """Owns the playlist and drives the engine.
@@ -91,6 +102,8 @@ class PlayerController(QObject):
     speed_changed = Signal(float)
     volume_changed = Signal(float)
     theme_changed = Signal(str)  # the colour preset, by name
+    shuffle_changed = Signal(bool)
+    repeat_changed = Signal(str)  # one of REPEAT_MODES
     failed = Signal(str)  # something the user should see, in one sentence
     # The output device coming and going. Separate from `failed` because it is a
     # *condition*, not an event: its message has to stay up until it stops being
@@ -111,6 +124,17 @@ class PlayerController(QObject):
         # against. Doing it on the way in means the name that gets written back
         # is always one this build can actually paint with.
         self._theme = _known_theme(saved.theme)
+        self._shuffle = bool(saved.shuffle)
+        # Clamped here for the same reason and against the same kind of list.
+        self._repeat = _known_repeat(saved.repeat)
+        # The shuffled play order, as a permutation of *indices* into `tracks`.
+        # Not a reordering of `tracks` itself: everything above this object
+        # addresses a track by its index -- `track_changed(int)`, the Music
+        # column's cursor, the "Track 4 of 31" line -- so shuffling the tuple
+        # would desync all of it. The list on screen stays in scan order and
+        # only the meaning of "next" moves.
+        self._order: list[int] = []
+        self._cursor = -1
         # Mirrored so the poll only emits `playing_changed` on an actual edge --
         # the engine's own flag flips by itself at end of track.
         self._was_playing = engine.is_playing
@@ -156,6 +180,8 @@ class PlayerController(QObject):
         # ramp is what this chooses. Emitting it after `speed_changed` would
         # paint one frame in the previous palette.
         self.theme_changed.emit(self._theme)
+        self.shuffle_changed.emit(self._shuffle)
+        self.repeat_changed.emit(self._repeat)
         self.volume_changed.emit(self.engine.volume)
         self.speed_changed.emit(self.engine.speed)
         self.folder_changed.emit(self._folder)
@@ -200,6 +226,10 @@ class PlayerController(QObject):
         self._folder = Path(folder)
         self.tracks = result.tracks
         self.index = -1
+        # A permutation of the *old* library is nonsense against the new one,
+        # and half of it would point past the end. Rebuilt from nothing here,
+        # which is also what makes a rescan reshuffle.
+        self._reshuffle()
 
         self.folder_changed.emit(self._folder)
         self.library_changed.emit(result)
@@ -256,6 +286,11 @@ class PlayerController(QObject):
             return
 
         self.index = index
+        # Whatever put us on this track -- a click in Music, Next, the end of
+        # the previous one -- the shuffled order now walks on from *here*. Pick
+        # track 12 by hand with shuffle on and press Next, and without this the
+        # next track has nothing to do with the one you chose.
+        self._cursor = self._order.index(index) if index in self._order else -1
         self.track_changed.emit(index)
         # The one place a cover is read, and the reason it is cheap is the line
         # above it: the decode has just cost 70-210 ms on this library and the
@@ -276,20 +311,162 @@ class PlayerController(QObject):
         self._set_playing(self.engine.is_playing)
 
     def step(self, delta: int) -> None:
-        """Move `delta` tracks and play. Wraps -- the end of the list loops.
+        """Move `delta` tracks and play. Always wraps, whatever `repeat` says.
 
-        Silent, and it has to be: this is also how auto-advance moves, and the
-        end of a track is not something the user did.
+        Silent, and it has to be: the window is the half that knows a press
+        happened, so `_skip` blips and this does not.
+
+        It used to be the auto-advance path as well. It is not any more --
+        `_advance` is -- because the two want different things the moment
+        `repeat` exists: running off the last track under `Repeat: Off` should
+        stop, and running off it because you pressed Next should not. Pressing
+        a button is an explicit request; reaching the end of a file is not.
+        Repeat-one is the same argument from the other side: it must not trap
+        the Next button on one track.
         """
         if not self.tracks:
             return
-        self.play_index(self.index + delta if self.index >= 0 else 0)
+        index, _wrapped = self._next_index(delta)
+        self.play_index(index)
 
     def next_track(self) -> None:
         self.step(+1)
 
     def previous_track(self) -> None:
         self.step(-1)
+
+    def restart(self) -> None:
+        """Play the current track again from the top, without re-decoding it.
+
+        The order of these two lines is the whole method. At the end of a track
+        the mixer has already set its own `_playing` false and jumped the music
+        fader to zero, and `_apply_pending_seek` runs *ahead* of the fader's
+        silent early return -- so a seek posted while the gain is zero is
+        applied on the very next block and ramps back in cleanly. Calling
+        `play()` first would let a callback render one more block from the end
+        of the file, which re-arms `_finished` and advances twice.
+
+        `play_index(self.index)` would also work and would cost the full 70-210
+        ms decode again, on every loop, for a file that is already in memory.
+        """
+        if not self.engine.has_track:
+            return
+        self.engine.seek(0.0)
+        self.engine.play()
+        self._set_playing(self.engine.is_playing)
+
+    # -- what "next" means -------------------------------------------------
+
+    def _reshuffle(self, *, lead: int | None = None, avoid: int | None = None) -> None:
+        """Deal a fresh permutation of the library into `_order`.
+
+        `lead` pins an index to the front and `avoid` keeps one off it -- the
+        two ends of the same question, asked by the two callers. Turning shuffle
+        on mid-track leads with the track you are listening to, so nothing jumps
+        and the bag then lasts a full library rather than however much of the
+        permutation happened to fall after you. Running the bag empty avoids the
+        track that just played, so a reshuffle cannot hand you the same song
+        twice in a row -- the one coincidence that reads as the feature being
+        broken rather than as chance.
+        """
+        self._order = list(range(len(self.tracks)))
+        random.shuffle(self._order)
+        if lead is not None and lead in self._order:
+            here = self._order.index(lead)
+            self._order[0], self._order[here] = self._order[here], self._order[0]
+        elif avoid is not None and len(self._order) > 1 and self._order[0] == avoid:
+            # One swap, not a re-deal: rejection sampling on a one-in-N event
+            # is fine until N is 1, and this is exact at every N.
+            self._order[0], self._order[-1] = self._order[-1], self._order[0]
+        self._cursor = self._order.index(self.index) if self.index in self._order else -1
+
+    def _next_index(self, delta: int) -> tuple[int, bool]:
+        """The index `delta` steps from here, and whether getting there wrapped.
+
+        The second half is the only thing `Repeat: Off` is asking about, and it
+        cannot be recovered afterwards -- `play_index` folds any index back into
+        range, which is exactly the behaviour that has to be *noticed* here
+        before it happens.
+        """
+        # Nothing loaded yet: the top of the list, and that is not a wrap.
+        if self.index < 0:
+            return 0, False
+
+        if self._shuffle and self._order:
+            order, position = self._order, self._cursor + delta
+            return order[position % len(order)], not 0 <= position < len(order)
+
+        count, position = len(self.tracks), self.index + delta
+        return position % count, not 0 <= position < count
+
+    def _advance(self) -> None:
+        """End of track. The only caller is `_poll`, and that is the point.
+
+        Nobody pressed anything, so this is where `repeat` gets to have an
+        opinion -- see `step` for why the two are not the same path.
+        """
+        if not self.tracks:
+            return
+
+        if self._repeat == REPEAT_ONE:
+            self.restart()
+            return
+
+        index, wrapped = self._next_index(+1)
+        if wrapped:
+            if self._repeat == REPEAT_OFF:
+                # Nothing to do, deliberately. The mixer paused itself when the
+                # voice ran out, so the `_set_playing` edge at the bottom of the
+                # poll reports the stop without this having to say anything.
+                return
+            if self._shuffle:
+                self._reshuffle(avoid=self.index)
+                index = self._order[0]
+        self.play_index(index)
+
+    @property
+    def shuffle(self) -> bool:
+        return self._shuffle
+
+    @property
+    def repeat(self) -> str:
+        return self._repeat
+
+    def set_shuffle(self, on: bool) -> None:
+        """Whether "next" walks a shuffled order. Turning it on deals a new one.
+
+        Dealing on the way *in* rather than at every advance is what makes the
+        order stable enough to walk backwards through: Previous is the track you
+        actually just heard, not another roll of the dice.
+        """
+        on = bool(on)
+        if on:
+            self._reshuffle(lead=self.index)
+        self._shuffle = on
+        self.shuffle_changed.emit(on)
+        self._save_soon()
+
+    def toggle_shuffle(self) -> None:
+        self.set_shuffle(not self._shuffle)
+
+    def set_repeat(self, mode: str) -> None:
+        self._repeat = _known_repeat(mode)
+        self.repeat_changed.emit(self._repeat)
+        self._save_soon()
+
+    def cycle_repeat(self) -> None:
+        """The next mode round, wrapping. One press is one step.
+
+        Not a stepped-into row like Theme, and the difference is what the two
+        are for: a palette is a *comparison* you make by looking, where these
+        are three states you already know the names of. It is also the only
+        thing a single click of the transport button can mean, and a row that
+        behaved differently from its own button would be the inconsistency.
+        """
+        here = REPEAT_MODES.index(self._repeat)
+        self.set_repeat(REPEAT_MODES[(here + 1) % len(REPEAT_MODES)])
+
+    # -- seeking -----------------------------------------------------------
 
     def seek(self, seconds: float) -> None:
         self.engine.seek(max(0.0, min(float(seconds), self.engine.duration)))
@@ -351,8 +528,10 @@ class PlayerController(QObject):
         if engine.take_finished():
             # Polled, never pushed -- see the threading rules in engine.py.
             # Advancing here means `is_playing` is true again before the edge
-            # check below, so no spurious pause flickers through the UI.
-            self.step(+1)
+            # check below, so no spurious pause flickers through the UI -- and
+            # under `Repeat: Off` the same ordering is what lets `_advance` do
+            # nothing at all and have the stop reported for it.
+            self._advance()
 
         self.position_changed.emit(engine.position, engine.duration)
         self._set_playing(engine.is_playing)
@@ -516,6 +695,8 @@ class PlayerController(QObject):
                 volume=self.engine.volume,
                 speed=self.engine.speed,
                 theme=self._theme,
+                shuffle=self._shuffle,
+                repeat=self._repeat,
             )
         )
 
@@ -546,3 +727,8 @@ def _clamp(value: float, low: float, high: float) -> float:
 def _known_theme(name: str) -> str:
     """A palette name this build can paint with, or the default."""
     return name if name in theme.palette_names() else theme.palette_names()[0]
+
+
+def _known_repeat(name: str) -> str:
+    """A repeat mode this build knows what to do with, or the default."""
+    return name if name in REPEAT_MODES else REPEAT_ALL

@@ -668,4 +668,12 @@ def transport_qss() -> str:
     }}
     QPushButton:hover {{ color: {rgba(TEXT)}; }}
     QPushButton:pressed {{ color: {rgba(accent_text())}; }}
+    /* Last on purpose. Qt style sheets follow CSS specificity, and these three
+       pseudo-states are all equally specific -- so the later rule wins, and a
+       lit shuffle button has to stay lit while the pointer is over it. This is
+       also what makes the two mode buttons free: they are `setCheckable`, so
+       their "on" look is a stylesheet state rather than a dynamic property, and
+       it follows the speed ramp through `refresh_accent` like everything else
+       down here. */
+    QPushButton:checked {{ color: {rgba(accent_text())}; }}
     """

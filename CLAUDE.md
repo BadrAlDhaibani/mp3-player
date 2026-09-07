@@ -54,17 +54,36 @@ legal text, and where the two disagree the licence wins.
 > Batch 16 (the crackle — 263 tests, 300 harness checks, and audio that stops
 > dropping blocks) ·
 > Batch 17 (the icon and the console — 263 tests, 305 harness checks, a crescent
-> sweep, and no cmd window)
+> sweep, and no cmd window) ·
+> Batch 18 (shuffle and repeat — 279 tests, 340 harness checks, and the first
+> item off the post-v1 list)
 >
-> **v1 is shipped; Batches 8 through 17 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 17 is ticked except the release
+> **v1 is shipped; Batches 8 through 18 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 18 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **The roadmap is finished.** Batches 16 and 17 were not on it: the user reported
-> audible pops, and then asked for a nicer icon and for the console to stop
-> opening. What is left is one outward-facing action, three human judgements, and
-> the post-v1 feature list — all set out below.
+> **The roadmap is finished.** Batches 16, 17 and 18 were not on it: the user
+> reported audible pops, then asked for a nicer icon and for the console to stop
+> opening, then asked for shuffle and repeat. What is left is one outward-facing
+> action, three human judgements, and the rest of the post-v1 feature list — all
+> set out below.
+>
+> **Shuffle and repeat exist, and the thing to know is that auto-advance is no
+> longer `step(+1)`.** `PlayerController._advance()` is the end-of-track path and
+> `step()` is the Next-button path, and they are different because `repeat` makes
+> them want different things — running off the last track under `Repeat: Off`
+> stops, and *pressing* Next there still wraps. Both are still silent; the window
+> still owns every blip. Shuffle is a permutation of **indices** (`_order`), never
+> a reordering of `tracks`, because everything above the controller addresses a
+> track by its index.
+>
+> **The two transport buttons are `setCheckable`, and that is load-bearing.**
+> Their lit state is `QPushButton:checked` in `theme.transport_qss()`, which
+> costs no dynamic property, no `unpolish`/`polish`, and follows the speed ramp
+> for free. It also means the glyphs **must be monochrome** — see the decisions
+> log before changing them, because the obvious emoji are a trap that was fallen
+> into once already.
 >
 > **Launch it with the shortcut, not `run.bat`.** `XMB Player.lnk` sits in the
 > repo root *and* on the Desktop, both pointing at `pythonw.exe`, both carrying
@@ -245,7 +264,7 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **299/300 with
+> position read, it predates Batch 9, and it passes on a re-run. **339/340 with
 > that one line failing is the known state. Anything else failing is yours.**
 >
 > ### Next
@@ -267,11 +286,12 @@ legal text, and where the two disagree the licence wins.
 > fixing that means a version bump. Raise it when a release comes up; don't bump
 > it on your own initiative.
 >
-> After that the queue goes back to the post-v1 list in the v1 scope section —
-> shuffle/repeat, export, subfolders, multiple folders. **None of that is
-> started.** A spectrum visualizer was offered and **declined** in Batch 9 (the
-> accent ramp was wanted instead), so don't re-offer it as though it were
-> untouched.
+> After that the queue goes back to the post-v1 list in the v1 scope section.
+> **Shuffle and repeat came off it in Batch 18**; what is left there is the
+> *queue* half of that line, export to file, subfolder recursion and multiple
+> library folders. **None of that is started.** A spectrum visualizer was offered
+> and **declined** in Batch 9 (the accent ramp was wanted instead), so don't
+> re-offer it as though it were untouched.
 >
 > ### Before writing any of it
 >
@@ -292,7 +312,11 @@ legal text, and where the two disagree the licence wins.
 > row: the ribbon showing straight *through* the note and then a bite out of the
 > crescent's cap (odd-even fill, twice, and it looks like an alpha bug both
 > times), a conical gradient applied backwards, and a crescent that read
-> unmistakably as **an eye**.
+> unmistakably as **an eye**, and Batch 18's two: the shuffle and repeat buttons
+> drawn in the emoji glyphs that mean exactly those two things, which come out
+> as blue tiles and **cannot be coloured at all**, and then the correct
+> monochrome shuffle mark dissolving into a scribble at the size a button
+> actually draws it.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
@@ -318,8 +342,8 @@ two presets became the ends of the slider itself. See the decisions log.)
 **Deliberately out of v1** — good ideas, parked until v1 actually ships:
 ~~ID3 tags & album art~~ (landed in Batch 8) ·
 ~~spectrum visualizer~~ (offered and declined in Batch 9) ·
-shuffle/repeat/queue · export to file · subfolder recursion ·
-multiple library folders.
+~~shuffle/repeat~~ (landed in Batch 18; **queue did not** and is still parked) ·
+export to file · subfolder recursion · multiple library folders.
 
 ---
 
@@ -353,7 +377,7 @@ here and write down why.
 | **Decode stays on the UI thread in v1** | Measured 0.07–0.21 s for this library. A worker thread means a load token, a cancel path, and a race on every fast next/next/next. Real cost, speculative benefit — revisit in Batch 7 if it grates. |
 | **Settings are written on an 800 ms debounce** | A volume drag emits a change per pixel; none of them deserve a disk write. Flushed unconditionally on `shutdown()`, so quitting always persists. |
 | **Seek commits on release; speed is live** | Dragging the *speed* slider and hearing the pitch move is the entire app. A live seek would post a fade-jump-fade per pixel and sound like a skipping CD, so it waits for release. |
-| **Auto-advance wraps the list** | Running off the last track loops to the first. Matches the Batch 2 harness, and "stop dead at the end" is a worse default than repeat-all. Not a shuffle/repeat *feature* — that's still post-v1. |
+| **Auto-advance wraps the list** ~~— not a shuffle/repeat *feature*, that's post-v1~~ → **it is `Repeat: All`, and it is still the default** | Running off the last track loops to the first. Matches the Batch 2 harness, and "stop dead at the end" is a worse default than repeat-all. *Batch 18 gave the behaviour a name and two alternatives rather than replacing it:* `DEFAULT_REPEAT = "all"` is this row, unchanged, and a settings file written before Batch 18 comes back meaning exactly what it meant. That mattered more than it sounds — the tidy-looking default for a new tri-state is `off`, and picking it would have silently changed how every existing install behaves on an upgrade nobody asked for. |
 | **Categories: Now Playing · Music · Settings** | Chosen with the user in Batch 4. Column-per-context, closest to real XMB. |
 | ~~Speed and volume live in the transport bar~~ → **volume only** | *Revised after Batch 4's first real run.* The original reasoning — the live speed slider is the whole app, so keep it on screen everywhere — was sound while Now Playing was a list of transport actions. Once Now Playing became the page for the effect, a second speed slider in the bottom bar was two controls for one value: exactly the redundancy that got `Play / Next / Previous / Restart` deleted from that column. Now Playing owns speed; the bar owns the track. |
 | **Now Playing is the speed page** | Its old rows all duplicated the transport bar. What it lacked was the one thing the app is *for*. Art, the current track, and one slider. |
@@ -446,6 +470,16 @@ here and write down why.
 | **The smoke test runs on the real platform, not offscreen** | *The plan for Batch 15 said offscreen; the runtime said otherwise.* Offscreen gives the app no window handle, so `WM_CLOSE` has nothing to arrive at — measured, a graceful `taskkill /T` is ignored outright and only `/F` ends it, which discards the exit code and the shutdown path in one go. On the real platform the same close lands in 0.3 s with **exit 0 and `settings.json` written**, i.e. `aboutToQuit` fired and `shutdown()` ran. A window appearing for a few seconds during a build is what that costs. `%APPDATA%` is redirected at a temp directory, because a build step that rewrites your saved music folder is worse than the bug it is looking for. |
 | **A build that fails the smoke test is not zipped** | The zip is written *after* the check, so a broken build leaves an error message and no archive. An archive sitting next to a failure is an archive that eventually gets uploaded — and the failure this catches is specifically the silent one, where `--collect-binaries` stops finding libsndfile or PortAudio, PyInstaller reports success, and the exe dies on first import. `--skip-smoke` exists for a machine with no audio output, where the app correctly puts up a modal box and never opens a stream; the flag's own help text says it is not for saving ten seconds. |
 | **A Qt object built from a Python temporary is a segfault, not an error** | `QBuffer(QByteArray())` takes a reference to something that is collected immediately, and the process dies inside a later `image.save()` — no exception, no traceback, and not on the line that looks wrong. The fix is to name the `QByteArray` in a local so it outlives the buffer. Written down because the shape is general: any PySide6 constructor taking a reference to another Qt object needs that object held on the Python side for as long as the wrapper lives, and the failure mode is the least debuggable one available. |
+| **`step` is the Next button; `_advance` is the end of a track** | They were one method from Batch 3 to Batch 17, and `step`'s docstring was proud of it — a single silent path, with the window deciding which of the two callers got a blip. `repeat` is what splits them, because it makes the two cases want opposite things at the same moment. Under `Repeat: Off` a track running out at the end of the list must **stop**, and *pressing* Next there must still **wrap**: a press is an explicit request and reaching the end of a file is not. Repeat-one is the same argument from the other side — it must not trap the Next button on one song. Both are still silent, and the sound policy in `ui/sounds.py` did not move an inch; what moved is that there are now two silences to keep rather than one. |
+| **`Repeat: Off` stops by doing nothing at all** | The mixer already sets its own `_playing` false and jumps the music fader to zero when the voice runs out, so by the time `take_finished()` is true the app *is* stopped. `_advance` returning early therefore leaves the poll's own `_set_playing` edge, two lines further down, to report it — which is the ordering the existing comment in `_poll` was already written about. An explicit `pause()` would be a second thing to keep in step with the mixer, and it would fire the edge twice. |
+| **Repeat-one seeks; it does not reload** | `play_index(self.index)` would work and would pay the full 70–210 ms decode again on every loop, for a file already in memory. `restart()` is `engine.seek(0.0)` then `engine.play()`, **in that order** — `_apply_pending_seek` runs *ahead* of the fader's silent early return, so a seek posted while the gain is zero lands on the next block and ramps back in. The other order is a real bug rather than a style preference: `play()` first lets a callback render one more block from the end of the file, which re-arms `_finished` and advances twice. |
+| **Shuffle is a permutation of indices, and the list on screen does not move** | Everything above the controller addresses a track by its integer index — `track_changed(int)`, `play_index(int)`, the Music column's cursor, "Track 4 of 196" — so shuffling `tracks` itself would desync all of it at once. `_order` is a permutation of `range(len(tracks))` and `_cursor` is a position in it; Music stays in scan order, and only the meaning of "next" moves. It is also dealt on the way *in* rather than rolled per advance, which is what makes Previous the track you actually just heard. |
+| **The bag leads with what you're playing and avoids repeating it** | Two one-line adjustments to `random.shuffle`, both fixing things that read as the feature being broken rather than as chance. Turning shuffle on **leads** with the current index, so nothing jumps and the bag then lasts a full library instead of however much of the permutation happened to fall after you. Running the bag empty **avoids** the track that just played, so a reshuffle cannot hand you the same song twice in a row. `play_index` re-syncs `_cursor` on every load, which is what makes picking a track by hand out of Music and then pressing Next go somewhere related to what you picked. |
+| **The Repeat row cycles on Enter; only Theme is stepped into** | Reads as a contradiction of the Batch 10 row two above and is the exception it implies. Stepping in exists because picking a palette is a **comparison** — you have to see each one on the screen you are looking at. Repeat is three states you already know the names of, and, decisively, its transport button can only mean "the next one" on a single click. A row that behaved differently from its own button is the inconsistency, so `_stepping` stays the single bool wired to `_step_theme` and nothing about the one modal row in the app changed. |
+| **The mode buttons are `setCheckable`, so their lit state is a stylesheet pseudo-class** | `QPushButton:checked` in `transport_qss()`, placed **last** because Qt style sheets follow CSS specificity and these pseudo-states are equally specific — a lit button has to stay lit while the pointer is over it. The alternative was a dynamic property plus `unpolish`/`polish` on every toggle, which is more code and a documented Qt footgun. Checked also costs nothing to keep in step with the accent: `refresh_accent()` already re-applies the whole sheet, so the lit colour travels with the speed ramp like every other accent down there. Wired from `clicked`, never `toggled` — `setChecked` from the controller's own signal emits `toggled` and would loop. |
+| **The mode glyphs are monochrome, and the emoji that mean exactly this are unusable** | `🔀 🔁 🔂` (U+1F500–2) are the right marks and shipped for about an hour. Segoe UI Symbol hands all three to Segoe UI **Emoji**, which is a colour font: they render as blue rounded tiles that look nothing like the `⏮ ▶ ⏭` beside them and — the part that actually matters — **ignore `color:` in the stylesheet entirely**, so the lit/dim state the buttons exist to show could not be drawn at all. The whole `:checked` mechanism above is dead with them. `⇄` (U+21C4) and `⭮` (U+2B6E) are in the same font as the rest of the bar and take the accent. |
+| **`⇄` rather than a crossing-arrows glyph, because it survives 15 px** | U+2928/292D/292E *are* the shuffle mark and all three collapse into a four-pixel scribble at button size — the diagonals and their heads have nowhere to go. Two horizontal arrows keep both heads and read at a glance. Same trade as the app icon dropping its taper below 24 px: **the mark that survives the size beats the mark that is right**, and both times the answer came from a blown-up render rather than from picking a codepoint. |
+| **The modes go on the third info line, ahead of the folder name** | Not a fourth slot: the block is three fixed lines and the third clears the slider's box by 1 px, so a fourth is a new metric and a fresh collision to check. It belongs on that line by meaning anyway — "Track 4 of 196" is already the sentence about where you are in the list. **Ahead of the folder** because `_paint_info` elides from the right and a folder name is the one field on that line that comes out of a file and so has no length; put the modes last and a library called `Nightcore Collection Remastered` silently eats them. Silent at the defaults, like the length line dropping its "plays in" at 1.00x. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 | **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
@@ -475,7 +509,8 @@ mp3player/
     tags.py              # read_tags() -> Tags; read_art() -> bytes | None
     library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
-                         #   folder, volume, speed, theme (a bare name)
+                         #   folder, volume, speed, theme (a bare name),
+                         #   shuffle (a real bool), repeat (a bare name too)
     log.py               # the rotating log next to it; get(), due(),
                          #   record_exception() -- never raises, never prints
     audio/
@@ -494,6 +529,9 @@ mp3player/
     motion.py            # Tween: one easing helper, shared by the three animators
     sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
+                         #   + the playlist: step() is Next, _advance() is the
+                         #   end of a track, and REPEAT_MODES is the list that
+                         #   `core` deliberately doesn't keep
     chrome.py            # frameless drag/resize/min/close
     main_window.py       # composes the shell; XmbStage owns the mouse
     widgets/
@@ -588,6 +626,15 @@ don't invent a second way to do a thing we've already solved.
   whether two labels touch — has to be checked by rendering a PNG with the real
   platform and *looking at it*. That is where every layout bug so far has been
   found, and none of them were found by an assertion.
+- **A glyph that the stylesheet has to colour must be checked in a render,
+  not chosen from a codepoint chart.** Windows delegates the emoji ranges to a
+  *colour* font, and a colour glyph ignores `color:` completely — so a button
+  whose entire job is to look different when it is on can be given a mark that
+  makes that impossible, while every API call involved succeeds. Batch 18 shipped
+  `🔀 🔁 🔂` for an hour on exactly that reasoning. Two questions, both needing a
+  picture: does the glyph *exist* in `GLYPH_FAMILY`, and does it take a pen. And
+  a third at the size it will actually be drawn — the crossing-arrow shuffle
+  marks all exist, all take a pen, and all turn to mush at 15 px.
 - **In Qt stylesheets, subcontrol comes before pseudo-state** —
   `QSlider::handle:horizontal:disabled`, never `QSlider:disabled::handle`. Qt
   discards a malformed rule *and everything after it* without a word.
@@ -2359,6 +2406,94 @@ build made to verify the taskbar was deleted; it never touched `dist/`.)
 
 ---
 
+### Batch 18 — Shuffle and repeat ✅
+
+Not on any roadmap either. The user asked for shuffle and loop; it is the first
+thing off the post-v1 list since the spectrum visualizer was declined in Batch 9.
+
+- [x] `settings.shuffle` / `settings.repeat`, and an `_as_bool` to validate one
+- [x] `_advance()` split out of `step()`; `restart()`; the shuffle order
+- [x] Two transport buttons, `setCheckable`, lit by `QPushButton:checked`
+- [x] Two Settings rows, the `S` and `R` keys, the Now Playing tail
+- [x] `tools/render.py --shuffle` / `--repeat`, tests, harness checks
+
+**Settled with the user before anything was written:** all three homes for the
+controls (button, row, key), repeat as **off / all / one** rather than a
+repeat-one toggle, and the state shown on the tail of Now Playing's third line
+rather than in a fourth slot.
+
+**The whole design question was which method the end of a track calls.** `step`
+had been both since Batch 3 — one silent path, with the window deciding which
+caller earned a blip — and its docstring said so. `repeat` splits it, because
+the two callers now want opposite things at the same moment: running out of
+track at the end of the list under `Repeat: Off` must stop, and *pressing* Next
+there must still wrap. Everything else in the batch follows from that one line
+moving. Two decisions-log rows.
+
+**`Repeat: Off` stops by doing nothing**, which is the nicest thing in here. The
+mixer has already paused itself by the time `take_finished()` is true, so
+`_advance` returning early lets the poll's own `_set_playing` edge report the
+stop — and the comment in `_poll` explaining that ordering was already there,
+written for a different reason, three batches ago.
+
+**The renders found the bug, for the eighth batch running, and this time they
+found it twice in the same fifteen minutes.**
+
+`🔀 🔁 🔂` are the right marks and were the obvious choice. Segoe UI Symbol hands
+all three to Segoe UI **Emoji**, which is a colour font — so they came out as
+blue rounded tiles, and, fatally, **a colour glyph ignores `color:`**. The
+buttons' entire job is to look different when they are on, and with those glyphs
+that could not be drawn at all. Every API call succeeded the whole time. Then the
+replacement had the same shape of problem one level down: U+2928 and its
+neighbours *are* the crossing-arrows shuffle mark, they are monochrome, and at
+15 px all of them collapse into a four-pixel scribble. `⇄` keeps both arrowheads.
+Both were settled by a probe sheet drawn at the real button size — and note that
+the first version of that probe ran offscreen and drew nothing, because the
+offscreen platform has no font database, which is the oldest convention in this
+file arriving on a question it was written for.
+
+**And one thing the render caught that was not a bug yet.** The tail read
+`Track 2 of 196 · Downloads · Shuffle · Repeat one` — exactly what was agreed —
+and `_paint_info` elides from the right, so a folder called `Nightcore
+Collection Remastered` would silently eat the modes. The folder name is the one
+field on that line that comes out of a file. It goes last now; every element the
+user approved is still there, and only the order of what gets sacrificed
+changed.
+
+**The harness could not test the interesting half, so a scratch script did.** It
+runs offscreen and calls `_advance()` by hand, because waiting out a
+four-minute file is not a test — which leaves the runtime path unchecked: the
+mixer noticing the voice ran out, `take_finished` reporting it once, the poll
+turning that into the right move. Seeking to 0.6 s before the end of real files
+on a real device covered it, 13/13: repeat-one restarted and kept playing,
+repeat-off stopped on the last track with the transport button showing `▶`, and
+shuffle went from 195 to 71 — the next one in the bag.
+
+Verified: **279 tests green** (16 new, core-only as the convention requires --
+both fields round-tripping, a file written before this batch getting `all` rather
+than `off`, `1`/`"true"`/`[]` all falling back rather than being guessed at, and
+an unrecognised mode surviving the round trip). `tools/shell_harness.py`
+**340/340** on the first run with the known WASAPI flake passing; 35 new,
+including one that had to be rewritten because it asserted something the harness
+had not actually set up — `_advance` called mid-track cannot prove the mixer
+paused, only that nothing here touched the transport. `ruff check .` and `mypy`
+clean. Rendered Now Playing and Settings at 720x480 and 980x640, both mode
+states, in Mono and XMB Blue, and measured lit against dim rather than squinting
+at it: `(214,235,255)` against `(178,196,224)`. Ran the real entrypoint through
+`pythonw.exe` — exit 0, `45.7 ms`, four clean lines, both new keys in
+`settings.json`.
+
+Also landed: `test_unknown_keys_are_ignored` used `"shuffle": True` as its junk
+key, which stopped being junk in this batch. It is `"crossfade"` now — a test
+that quietly stops testing what its name says is worse than one that fails.
+
+Not done: the `.exe`, for the same reason as Batches 9, 10, 12, 13, 14 and 16 —
+nothing here changes what PyInstaller reads. **Batch 17's note still stands**:
+the packaged exe wears the old crossbar icon, and fixing that means a version
+bump, which is the user's call.
+
+---
+
 ## Running it
 
 ```bash
@@ -2401,7 +2536,7 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 293/294 with *that* line failing
+# predates Batch 9, and it passes on a re-run. 339/340 with *that* line failing
 # is the known one; anything else failing is yours.
 #
 # It writes its log to a temp file, not to yours -- and its crash-probe section
@@ -2415,6 +2550,7 @@ venv/Scripts/python.exe tools/render.py out.png --theme all         # 5 palettes
 venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
 venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
 venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
+venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
 
 # the four that exist for shots that end up on a page rather than in front of
 # you -- the README's screenshots are these. `--track` because most of a real

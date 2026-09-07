@@ -65,7 +65,10 @@ def test_one_bad_field_does_not_discard_the_others(path) -> None:
 
 
 def test_unknown_keys_are_ignored(path) -> None:
-    path.write_text(json.dumps({"volume": 0.3, "shuffle": True, "future": [1]}))
+    # `shuffle` used to be one of the junk keys here, which was fine right up
+    # until Batch 18 made it a real one. A key this build knows is not a test of
+    # ignoring keys it doesn't.
+    path.write_text(json.dumps({"volume": 0.3, "crossfade": True, "future": [1]}))
     assert s.load(path).volume == 0.3
 
 
@@ -127,6 +130,51 @@ def test_an_unrecognised_theme_name_survives(path) -> None:
     """
     path.write_text(json.dumps({"theme": "Nebula"}))
     assert s.load(path).theme == "Nebula"
+
+
+def test_shuffle_and_repeat_round_trip(path) -> None:
+    s.save(Settings(shuffle=True, repeat="one"), path)
+    loaded = s.load(path)
+    assert loaded.shuffle is True
+    assert loaded.repeat == "one"
+
+
+def test_a_file_without_the_modes_gets_the_defaults(path) -> None:
+    """Every settings file written before Batch 18 is one of these.
+
+    The default repeat is `all` rather than `off` because that is what the app
+    has always done -- running off the last track loops to the first -- so an
+    upgrade must not quietly change how somebody's player behaves.
+    """
+    path.write_text(json.dumps({"volume": 0.3}))
+    loaded = s.load(path)
+    assert loaded.shuffle == s.DEFAULT_SHUFFLE
+    assert loaded.repeat == s.DEFAULT_REPEAT == "all"
+
+
+@pytest.mark.parametrize("junk", [1, 0, "true", "", None, [], {}])
+def test_a_wrong_typed_shuffle_falls_back(path, junk) -> None:
+    """`1` and `"true"` are what a hand-edited file contains, and guessing at
+    them is how a setting comes back as something nobody typed."""
+    path.write_text(json.dumps({"shuffle": junk}))
+    assert s.load(path).shuffle is s.DEFAULT_SHUFFLE
+
+
+@pytest.mark.parametrize("junk", ["", "   ", None, 42, [], {}])
+def test_a_blank_or_wrong_typed_repeat_falls_back(path, junk) -> None:
+    path.write_text(json.dumps({"repeat": junk}))
+    assert s.load(path).repeat == s.DEFAULT_REPEAT
+
+
+def test_an_unrecognised_repeat_mode_survives(path) -> None:
+    """Same seam as the theme: no list here, so nothing to fail against.
+
+    A mode a later build knows must come back out of this build unchanged
+    rather than being written back as the default. `ui/controller.py` owns the
+    list and clamps it at the point of use.
+    """
+    path.write_text(json.dumps({"repeat": "shuffle-album"}))
+    assert s.load(path).repeat == "shuffle-album"
 
 
 def test_save_creates_missing_directories(tmp_path) -> None:

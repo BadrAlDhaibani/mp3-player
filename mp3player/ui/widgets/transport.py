@@ -33,6 +33,25 @@ PREVIOUS_GLYPH = "⏮"
 NEXT_GLYPH = "⏭"
 PLAY_GLYPH = "▶"
 PAUSE_GLYPH = "❚❚"
+# The repeat button swaps its glyph the way the play button does, so "all" and
+# "one" are told apart by the mark and not only by whether it is lit.
+#
+# NOT the emoji trio (U+1F500 shuffle, U+1F501/2 repeat), which is what these
+# obviously want to be and what shipped for about an hour. Segoe UI Symbol hands
+# those three to Segoe UI Emoji, which is a *colour* font: they came out as blue
+# rounded tiles that look nothing like the transport glyphs beside them and --
+# the part that actually matters -- ignore `color:` in the stylesheet entirely,
+# so the lit/dim state the buttons exist to show could not be drawn at all.
+# These are monochrome, in the same font as the rest of the bar, and take the
+# accent like everything else.
+# `⇄` and not one of the *crossing* arrows (U+2928, U+292D, U+292E), which are
+# what shuffle actually means and were tried first: at 15 px the diagonals and
+# their heads collapse into a four-pixel scribble, while two horizontal arrows
+# keep both heads. The same trade as the app icon dropping its taper below
+# 24 px -- the mark that survives the size beats the mark that is right.
+SHUFFLE_GLYPH = "⇄"  # U+21C4, two arrows passing
+REPEAT_ALL_GLYPH = "⭮"  # U+2B6E, a clockwise loop
+REPEAT_ONE_GLYPH = "⭮¹"  # the same loop, and the one thing it will play
 
 
 def clock(seconds: float) -> str:
@@ -48,6 +67,11 @@ class TransportBar(QWidget):
     play_pressed = Signal()
     next_pressed = Signal()
     previous_pressed = Signal()
+    # Presses, not values: these two say the button was clicked and let the
+    # controller decide what the next state is. The tri-state one has to work
+    # that way round, and having both do it keeps one path.
+    shuffle_pressed = Signal()
+    repeat_pressed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -86,6 +110,12 @@ class TransportBar(QWidget):
         self.previous_button = _glyph_button(PREVIOUS_GLYPH)
         self.play_button = _glyph_button(PLAY_GLYPH)
         self.next_button = _glyph_button(NEXT_GLYPH)
+        # Checkable purely for the look: `QPushButton:checked` in the transport
+        # stylesheet is what lights them, which costs no dynamic property and no
+        # `unpolish`/`polish` dance, and means the lit colour follows the speed
+        # ramp through `refresh_accent` like every other accent in the bar.
+        self.shuffle_button = _glyph_button(SHUFFLE_GLYPH, checkable=True)
+        self.repeat_button = _glyph_button(REPEAT_ALL_GLYPH, checkable=True)
 
         # The only thing on the bottom row allowed to take the leftover space --
         # and the only thing allowed to shrink to nothing.
@@ -107,6 +137,13 @@ class TransportBar(QWidget):
         bottom.addWidget(self.previous_button)
         bottom.addWidget(self.play_button)
         bottom.addWidget(self.next_button)
+        # The mode pair sits after the transport trio and before the gap: they
+        # are about the track *after* this one, which is where the eye is
+        # already going. The title is the only thing that gives ground for them,
+        # and it is the one built to (`_ElidingLabel`, `QSizePolicy.Ignored`) --
+        # 68 px out of the ~356 it has at the 720 px minimum.
+        bottom.addWidget(self.shuffle_button)
+        bottom.addWidget(self.repeat_button)
         bottom.addSpacing(10)
         bottom.addWidget(self.title, 1)
         bottom.addWidget(_label("VOL", 10, theme.TEXT_FAINT, spaced=True))
@@ -125,6 +162,14 @@ class TransportBar(QWidget):
         self.previous_button.clicked.connect(self.previous_pressed)
         self.play_button.clicked.connect(self.play_pressed)
         self.next_button.clicked.connect(self.next_pressed)
+        # `clicked`, not `toggled`: a checkable button emits `toggled` when
+        # `setChecked` moves it too, so the state coming back from the
+        # controller would look like a second press and loop. `clicked` is
+        # user-only. The button toggles itself on the way out and `set_shuffle`
+        # / `set_repeat` put it where the controller actually landed -- which is
+        # the same value, synchronously, unless something refused.
+        self.shuffle_button.clicked.connect(self.shuffle_pressed)
+        self.repeat_button.clicked.connect(self.repeat_pressed)
 
         self.seek.sliderMoved.connect(self._on_seek_preview)
         self.seek.sliderReleased.connect(self._on_seek_commit)
@@ -140,6 +185,20 @@ class TransportBar(QWidget):
 
     def set_playing(self, playing: bool) -> None:
         self.play_button.setText(PAUSE_GLYPH if playing else PLAY_GLYPH)
+
+    def set_shuffle(self, on: bool) -> None:
+        self.shuffle_button.setChecked(on)
+
+    def set_repeat(self, on: bool, *, one: bool = False) -> None:
+        """`on` lights the button; `one` swaps its glyph.
+
+        Two facts rather than the mode's name, because every widget in this
+        package imports `theme` and `motion` and nothing else. Turning a
+        controller value into a look is the window's job, and this is the same
+        split as `set_playing` taking a bool rather than asking the engine.
+        """
+        self.repeat_button.setChecked(on)
+        self.repeat_button.setText(REPEAT_ONE_GLYPH if one else REPEAT_ALL_GLYPH)
 
     def set_position(self, position: float, duration: float) -> None:
         self.duration.setText(clock(duration))
@@ -213,12 +272,13 @@ def _slider(minimum_width: int, maximum_width: int) -> QSlider:
     return slider
 
 
-def _glyph_button(glyph: str) -> QPushButton:
+def _glyph_button(glyph: str, *, checkable: bool = False) -> QPushButton:
     button = QPushButton(glyph)
     button.setFixedSize(theme.BUTTON_W, theme.BUTTON_H)
     button.setCursor(Qt.PointingHandCursor)
     button.setFocusPolicy(Qt.NoFocus)  # keys belong to the crossbar, not here
     button.setFont(theme.font(15, family=theme.GLYPH_FAMILY))
+    button.setCheckable(checkable)
     return button
 
 

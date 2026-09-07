@@ -28,7 +28,13 @@ from mp3player.core import settings as settings_mod
 from mp3player.core.library import ScanResult
 from mp3player.ui import theme
 from mp3player.ui.chrome import ChromeWindow
-from mp3player.ui.controller import SEEK_STEP, PlayerController
+from mp3player.ui.controller import (
+    REPEAT_ALL,
+    REPEAT_OFF,
+    REPEAT_ONE,
+    SEEK_STEP,
+    PlayerController,
+)
 from mp3player.ui.sounds import Sounds
 from mp3player.ui.widgets.crossbar import Category, Crossbar
 from mp3player.ui.widgets.item_column import Item, ItemColumn
@@ -48,7 +54,9 @@ CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
 # indices made that a rename instead of a silent misfire, but it did not remove
 # the requirement that the two lists agree. `_settings_rows` does: the label and
 # what activating it does are now one tuple, so there is no second order to keep.
-SET_FOLDER, SET_RESCAN, SET_THEME, SET_FULLSCREEN, SET_QUIT = range(5)
+SET_FOLDER, SET_RESCAN, SET_SHUFFLE, SET_REPEAT, SET_THEME, SET_FULLSCREEN, SET_QUIT = (
+    range(7)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +321,11 @@ class MainWindow(ChromeWindow):
         self._folder: Path | None = None
         self._playing = False
         self._speed = settings_mod.DEFAULT_SPEED
+        # Mirrored for the same reason `_speed` is: three things read them back
+        # (the Settings row, the Now Playing tail, the transport buttons) and
+        # none of them should have to ask the controller mid-paint.
+        self._shuffle = settings_mod.DEFAULT_SHUFFLE
+        self._repeat = settings_mod.DEFAULT_REPEAT
         self._duration = 0.0
         self._device_lost = False
         # Set while the Theme row is holding the arrow keys. The only modal
@@ -375,6 +388,8 @@ class MainWindow(ChromeWindow):
         controller.playing_changed.connect(self._on_playing)
         controller.speed_changed.connect(self._on_speed)
         controller.theme_changed.connect(self._on_theme)
+        controller.shuffle_changed.connect(self._on_shuffle)
+        controller.repeat_changed.connect(self._on_repeat)
         controller.volume_changed.connect(self.transport.set_volume)
         controller.failed.connect(self.stage.set_status)
         # The one sound wired to a controller signal rather than to an input:
@@ -397,6 +412,8 @@ class MainWindow(ChromeWindow):
         self.transport.play_pressed.connect(self._toggle)
         self.transport.next_pressed.connect(lambda: self._skip(+1))
         self.transport.previous_pressed.connect(lambda: self._skip(-1))
+        self.transport.shuffle_pressed.connect(self._shuffle_pressed)
+        self.transport.repeat_pressed.connect(self._repeat_pressed)
         self.transport.seek_requested.connect(controller.seek)
         self.transport.volume_requested.connect(controller.set_volume)
 
@@ -539,6 +556,22 @@ class MainWindow(ChromeWindow):
         self._refresh_column()
         self.stage.column.update()
 
+    def _on_shuffle(self, on: bool) -> None:
+        self._shuffle = on
+        self.transport.set_shuffle(on)
+        self._refresh_column()
+
+    def _on_repeat(self, mode: str) -> None:
+        """Light the button, swap its glyph, and rebuild whatever is on screen.
+
+        The bar is told two facts rather than the mode's name -- see
+        `TransportBar.set_repeat` for why a widget in that package doesn't get
+        to know what a mode is called.
+        """
+        self._repeat = mode
+        self.transport.set_repeat(mode != REPEAT_OFF, one=mode == REPEAT_ONE)
+        self._refresh_column()
+
     def _on_slider_dragged(self, fraction: float) -> None:
         span = settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
         self._set_speed(settings_mod.MIN_SPEED + fraction * span)
@@ -576,6 +609,24 @@ class MainWindow(ChromeWindow):
         directly and so stays silent -- that is the whole reason this exists."""
         self.sounds.move()
         self.controller.step(delta)
+
+    def _shuffle_pressed(self) -> None:
+        """The transport button and the `S` key. The Settings row is not here.
+
+        That row activates through `_activate`, which has already sounded its
+        confirm by the time the action runs -- so its action is the controller's
+        own `toggle_shuffle` and this exists for the two inputs that have no
+        such blip of their own. Same shape as `_fullscreen` below, and the same
+        reason `_skip` exists at all.
+        """
+        self.controller.toggle_shuffle()
+        self.sounds.confirm() if self._shuffle else self.sounds.back()
+
+    def _repeat_pressed(self) -> None:
+        """`move`, not `confirm`: this is walking a value, like the theme row's
+        arrows, rather than switching one thing on."""
+        self.controller.cycle_repeat()
+        self.sounds.move()
 
     def _fullscreen(self) -> None:
         """F11 and Escape. The Settings row goes through `_activate`, which has
@@ -655,7 +706,7 @@ class MainWindow(ChromeWindow):
                 second += f" at {self._speed:.2f}x"
             third = (
                 f"Track {self.controller.index + 1} of {len(self._library.tracks)}"
-                f"   ·   {where}"
+                f"{self._modes_tail()}   ·   {where}"
             )
 
         return NowPlaying(
@@ -664,6 +715,35 @@ class MainWindow(ChromeWindow):
             fraction=_speed_fraction(self._speed),
             speed_text=f"{self._speed:.2f}x",
         )
+
+    def _modes_tail(self) -> str:
+        """What the third info line adds about shuffle and repeat, if anything.
+
+        Appended to a line that already exists rather than given a slot of its
+        own: the info block is three fixed lines and the third clears the
+        slider's box by 1 px, so a fourth is a new metric and a fresh collision
+        to check. It also belongs on that line by meaning -- "Track 4 of 31" is
+        already the sentence about where you are in the list, and these say how
+        it will move on from there.
+
+        Inserted *before* the folder name rather than after it, which is the
+        whole reason this is a method and not an f-string. `_paint_info` elides
+        the line from the right, and the folder name is the one field on it that
+        comes out of a file and so has no length -- put the modes last and a
+        library called `Nightcore Collection Remastered` silently eats them.
+        Whatever is unbounded goes at the end, where eliding it costs least.
+
+        Silent when the modes are what the app has always done, for the same
+        reason the length line drops its "plays in" at 1.00x: a readout that
+        never changes stops being read. `Repeat: All` is Batch 3's wrapping
+        auto-advance, so only `one` and `off` say anything.
+        """
+        parts = []
+        if self._shuffle:
+            parts.append("Shuffle")
+        if self._repeat != REPEAT_ALL:
+            parts.append(f"Repeat {self._repeat}")
+        return "".join(f"   ·   {part}" for part in parts)
 
     def _music_items(self) -> list[Item]:
         playing = self.controller.index
@@ -715,6 +795,23 @@ class MainWindow(ChromeWindow):
         return [
             SettingsRow("Music folder", self._folder_summary(), self._choose_folder),
             SettingsRow("Rescan folder", counts, self.controller.rescan),
+            # Both actions are the controller's own bound methods, like `rescan`
+            # above: `_activate` has already blipped by the time one of these
+            # runs, so a wrapper here would only add a second noise.
+            #
+            # Repeat cycles on Enter rather than being stepped into like Theme.
+            # A palette is a comparison you make by looking; these are three
+            # states you already know the names of, and the button in the
+            # transport bar can only mean "the next one" anyway. A row that
+            # behaved differently from its own button is the inconsistency.
+            SettingsRow(
+                "Shuffle",
+                "On" if self._shuffle else "Off",
+                self.controller.toggle_shuffle,
+            ),
+            SettingsRow(
+                "Repeat", self._repeat.capitalize(), self.controller.cycle_repeat
+            ),
             SettingsRow(
                 "Theme",
                 f"‹ {name} ›" if self._stepping else name,
@@ -894,6 +991,13 @@ class MainWindow(ChromeWindow):
             self.stage.bar.step(-1)  # XMB's "back" is a step left
         elif key == Qt.Key_Space:
             self._toggle()
+        # The first letter keys the app has ever bound, and they were free --
+        # `_handle_key` returned False for every one of them. No modifier check,
+        # like Space above: there is nothing else `S` could be doing.
+        elif key == Qt.Key_S:
+            self._shuffle_pressed()
+        elif key == Qt.Key_R:
+            self._repeat_pressed()
         elif key == Qt.Key_F11 or (key == Qt.Key_Escape and self.isFullScreen()):
             self._fullscreen()
         else:

@@ -6,6 +6,7 @@
     venv/Scripts/python.exe tools/render.py out.png --what settings --select 2
     venv/Scripts/python.exe tools/render.py out.png --theme all
     venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
+    venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
 
 The third leg of the stool. `shell_harness.py` asserts where things come to
 rest, `filmstrip.py` shows what happens on the way, and this shows what a screen
@@ -39,7 +40,7 @@ from PySide6.QtWidgets import QApplication
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.engine import AudioEngine
 from mp3player.ui import theme
-from mp3player.ui.controller import PlayerController
+from mp3player.ui.controller import REPEAT_MODES, PlayerController
 from mp3player.ui.main_window import (
     CAT_MUSIC,
     CAT_NOW,
@@ -135,6 +136,16 @@ def main() -> int:
              "`VOL 0%%` with the slider pinned left looks like a broken build.",
     )
     parser.add_argument(
+        "--shuffle", action="store_true",
+        help="turn shuffle on, so the lit button and the Now Playing tail are "
+             "in the shot",
+    )
+    parser.add_argument(
+        "--repeat", choices=REPEAT_MODES,
+        help="the repeat mode. `all` is the default and says nothing on the "
+             "page; `one` and `off` are the two that do",
+    )
+    parser.add_argument(
         "--across", action="store_true",
         help="lay the frames left to right instead of stacking them",
     )
@@ -166,6 +177,10 @@ def main() -> int:
     window.resize(width, height)
     window.show()
     controller.start()
+    # After `start`, which emits the saved values -- these have to be the last
+    # word or a shot asked for `--repeat one` would render whatever was saved.
+    controller.set_shuffle(args.shuffle)
+    controller.set_repeat(args.repeat or saved.repeat)
     app.processEvents()
 
     stage = window.stage

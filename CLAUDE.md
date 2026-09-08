@@ -69,9 +69,12 @@ legal text, and where the two disagree the licence wins.
 > **v1 is shipped, Batches 8 through 21 landed on top of it, and `1.2.0` is
 > built, tagged and released.** Every box in the roadmap is now ticked — the
 > release upload that had been open since Batch 15 was done on 2026-09-08.
-> **The one thing left is not a box and not in the repo: the GitHub account is
-> flagged, so the release 404s to anyone logged out and no push, release or
-> visibility change will work until it lifts.** See *The release* below. The items under *Open, and waiting on a human* are also still open.
+> **`v1.2.0` is downloadable by anyone, and that was verified logged out**: the
+> asset serves 60,144,449 bytes starting `PK`, byte-for-byte the local
+> zip. The account flag that blocked it for a few hours was lifted by GitHub
+> Support on 2026-09-08; see *The release* below, which is worth reading anyway
+> for the diagnostic. The items under *Open, and waiting on a human* are still
+> open.
 >
 > **The docket is empty.** Nothing is agreed and not started. The queue below
 > still lists what has been *offered* and what is waiting on a human, but there
@@ -347,8 +350,7 @@ legal text, and where the two disagree the licence wins.
 > | # | What | Where it is written | State |
 > |---|---|---|---|
 > | — | *(nothing agreed and not started)* | — | **The docket is empty** |
-> | — | **The GitHub account is flagged — nothing reaches GitHub until it lifts** | *The release*, below | **Not fixable from here.** An appeal to GitHub Support |
-> | — | Push `c309db0` and confirm the 1.2.0 asset, once the flag lifts | *The release*, below | Two commands, both blocked on the above |
+> | — | ~~The GitHub account is flagged~~ | *The release*, below | **Closed 2026-09-08.** Support lifted it; everything below it went green |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
 >
@@ -416,12 +418,20 @@ legal text, and where the two disagree the licence wins.
 > flagged account, which reads as "no public repos" and points the wrong way —
 > **don't diagnose off that endpoint.**
 >
-> **Nothing about this is fixable from the repo, and nothing in the repo is
-> wrong.** Appealing the flag at <https://support.github.com/contact> is the
-> whole of the fix; pushing, re-releasing or changing visibility will all fail
-> the same way until it lifts. When it does: `gh auth login` again, push
-> `c309db0`, and run `gh release view v1.2.0 --json assets` — the confirmation
-> that the uploaded zip is really attached has never been able to run.
+> **Nothing about this was fixable from the repo, and nothing in the repo was
+> wrong.** A support ticket was the whole of the fix — email verification and
+> billing were both ruled out first, so it was a false positive — and GitHub
+> lifted it the same day. Everything queued behind it then went green at once:
+> `main` is at `753be23`, `v1.2.0` points at `d7fadc4`, the release is public and
+> not a draft, and **the asset was confirmed by downloading it anonymously**
+> rather than by asking the API whether it existed — 60,144,449 bytes beginning
+> `PK`, matching the local zip exactly. `repo.private` reads `False`.
+>
+> The lesson that outlives the incident is the control request. Five symptoms
+> looked like five bugs, and one comparison against `torvalds` collapsed them
+> into one cause in about two seconds. **When something that used to work stops,
+> ask whether the same request works for somebody else before debugging your own
+> half of it.**
 >
 > **Don't push a tag or publish a release without being asked to.** That was true
 > before this and is still true for whatever the next version is.

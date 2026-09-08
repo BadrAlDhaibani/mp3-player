@@ -49,6 +49,30 @@ class ScanResult:
         return bool(self.tracks)
 
 
+def matches(track: Track, query: str) -> bool:
+    """Does `track` answer to `query`? Case-insensitive substring, title or artist.
+
+    Here rather than in the window because it is a pure function of a `Track`
+    and a string, which is the only kind of thing `tests/` can reach -- the
+    filtering *mode* is all Qt and lives upstairs. Title and artist and not the
+    album, chosen with the user: an album name you remember is nearly always a
+    name you would also find under the artist, and most of this library has
+    neither.
+
+    An empty query matches everything, and that is load-bearing rather than
+    tidy. The window maps column rows onto track indices through this, so "no
+    query" has to come back as the identity or every caller above would need a
+    branch for the case that is true 99% of the time.
+
+    Stripped, so a trailing space typed mid-word doesn't silently empty the
+    list, and a query of nothing but spaces means no query at all.
+    """
+    needle = query.strip().casefold()
+    if not needle:
+        return True
+    return needle in track.title.casefold() or needle in track.artist.casefold()
+
+
 def scan_folder(folder: Path | str | None, *, tags: bool = True) -> ScanResult:
     """List playable MP3s sitting directly inside `folder`.
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from mutagen.id3 import ID3, TALB, TIT2, TPE1
 
@@ -211,3 +213,42 @@ def test_an_unreadable_tag_costs_a_title_not_the_scan(tmp_path) -> None:
     result = scan_folder(tmp_path)
     assert [t.title for t in result.tracks] == ["broken"]
     assert result.error is None
+
+
+# -- matching, which is the only part of the search that leaves Qt ----------
+
+
+def _track(title: str, artist: str = "") -> Track:
+    return Track(path=Path("x.mp3"), title=title, artist=artist)
+
+
+def test_an_empty_query_matches_everything() -> None:
+    """Load-bearing rather than tidy: the window maps column rows onto track
+    indices through this, so "no query" has to come back as the identity or the
+    unfiltered list stops being the list the app has always shown."""
+    assert library.matches(_track("Roygbiv"), "")
+    assert library.matches(_track(""), "")
+
+
+def test_whitespace_is_not_a_query() -> None:
+    """A trailing space typed mid-word must not empty the list, and a query of
+    nothing but spaces means no query at all."""
+    assert library.matches(_track("Roygbiv"), "   ")
+    assert library.matches(_track("Roygbiv"), "roy ")
+
+
+def test_matching_is_a_case_insensitive_substring() -> None:
+    assert library.matches(_track("Tetris Remix [Final]"), "REMIX")
+    assert library.matches(_track("Tetris Remix [Final]"), "s rem")
+    assert not library.matches(_track("Tetris Remix [Final]"), "remixx")
+
+
+def test_the_artist_counts_too() -> None:
+    assert library.matches(_track("Roygbiv", artist="Boards of Canada"), "canada")
+    assert not library.matches(_track("Roygbiv"), "canada")
+
+
+def test_a_track_with_no_artist_is_not_a_crash() -> None:
+    """Most of this library is untagged, so the empty-artist path is the common
+    one rather than an edge case."""
+    assert not library.matches(_track("Roygbiv"), "boards")

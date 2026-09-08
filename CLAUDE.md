@@ -62,23 +62,49 @@ legal text, and where the two disagree the licence wins.
 > Batch 19 (daycore reaches 0.70x — 281 tests, 344 harness checks, and a
 > constant that is now a function) ·
 > Batch 20 (the category marks become drawings — 281 tests, 350 harness checks,
-> and three painted marks where three glyphs were)
+> and three painted marks where three glyphs were) ·
+> Batch 21 (search that filters the Music column — 286 tests, 397 harness
+> checks, and a row number that is no longer a track index)
 >
-> **v1 is shipped; Batches 8 through 20 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 20 is ticked except the release
+> **v1 is shipped; Batches 8 through 21 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 21 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **One batch is agreed, specified and not started: 21.** It is **the docket** —
-> the queue a few screens down, and the answer if you have been told to pick up
-> whatever is left. It is written out in full at the end of the roadmap, with the
-> design decisions already settled with the user, so it is work to do rather than
-> questions to re-open.
+> **The docket is empty.** Nothing is agreed and not started. The queue below
+> still lists what has been *offered* and what is waiting on a human, but there
+> is no next batch until the user names one — see *When the docket is empty*
+> under **The docket** for the standing candidates, none of which are agreed.
 >
 > The original roadmap ran out at Batch 15. Everything since has come from the
 > user directly: audible pops (16), a nicer icon and no console window (17),
 > shuffle and repeat (18), and then three things in one message — a lower daycore
 > (19), a Settings icon they dislike (20), and a way to search the folder (21).
+>
+> **Music can be filtered now, and the thing to know is that a column row is no
+> longer a track index.** `MainWindow._matches` is the map — column row → index
+> into `controller.tracks` — and it is built by `_music_items`, the method that
+> already walks the library to make the rows, because two lists in one order is
+> the bug Batch 14 spent a batch deleting and this one would misfire as *playing
+> the wrong song*. With no query open it is the identity, which is what keeps
+> `play_index`, `track_changed(int)`, the ▶ marker, "Track 4 of 196", `_order`
+> and the shuffle bag all addressing **real** indices, untouched. Two places
+> translate: `_activate` and `_music_row`. If you add a third, translate there
+> too.
+>
+> **The search is the theme row's mode with one deliberate difference: it does
+> not close on `index_changed`.** Moving the cursor through the results is the
+> point of having filtered them. Everything else — the branch at the top of
+> `_handle_key`, Esc/Backspace/Enter as the named exits, a category change
+> closing it, Ctrl and Shift arrows staying transport — is copied verbatim from
+> Batch 10 and argued out there.
+>
+> **`S`, `R` and `Space` are literal inside a search, and the mechanism is
+> `event.text()` rather than a modifier check.** A key that has to be a
+> *character* is read from `text()`; a key that has to be a *command* is read
+> from the code. `_handle_key` takes a third parameter and nothing else moved.
+> **`"".isprintable()` is `True`** — the test needs `text and ...` or every
+> arrow key counts as typing nothing.
 >
 > **The three category marks are painted now, and they live in
 > `mp3player/ui/marks.py`.** `Category.glyph` is `Category.draw`, a plain
@@ -295,7 +321,7 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **349/350 with
+> position read, it predates Batch 9, and it passes on a re-run. **396/397 with
 > that one line failing is the known state. Anything else failing is yours.**
 > (It failed twice running in Batch 20 before passing on the third, which is
 > within character for it — one in five is an impression, not a measurement.)
@@ -308,10 +334,10 @@ legal text, and where the two disagree the licence wins.
 >
 > ### The docket
 >
-> **This is the queue. If you were told to "do whatever is left on the docket",
-> this is the list, and item 1 is the answer.** Everything on it is agreed with
-> the user already; nothing *below* it is, so do not start anything that is not
-> here without asking first.
+> **This is the queue, and as of Batch 21 there is nothing agreed on it.** If you
+> were told to "do whatever is left on the docket", the honest answer is that the
+> agreed work is finished and the next batch has to come from the user. Nothing
+> in the table below is a batch you may start.
 >
 > The working agreement has not changed: **one batch at a time, each ending in
 > something runnable, and stop for sign-off before starting the next.** Do not
@@ -319,17 +345,19 @@ legal text, and where the two disagree the licence wins.
 >
 > | # | What | Where it is written | State |
 > |---|---|---|---|
-> | **1** | **Batch 21 — search that filters the Music column** | Roadmap, end of file | Agreed, not started |
+> | — | *(nothing agreed and not started)* | — | **The docket is empty** |
 > | — | Attach the zip to the `v1.1.0` GitHub release | Below, and `docs/RELEASING.md` step 7 | **Needs a browser; cannot be done from a session** |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
 >
-> **Batch 20 is done and its stop worked**, which is worth knowing because Batch
-> 21 has no equivalent: four candidate marks were drawn, put up as a sheet and
-> one was picked before anything was committed to. That pattern is the one to
-> reach for whenever the question is *which drawing* — the last four attempts at
-> a mark in this project were all settled by looking at a picture, and the
-> cheapest place to look is before the wiring, not after.
+> **Batch 20's stop is the pattern to reach for whenever the question is *which
+> drawing***: four candidate marks were drawn, put up as a sheet and one was
+> picked before anything was committed to. The last four attempts at a mark in
+> this project were all settled by looking at a picture, and the cheapest place
+> to look is before the wiring, not after. Batch 21 had no such question — its
+> one design choice (filter versus type-to-jump) was settled in words because the
+> difference is behavioural, not visual — but its own renders still found the
+> only bug it had.
 >
 > When the docket is empty, the queue goes back to the post-v1 list in the v1
 > scope section: the **queue** half of the shuffle line, export to file,
@@ -388,7 +416,9 @@ legal text, and where the two disagree the licence wins.
 > drawn in the emoji glyphs that mean exactly those two things, which come out
 > as blue tiles and **cannot be coloured at all**, and then the correct
 > monochrome shuffle mark dissolving into a scribble at the size a button
-> actually draws it.
+> actually draws it, and Batch 21's search header clipping the list into a
+> sliver of descenders that reads as a paint bug where the identical cut at the
+> window's own edge reads as a list running off the top.
 >
 > **Batch 20 belongs on neither list, and the reason is worth copying.** Its
 > renders found nothing because the sheet *was* the design step: four candidate
@@ -408,6 +438,16 @@ legal text, and where the two disagree the licence wins.
 > moved. A number is checkable when something independent still states it; the
 > handle check was the only place in 344 that had written the arithmetic out
 > rather than asking the code for it.
+>
+> **Batch 21 is on both lists, which is the tidiest illustration of the split
+> there has been.** Its *look* bug — the header clipping the list into a sliver —
+> was invisible to 47 green checks and obvious in one PNG. Its *behaviour* bug
+> was the reverse: an assertion written about a **sound** ("a keystroke that
+> changes no rows is silent") failed, and the reason it failed was that the
+> cursor was being yanked to the top of the results on every keystroke. Nothing
+> in a still could have shown that, and nobody had noticed it by hand. Write the
+> assertion for what is arithmetic, render for what is a picture, and expect each
+> to catch the other's blind spot rather than the same thing twice.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
@@ -575,6 +615,14 @@ here and write down why.
 | **All three category marks are painted, not just the one that was complained about** | The user asked for a nicer Settings icon and got three drawings. One painted mark beside two font glyphs reads as **mismatched weight** — a typeface has its own opinions about stroke thickness and optical size and they are not this project's — so fixing the gear alone would have traded one complaint for a subtler one. `ui/icon.py` is the precedent and the argument: the app icon is drawn from `theme.py` rather than shipped as a binary, for the same reason there are no `.wav` files for the UI sounds. The scope discipline that made it cheap is Batch 9's and Batch 10's: `_paint_category` had already computed the centre, the size and the focus-mixed colour before any of this existed, so `drawText` became a call and **`_paint_x`, the tween, the hit-testing and every `theme.CATEGORY_*` are untouched**. |
 | **The Settings mark is three faders** | Chosen with the user from a sheet of four (`tools/render.py --marks`), against a six-tooth gear, an open dial and a wrench. Two reasons, and only the first is about the picture: it is the most legible of the four at **30 px**, being made of horizontal lines and lumps where the other three each have a counter that closes up at that size — a gear's tooth gaps, a dial's ring, a wrench's jaw; and it rhymes with *this* app rather than with the desktop in general, the player being two sliders and a list. The dial lost partly on a third and more general point: **`ui/icon.py` is already a ring**, and two rings in one window is one idea said twice. Same trade as Batch 18's `⇄` and the icon's taper below 24 px — **the mark that survives the size beats the mark that is right** — and for the third time the answer came from a blown-up render rather than from reasoning. |
 | **A category's box is the mark's own square, and the size is no longer rounded** | The glyph was drawn into a constant `QRectF(centre - 60, row - 44, 120, 88)` — a *text* box, much larger than the ink, whose 120 had nothing to do with `CATEGORY_ICON`'s 44. A painted mark is handed a square exactly `size` across, which has two consequences worth writing down. The harness check that the furthest-right icon clears `ITEM_X` was an approximation and is now **exact**, because the half-width really is `CATEGORY_ICON_SMALL / 2`; and nothing clips a mark to its box, so "paints outside the box it was handed" became a thing to assert rather than a thing the text layout was quietly preventing. The size also stopped being `round()`ed: a font snaps to whole hinted pixel sizes, so the old mark *stepped* through the slide, and a painted one is happy at 37.4 px. That continuity is what the 30.0-vs-30.5 harness check states. |
+| **Search is a filter, not type-to-jump** | Chosen with the user in Batch 21. Type-to-jump — the cursor hops to the first match and the list stays whole — is the smaller change by a wide margin: no map, no empty state, no `_activate` translation, and the column keeps the identity every other index in the app depends on. It answers a different question, though. *"Where is that song in the list"* is what jumping answers; *"which of these do I have"* is what was asked for, and only a filter answers it. The cost is one row→track map, and the map is the batch. |
+| **A column row is not a track index, and `_matches` is the only place that is said** | Everything above the controller addresses a track by its integer index into `controller.tracks` — `play_index`, `track_changed(int)`, the ▶ marker, "Track 4 of 196", `_order` and the shuffle bag. A filtered column is the one and only place that identity stops holding, so the map is built **by the method that already walks the library to make the rows** (`_music_items`) rather than beside it: a row list and a row→track list assembled separately is Batch 14's parallel-array defect again, and this one misfires as *playing the wrong song*. With no query it is the identity, which is what keeps every consumer branch-free — and is why `core.library.matches` returns `True` for an empty query rather than the caller special-casing it. |
+| **The match predicate is a pure function in `core/library`** | `matches(track, query)` is the whole of the search that isn't Qt, so it goes below the seam where `tests/` can reach it and the mode stays upstairs. Title and artist, case-insensitive substring, stripped — album was considered and dropped, since an album you remember is nearly always findable under its artist and most of this library has neither. The part worth a test is not the substring: it is that an **empty query matches everything**, which is load-bearing rather than tidy and is exactly the kind of line somebody removes as redundant. |
+| **The search does not close on `index_changed`, and the theme row does** | Reads as an inconsistency between the app's two modes and is the single deliberate difference between them. Batch 10's row exits whenever the cursor leaves it, because the mode is *about that row* and moving off it means you are done. A search is about the **list**, and moving through the results is the entire point of having narrowed them — closing there would make the mode unusable with the arrow keys it was built to serve. Everything else is copied verbatim, exits and all, which is why the difference is one connection rather than a second mechanism. |
+| **A key that must be a character is read from `event.text()`; a key that must be a command is read from the code** | `S` and `R` were bound globally and with no modifier check in Batch 18 (correctly — `_handle_key` returned `False` for every letter), and `Space` has been play/pause since Batch 3. All three are characters somebody searching is entitled to type. Checking modifiers does not resolve that; reading a different field of the event does, and it cost `_handle_key` one parameter and no branch anywhere else. **`"".isprintable()` is `True`**, so the test is `text and text.isprintable()` — without the first half every arrow key, whose `text()` is `""`, counts as typing nothing and rebuilds the list. |
+| **A keystroke that leaves the results alone leaves the cursor alone too** | The first version reset the Music cursor to the top match on every keystroke, on the reasoning that row 4 under `tetris` is a different track from row 4 under `tetri` — true, and only true when the results actually moved. Typing the back half of a word already narrowed to one track yanked the cursor and blipped at you, because `keyPressEvent`'s index comparison saw a move. So `_set_query` asks `_match_indices` what the query *would* match before applying it, and the cursor and the sound both hang off that. This is the standing "a press that changes nothing makes no sound" rule meeting the case where the press *did* change something — the query — and only the **result** is the thing to compare. Found by an assertion written for the sound. |
+| **The query line is a header the list is clipped under, and rows fade into it rather than being cut** | No child in this app fills its background (that is what keeps the window's one gradient continuous), so a panel behind the query was never available and a clip buys the same non-overlap for no pixels. The clip alone left a **sliver of descenders hanging under the caption**, which reads as a paint bug where the identical cut at the window's own top edge reads as a list running off the screen. `_under_header` ramps a row out over one `ITEM_SPACING`; the clip stays underneath it as the hard guarantee. The band costs the topmost row, which at the 720x480 minimum is the only one above it that was on screen anyway. |
+| **The query elides from the left** | The only elision in the app that does. Every other one is a label or a readout whose *beginning* identifies it, so `ElideRight` keeps the useful half; a query is text you are still typing and the useful half is the end. It is also what keeps the caret meaning something — a caret after an ellipsis is a text field, a caret after a truncated word is a bug. Same family as the "a field whose text comes from a file has no length" convention, one step worse: a filename at least stops. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 | **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
@@ -603,6 +651,9 @@ mp3player/
     formats.py           # magic-byte sniffing; no numpy, no decoding
     tags.py              # read_tags() -> Tags; read_art() -> bytes | None
     library.py           # scan_folder(path) -> ScanResult(tracks, skipped, error)
+                         #   + matches(track, query): the whole of the search
+                         #   that isn't Qt. An empty query matches everything,
+                         #   which is what makes the unfiltered map the identity
     settings.py          # JSON at %APPDATA%/XMBPlayer/settings.json
                          #   folder, volume, speed, theme (a bare name),
                          #   shuffle (a real bool), repeat (a bare name too)
@@ -636,10 +687,14 @@ mp3player/
                          #   `core` deliberately doesn't keep
     chrome.py            # frameless drag/resize/min/close
     main_window.py       # composes the shell; XmbStage owns the mouse
+                         #   + the Music search: `_matches` is column row ->
+                         #   track index, and it is the only place that map is
+                         #   stated. Identity while no query is open
     widgets/
       crossbar.py        # category row + the rule it sits on. Category.draw is
                          #   a function now, not a glyph string -- see marks.py
-      item_column.py     # the item list -- Music and Settings only
+      item_column.py     # the item list -- Music and Settings only. Two modes,
+                         #   both only a look: set_stepping and set_search
       now_playing.py     # the Now Playing *page*: art, track, speed slider
       transport.py       # bottom bar: seek, transport buttons, volume
       wave.py            # the wave: ribbons in a band on the crossbar row
@@ -786,9 +841,14 @@ don't invent a second way to do a thing we've already solved.
   blips at the input, not to a signal — every signal worth listening to also
   fires when the app did something by itself, and that is the difference
   between feedback and an alert.
-- **A press that changes nothing makes no sound.** Up at the top of a list, a
-  slider at its clamp, a click on the category you are already on. Compare
-  before and after rather than trusting the branch you are in.
+- **A press that changes nothing makes no sound — and the thing to compare is
+  the *result*, not the input.** Up at the top of a list, a slider at its clamp,
+  a click on the category you are already on. Batch 21 is the case that sharpens
+  it: typing a letter into a search genuinely changes the query, so a version
+  that asked "did the input change" blipped and moved the cursor for a keystroke
+  that left every visible row exactly where it was. Ask what the state *would*
+  be before committing to it, then let the sound and everything else hang off
+  that comparison.
 - **Normalise a sound *after* enveloping it, never before.** Anything
   percussive has its peak in the first samples, which is exactly where the
   attack ramp is still at zero — so normalising first sets a level the
@@ -2891,15 +2951,17 @@ along. It is not the same *kind* of element (a content placeholder rather than a
 navigation mark) and it is not in scope, so it is raised rather than done. One
 line if it is wanted: `marks.draw_note` into the placeholder box.
 
-### Batch 21 — Finding a song
+### Batch 21 — Finding a song ✅
 
 The user asked for a way to search the folder. 196 tracks is a long list to
 arrow through.
 
-- [ ] The row→track map, and `_activate` translating through it
-- [ ] The search mode in `_handle_key`, ahead of everything
-- [ ] Where the query is drawn, and the `N of M matching` count
-- [ ] `tools/render.py --find`, harness checks, renders, a real run
+- [x] The row→track map, and `_activate` translating through it
+- [x] The search mode in `_handle_key`, ahead of everything
+- [x] Where the query is drawn, and the `N of M matching` count
+- [x] `tools/render.py --find`, harness checks, renders, a real run
+- [x] **Beyond the original list:** `core/library.matches`, so the predicate is
+      a pure function and `tests/` can reach it
 
 **Settled with the user:** a **filter** (the column narrows to matches) rather
 than type-to-jump (the cursor hops and the list stays whole), matching **title
@@ -2968,6 +3030,101 @@ to today's**.
 of a `Track` and a query, in which case it belongs in `core/library.py`.
 Otherwise this is a `ui/`-only batch and adds none, which is the convention.
 
+---
+
+**It was written that way, so `tests/` got five.** `core/library.matches(track,
+query)` is the whole of the search that isn't Qt: strip, casefold, substring
+against title or artist. The conditional in the brief was a real one and the
+answer was worth taking — the interesting half of that function is not the
+substring but the **empty query returning `True`**, which is what makes the
+unfiltered map the identity and so keeps every caller above it from needing a
+branch for the case that holds 99% of the time. That is a property somebody
+could "tidy up" without a test in front of them.
+
+**The map is the batch, and it is one line in the method that already built the
+rows.** `_music_items` walks the library to make `Item`s; it now writes
+`self._matches` on the same pass. Building the rows in one place and the
+row→track map in another would have been Batch 14's parallel-array bug in a new
+costume, and this one misfires as **playing the wrong song** rather than as a
+wrong-looking screen. Three call sites translate through it: `_activate`,
+`_on_track` (via `_music_row`) and nothing else — because `controller.tracks`,
+`play_index`, `_order`, the shuffle bag, `track_changed(int)` and "Track 4 of
+196" all go on addressing real indices and were not touched.
+
+**The mode is the theme row's design, with exactly one deliberate difference.**
+A branch at the top of `_handle_key`, three named exits (Esc, Backspace on an
+empty query, Enter), and everything else leaving by moving off the thing. The
+difference is that this one **must not close on `index_changed`** — walking the
+results is the point of having filtered them — and that is the whole reason the
+two modes are not one mechanism. It is checked from both sides: arrows and a
+mouse click each move the cursor and leave the search open.
+
+**`event.text()` is what made S, R and Space typeable.** Batch 18 bound `S` and
+`R` globally with no modifier check at all, on the correct reasoning that
+`_handle_key` returned `False` for every letter; `Space` has been play/pause
+since Batch 3. All three are characters somebody searching is entitled to type,
+and the split that resolves it is not a modifier check but **which field of the
+event you read**: a key that has to be a *character* comes from `text()`, a key
+that has to be a *command* comes from the code. `_handle_key` grew a third
+parameter and no branch anywhere else moved. One trap in it, and it is the kind
+that passes review: `"".isprintable()` is `True`, so without a truthiness test
+first every arrow key counts as typing nothing.
+
+**The renders found the bug, for the ninth batch running, and it was the
+header.** Clipping the list below the query line — which is what stops the two
+overlapping without any child filling a background — left a **sliver of
+descenders hanging under the caption**, and it reads as a paint bug where the
+identical cut at the window's own top edge reads as a list running off the
+screen. `_under_header` fades a row out over the band instead. Same shape as
+Batch 5's glow: the first version was geometrically correct and looked wrong.
+
+**And an assertion found a behaviour one, which is rarer.** *"A keystroke that
+changes no rows is silent"* failed, and the noise was real: `_set_query` reset
+the cursor to the top match on **every** keystroke, so typing the back half of a
+word you had already narrowed to one track yanked the cursor and blipped at you.
+The fix is to ask what the query *would* match before applying it — `changed` is
+computed against `_match_indices(query)`, and the cursor and the sound both hang
+off it. That is the standing "a press that changes nothing makes no sound" rule
+meeting a case it had not seen: the press changed the query, so only comparing
+the *result* catches it. The check was written for the sound and caught the
+cursor.
+
+**The load-bearing check was watched failing before it was believed**, per the
+convention. `_activate` was patched in a scratch copy to call
+`play_index(index)` — the bug the map exists to prevent — and three checks went
+red: the activation, Now Playing's "Track N of M", and the marker. Note which
+one stayed **green**: *"every row maps back to the track it is showing"*, because
+the map itself was intact and only its use was wrong. Two different claims, and
+it takes both.
+
+Verified: **286 tests green** (5 new, core-only as the convention requires — the
+empty query matching everything, whitespace not being a query, the substring
+being case-insensitive, the artist counting, and an untagged track not
+crashing). `tools/shell_harness.py` **397/397** on the first run with the known
+WASAPI flake passing; 47 new, in a section of their own. The interesting ones:
+every row mapping back to the track it displays, activating row *n* playing
+`_matches[n]`, `S`/`R`/`Space` being literal inside while shuffle, repeat and
+play/pause stay untouched, Ctrl+arrow still being transport, a click keeping the
+search open where the theme row would close, the unfiltered list being
+byte-identical to what it was before any of it, and both ends of `_under_header`.
+`ruff check .` and `mypy` clean. Rendered the query at 980x640 and at the 720x480
+minimum, with many matches, with one, with none, and with a query long enough to
+elide — **from the left, unlike every other elision in the app, because what you
+just typed is the end of it** — plus a shot with the cursor deep enough in the
+results to put rows under the header. Ran the real entrypoint with a mapped
+window and drove the search through it: 16 of 196 on `tet`, Enter played real
+index 4, the list came back at 196, **exit 0**, four clean lines in the log.
+
+**The query is bounded by elision, and the empty line says "Nothing matches"
+without repeating it.** Both are the "a field whose text comes from a file has no
+length" convention applied to a field that comes from the *keyboard*, which is
+worse — a file name at least stops.
+
+Not done: the `.exe`, for the same reason as Batches 9, 10, 12, 13, 14, 16, 18,
+19 and 20 — nothing here changes what PyInstaller reads. **Batch 17's note still
+stands**: the packaged exe wears the old crossbar icon, and fixing that means a
+version bump, which is the user's call.
+
 Verify with renders at 720x480 and 980x640 of a long query, a query matching one
 track, and a query matching nothing — **the query line is text of unbounded
 length sitting next to a track list**, which is precisely the class of bug the
@@ -3020,7 +3177,7 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 343/344 with *that* line failing
+# predates Batch 9, and it passes on a re-run. 396/397 with *that* line failing
 # is the known one; anything else failing is yours. The wave's 33 ms frame-cost
 # check can also fail on a loaded machine; re-run it idle before believing it.
 #
@@ -3036,6 +3193,13 @@ venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
 venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
 venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
 venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
+
+# the Music search. The query is unbounded text sitting next to a track list,
+# so the shots worth taking are a long one, one match, and none -- and one with
+# `--select` past the top, which is what shows rows fading under the header.
+venv/Scripts/python.exe tools/render.py out.png --find tetris
+venv/Scripts/python.exe tools/render.py out.png --find tetris --select 9
+venv/Scripts/python.exe tools/render.py out.png --find zzqqxx --size 720x480
 
 # the three category marks at both real sizes, beside the glyphs they replaced.
 # Opens no audio device and builds no window -- it is a question about three

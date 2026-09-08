@@ -44,6 +44,9 @@ worth naming one, it's the most interesting sentence on this page].
 - **Shuffle and repeat.** `S` and `R`, or the two buttons in the bottom bar, or
   the rows in Settings. Repeat goes all → one → off; shuffle deals a fresh order
   and plays every track once before dealing another. Both remembered.
+- **Search the folder.** `/` on the Music list, then type: it narrows to the
+  tracks whose title or artist contains what you typed. `Enter` plays one and
+  closes, `Esc` goes back to the whole library.
 
 ### Screens
 
@@ -86,7 +89,8 @@ not, [run it from source](#running-from-source) instead — it's the same app.
 | `↑` `↓` | move down a list — or drive the speed slider on Now Playing |
 | `Enter` | play the selected track, or open the selected setting |
 | `Enter` on **Theme** | step into the row, then `←` `→` to browse, `Enter` or `Esc` to leave |
-| `Backspace` | back a category |
+| `/` or `Ctrl` + `F` | on **Music**, search: type to narrow, `Esc` to clear |
+| `Backspace` | back a category — or one character, while searching |
 | `Space` | play / pause |
 | `S` | shuffle on / off |
 | `R` | repeat: all → one → off |

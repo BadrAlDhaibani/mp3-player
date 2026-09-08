@@ -17,10 +17,12 @@ where its width has to change.
 Music and Settings use this. Now Playing does not -- it's a page rather than a
 list, so it has its own widget (`now_playing.py`) instead of a mode in here.
 
-There is exactly one mode in here, `set_stepping`, and it is only a *look*: the
-outline that says the selected row is holding the arrow keys. What that means,
-and which rows can do it, stays in the window. This widget has never known what
-any of its rows are for.
+There are exactly two modes in here, `set_stepping` and `set_search`, and both
+are only a *look*: an outline that says the selected row is holding the arrow
+keys, and a header that says what is being typed. What either means -- which
+rows can be stepped into, what a query matches, which rows survive it -- stays
+in the window. This widget has never known what any of its rows are for, and
+the filtered list arrives here as a plain shorter list of items.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ VALUE_PAD = 12  # right-hand readout inset, so it clears the plate's corner
 # printed straight over its own title. The label always keeps the majority.
 VALUE_MAX_SHARE = 0.45
 PLAYING_MARKER = "▶"
+SEARCH_LABEL = "FIND"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +68,10 @@ class ItemColumn(QWidget):
         self._index = 0
         self._empty_text = ""
         self._stepping = False
+        # None is "no search open". "" is a search open with nothing typed yet,
+        # which is a real and visible state -- one value carries both facts, the
+        # same way `set_stepping` carries one.
+        self._search: str | None = None
 
         self._display = 0.0
         self._appear = 1.0
@@ -179,6 +186,24 @@ class ItemColumn(QWidget):
             self._stepping = on
             self.update()
 
+    # -- the search header -------------------------------------------------
+
+    @property
+    def search(self) -> str | None:
+        return self._search
+
+    def set_search(self, query: str | None) -> None:
+        """The query to show above the list, or `None` for no search at all.
+
+        Same contract as `set_stepping`: a value in, a look out. This widget
+        does no filtering -- the window hands it a shorter list of items and
+        the string that produced it, and would be none the wiser if the two
+        had nothing to do with each other.
+        """
+        if query != self._search:
+            self._search = query
+            self.update()
+
     # -- geometry ----------------------------------------------------------
     #
     # `_item_y` is where a row comes to rest, `_paint_y` where it is right now.
@@ -223,6 +248,16 @@ class ItemColumn(QWidget):
             painter.setOpacity(self._appear)
             painter.translate((1.0 - self._appear) * theme.APPEAR_OFFSET, 0)
 
+        if self._search is not None:
+            self._paint_search(painter)
+            # The list is clipped below the header rather than the header being
+            # given something opaque to sit on: no child in this app fills its
+            # background, and a clip is the same non-overlap for no pixels. It
+            # costs the topmost row, which is the one already half off the top.
+            painter.setClipRect(
+                QRectF(0, theme.SEARCH_BAND, self.width(), self.height())
+            )
+
         if not self._items:
             if self._empty_text:
                 painter.setFont(theme.font(theme.ITEM_TEXT))
@@ -236,11 +271,82 @@ class ItemColumn(QWidget):
 
         self._paint_selection(painter)
 
+        base = painter.opacity()
         for index, item in enumerate(self._items):
             y = self._paint_y(index)
             if y < -theme.ITEM_SPACING or y > self.height() + theme.ITEM_SPACING:
                 continue  # off-stage; a 200-track folder only paints what shows
+            if self._search is not None:
+                # Rows fade into the header rather than being chopped at it.
+                # The clip alone left a sliver of descenders hanging under the
+                # query line, which reads as a paint bug where the same cut at
+                # the window's own edge reads as a list running off the top.
+                painter.setOpacity(base * self._under_header(y))
             self._paint_item(painter, index, item, y)
+        painter.setOpacity(base)
+
+    def _under_header(self, y: float) -> float:
+        """How much of a row centred at `y` survives the search header. 0..1.
+
+        1 once the row's box clears `SEARCH_BAND` entirely, 0 once it is wholly
+        above it, and linear in between -- so a row sliding up out of the list
+        dims out instead of being sliced. Exported as its own function because
+        the harness asserts on both ends of it, and an assertion that restated
+        the arithmetic would go on passing after the band moved.
+        """
+        over = theme.SEARCH_BAND + theme.ITEM_SPACING / 2 - y
+        if over <= 0:
+            return 1.0
+        return max(0.0, 1.0 - over / theme.ITEM_SPACING)
+
+    def _paint_search(self, painter: QPainter) -> None:
+        """`FIND  tetris▌`, above the list it is narrowing.
+
+        The caption takes the crossbar label's letter-spaced 13px, so the header
+        reads as part of the furniture rather than as a row that wandered up
+        there; the query itself takes the item size and the accent, because it
+        is the thing that changes.
+        """
+        height = theme.SEARCH_TEXT + 8
+        painter.setFont(theme.font(13, letter_spacing=True))
+        painter.setPen(theme.TEXT_FAINT)
+        painter.drawText(
+            QRectF(theme.ITEM_X, theme.SEARCH_TOP, theme.SEARCH_LABEL_W, height),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            SEARCH_LABEL,
+        )
+
+        x = theme.ITEM_X + theme.SEARCH_LABEL_W
+        room = max(
+            40,
+            self.width() - x - theme.RIGHT_MARGIN - theme.SEARCH_CARET_W - 6,
+        )
+        painter.setFont(theme.font(theme.SEARCH_TEXT))
+        metrics = QFontMetrics(painter.font())
+        # From the *left*, unlike every other elision in this file. A query is
+        # unbounded text you are still typing, and what you just typed is the
+        # end of it -- losing the front of a long one is what a text field does
+        # and what makes the caret keep meaning something.
+        shown = metrics.elidedText(self._search or "", Qt.ElideLeft, room)
+        painter.setPen(theme.accent_text())
+        painter.drawText(
+            QRectF(x, theme.SEARCH_TOP, room, height),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            shown,
+        )
+        # Painted, not a glyph. The offscreen harness has no font database, so a
+        # block character there is a fallback of some other width -- a rectangle
+        # is the same rectangle everywhere, and it is what says the header is
+        # taking keys even before anything has been typed into it.
+        painter.fillRect(
+            QRectF(
+                x + metrics.horizontalAdvance(shown) + 3,
+                theme.SEARCH_TOP + 3,
+                theme.SEARCH_CARET_W,
+                height - 6,
+            ),
+            theme.accent_text(),
+        )
 
     def _paint_selection(self, painter: QPainter) -> None:
         """The plate and its glow -- drawn once, under every item.

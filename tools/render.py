@@ -7,6 +7,7 @@
     venv/Scripts/python.exe tools/render.py out.png --theme all
     venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
     venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
+    venv/Scripts/python.exe tools/render.py out.png --find tetris
     venv/Scripts/python.exe tools/render.py out.png --marks
 
 The third leg of the stool. `shell_harness.py` asserts where things come to
@@ -252,6 +253,12 @@ def main() -> int:
              "page; `one` and `off` are the two that do",
     )
     parser.add_argument(
+        "--find",
+        help="open the Music search and type this. The query is unbounded text "
+             "sitting next to a track list, so it wants looking at long, at one "
+             "match and at none.",
+    )
+    parser.add_argument(
         "--marks", action="store_true",
         help="the category marks at both real sizes, beside the glyphs they "
              "replaced. Opens no audio device and builds no window -- it is a "
@@ -315,6 +322,18 @@ def main() -> int:
         if args.what != "now":
             stage.column.set_index(max(0, min(args.select, stage.column.count - 1)))
             stage.column.settle()
+        app.processEvents()
+
+    if args.find is not None and args.what == "music":
+        # Through the same two calls a keypress makes, rather than by setting
+        # the flag and the string -- this renders the state the app reaches.
+        window._begin_search()
+        window._set_query(args.find)
+        # Re-applied, because typing puts the cursor back on the top match --
+        # and a shot with rows *above* the header is the one that says whether
+        # the list is really clipped below it.
+        stage.column.set_index(max(0, min(args.select, stage.column.count - 1)))
+        stage.column.settle()
         app.processEvents()
 
     if args.step and args.what == "settings":

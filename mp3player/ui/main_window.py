@@ -331,10 +331,22 @@ class MainWindow(ChromeWindow):
         self._repeat = settings_mod.DEFAULT_REPEAT
         self._duration = 0.0
         self._device_lost = False
-        # Set while the Theme row is holding the arrow keys. The only modal
-        # state in the app, which is why it is spelled out here rather than
-        # inferred from the cursor being on that row.
+        # Set while the Theme row is holding the arrow keys. One of the two
+        # modal states in the app, which is why it is spelled out here rather
+        # than inferred from the cursor being on that row.
         self._stepping = False
+        # The other one: Music being filtered. `_searching` and `_query` are
+        # separate because an open search with nothing typed is a real state --
+        # the header is up and the keyboard has changed meaning, while the list
+        # is still every track.
+        self._searching = False
+        self._query = ""
+        # Column row -> index into `_library.tracks`. Everything above the
+        # controller addresses a track by its real index -- `play_index`, the
+        # marker, "Track 4 of 196", the shuffle bag -- and a filtered column is
+        # the one place that identity stops holding. Rebuilt by `_music_items`,
+        # which is the method that already walks the library to make the rows.
+        self._matches: list[int] = []
         # The first `library_changed` is the one that can decide this is a first
         # run. Every later one is the user changing folders, and landing them
         # back on Settings for that would be the app taking the wheel.
@@ -468,6 +480,16 @@ class MainWindow(ChromeWindow):
         """
         if self._device_lost:
             self.stage.set_status(DEVICE_LOST_TEXT, sticky=True)
+        elif self._searching and self._library.tracks:
+            # Sticky rather than transient: a search is a *condition*, and a
+            # count that expired after six seconds while the query was still on
+            # screen would be the status line contradicting the header. Below
+            # the device and above the library error, which is the same ranking
+            # by how much the user can do about it.
+            self.stage.set_status(
+                f"{len(self._matches)} of {len(self._library.tracks)} matching",
+                sticky=True,
+            )
         elif self._library.error is not None:
             self.stage.set_status(
                 empty_advice(self._library.error, self._folder), sticky=True
@@ -493,10 +515,14 @@ class MainWindow(ChromeWindow):
     def _on_track(self, index: int) -> None:
         track = self.controller.current
         self.transport.set_title(track.title if track else "nothing loaded")
-        if index >= 0:
-            self._selection[CAT_MUSIC] = index
+        # The cursor follows the track, and under a filter the row it lives on
+        # is not the track's index. A track the query hides gets no cursor move
+        # at all rather than a clamped one -- there is no row to move to.
+        row = self._music_row(index) if index >= 0 else None
+        if row is not None:
+            self._selection[CAT_MUSIC] = row
             if self._category == CAT_MUSIC:
-                self.stage.column.set_index(index)
+                self.stage.column.set_index(row)
         self._refresh_column()
 
     def _on_art(self, data: object) -> None:
@@ -640,9 +666,12 @@ class MainWindow(ChromeWindow):
     # -- categories and items ---------------------------------------------
 
     def _on_category(self, index: int) -> None:
-        # Leaving Settings leaves the row, however you left. Before the refresh
-        # below, or the column rebuilds still wearing the outline.
+        # Leaving Settings leaves the row and leaving Music leaves the search,
+        # however you left. Before the refresh below, or the column rebuilds
+        # still wearing the outline -- and before `self._category` moves on, so
+        # the search's own restore banks against the category it belonged to.
         self._stop_stepping()
+        self._end_search()
         # The crossbar has already moved by the time this fires, so the cursor
         # for the category we just left has to be banked against the mirrored
         # index rather than against `bar.index`.
@@ -665,6 +694,10 @@ class MainWindow(ChromeWindow):
         index = 0 if reset else self._selection[category]
 
         self.stage.show_page(category == CAT_NOW)
+        # Said here rather than only in the Music branch below, so a query can't
+        # outlive the list it was narrowing: leaving Music closes the search,
+        # but the header should not depend on that having happened first.
+        self.stage.column.set_search(self._query if self._searching else None)
 
         if category == CAT_NOW:
             self.stage.page.set_state(self._now_playing())
@@ -749,13 +782,58 @@ class MainWindow(ChromeWindow):
         return "".join(f"   ·   {part}" for part in parts)
 
     def _music_items(self) -> list[Item]:
+        """The Music rows, and the map back to real track indices.
+
+        The two are built together on purpose: a row list and a row->track list
+        that are assembled in two places is the Batch 14 parallel-array bug in a
+        new costume, and this one would misfire as *playing the wrong song*.
+        With no query `_matches` is the identity, so everything downstream of it
+        behaves exactly as it did before there was a search at all.
+        """
         playing = self.controller.index
+        tracks = self._library.tracks
+        self._matches = self._match_indices(self._query)
         return [
-            Item(track.title, value=track.artist, marker=(i == playing))
-            for i, track in enumerate(self._library.tracks)
+            Item(tracks[i].title, value=tracks[i].artist, marker=(i == playing))
+            for i in self._matches
         ]
 
+    def _match_indices(self, query: str) -> list[int]:
+        """Which tracks `query` would leave on screen, in list order.
+
+        Split out of `_music_items` so `_set_query` can ask what a keystroke
+        would do *before* doing it -- which is the only way to tell a press that
+        narrowed the list from one that merely made the query longer.
+        """
+        return [
+            i
+            for i, track in enumerate(self._library.tracks)
+            if library.matches(track, query)
+        ]
+
+    def _music_row(self, index: int) -> int | None:
+        """Which column row is showing track `index`, or None if it's filtered out.
+
+        The identity shortcut is not an optimisation: with no query open, Music
+        may never have been built -- the app opens on Now Playing -- so
+        `_matches` can legitimately be empty while the library is not. A query
+        can only be open on Music, which is the case where `_matches` is
+        guaranteed fresh.
+        """
+        if not self._query:
+            return index
+        try:
+            return self._matches.index(index)
+        except ValueError:
+            return None
+
     def _music_empty_text(self) -> str:
+        # A query that matches nothing is not an empty folder, and saying "No
+        # playable MP3s" there reads as the library having vanished. The query
+        # itself is not repeated into this line: it is already on screen in the
+        # header above, and it is the one string here with no length.
+        if self._query and self._library.tracks:
+            return "Nothing matches"
         return empty_reason(self._library.error, self._folder)
 
     def _folder_summary(self) -> str:
@@ -837,7 +915,13 @@ class MainWindow(ChromeWindow):
         # Now Playing has no items to activate -- it's a page, and its only
         # control answers to the arrow keys directly.
         if self._category == CAT_MUSIC:
-            self.controller.play_index(index)
+            # Through the map, always. With no query it is the identity, so
+            # this is the same call it has been since Batch 3.
+            if 0 <= index < len(self._matches):
+                self.controller.play_index(self._matches[index])
+            # Enter is a decision: you found the track, so the filter has done
+            # its job and the list goes back to being the library.
+            self._end_search()
         elif self._category == CAT_SETTINGS:
             self._activate_settings(index)
 
@@ -883,6 +967,108 @@ class MainWindow(ChromeWindow):
         here = names.index(theme.palette().name)
         self.controller.set_theme(names[(here + delta) % len(names)])
 
+    # -- searching Music, which is the other mode --------------------------
+    #
+    # Built to the theme row's pattern above, because that design was argued out
+    # once already: a branch at the top of `_handle_key`, three named exits, and
+    # everything else leaving by moving the cursor off the thing. One place it
+    # deliberately differs, and it is the whole difference between the two
+    # modes: this one must *not* close on `index_changed`. Moving the cursor
+    # through the results is the point of having filtered them.
+    #
+    # A filter rather than type-to-jump, chosen with the user. Jumping is the
+    # smaller change -- the cursor hops and the list stays whole -- and it
+    # answers "where is that song in the list", where the question here is
+    # "which songs are these".
+
+    def _begin_search(self) -> None:
+        """Open the header. The list is still every track until something is typed."""
+        if self._searching:
+            return  # Ctrl+F twice is not a request to throw away the query
+        self._searching = True
+        self._query = ""
+        self._refresh_column()
+        self._refresh_sticky()
+        self.sounds.confirm()
+
+    def _set_query(self, query: str) -> None:
+        """Retype the query and rebuild the list under it.
+
+        The cursor goes to the top when the results change, which is what the
+        banked Music index has to give up: row 4 under `tetris` is a different
+        track from row 4 under `tetri`, so restoring it would be restoring a
+        number rather than a place.
+
+        When they *don't* change it stays exactly where it was, and that is the
+        standing "a press that changes nothing" rule reaching a case it had not
+        met before: the press did change the query, so the naive version reset
+        the cursor and the index comparison in `keyPressEvent` blipped at it.
+        Typing the back half of a word you have already narrowed to one track
+        should neither tick nor move anything.
+        """
+        after = self._match_indices(query)
+        changed = after != self._matches
+        self._query = query
+        if changed:
+            self._selection[CAT_MUSIC] = 0
+        self._refresh_column(reset=changed)
+        self._refresh_sticky()
+        if not changed:
+            return
+        self.sounds.error() if not self._matches else self.sounds.move()
+
+    def _end_search(self) -> None:
+        """Close it, keeping the cursor on the track it was on. No-op if closed.
+
+        Translating the row back through the map before dropping it is the
+        difference between landing where you were looking and landing on
+        whichever track happens to be fourth in the library.
+        """
+        if not self._searching:
+            return
+        row = self.stage.column.index
+        landing = self._matches[row] if 0 <= row < len(self._matches) else 0
+        self._searching = False
+        self._query = ""
+        self._selection[CAT_MUSIC] = landing
+        self._refresh_column(restore=True)
+        self._refresh_sticky()
+
+    def _search_key(self, key: int, modifiers, text: str) -> bool | None:
+        """The search mode's keyboard. `None` means "not mine -- carry on".
+
+        Falling through is most of the design. The arrows, PageUp/Down, Home,
+        End and Enter all want to do exactly what they do outside the mode, on
+        the shorter list; Ctrl and Shift arrows stay transport, verbatim from
+        the theme row's reasoning -- you may well be listening while you look.
+        """
+        if key == Qt.Key_Escape:
+            self._end_search()
+            self.sounds.back()
+            return True
+        if key == Qt.Key_Backspace:
+            # Deleting past the start leaves rather than falling through to the
+            # crossbar's "back", which would be a category step out of nowhere.
+            if self._query:
+                self._set_query(self._query[:-1])
+            else:
+                self._end_search()
+                self.sounds.back()
+            return True
+        # `text` and not `key`, which is what makes S, R and Space literal in
+        # here while they stay bound to shuffle, repeat and play/pause outside.
+        # Ctrl and Alt are excluded so a chord can't type its control character.
+        # `text` first, because "".isprintable() is True and an arrow key's text
+        # is "" -- without it every arrow would count as typing nothing.
+        if (
+            text
+            and text.isprintable()
+            and not modifiers & (Qt.ControlModifier | Qt.AltModifier)
+        ):
+            self._set_query(self._query + text)
+            return True
+        return None
+
     def _choose_folder(self) -> None:
         # Opening the picker *at* a folder that has been deleted is how you get
         # an empty dialog rooted nowhere. The reason someone is on this row is
@@ -904,7 +1090,7 @@ class MainWindow(ChromeWindow):
     def keyPressEvent(self, event) -> None:
         before = (self.stage.bar.index, self.stage.column.index)
 
-        if not self._handle_key(event.key(), event.modifiers()):
+        if not self._handle_key(event.key(), event.modifiers(), event.text()):
             super().keyPressEvent(event)
             return
 
@@ -923,9 +1109,25 @@ class MainWindow(ChromeWindow):
 
         self._selection[self._category] = self.stage.column.index
 
-    def _handle_key(self, key: int, modifiers) -> bool:
-        """Do what `key` means. False if it means nothing here."""
+    def _handle_key(self, key: int, modifiers, text: str = "") -> bool:
+        """Do what `key` means. False if it means nothing here.
+
+        `text` is the character the key produced, which only the search mode
+        looks at -- and only it could, since every other branch here is about a
+        key that has no character.
+        """
         column = self.stage.column
+
+        # A live search takes the keyboard before anything else, because the
+        # keys it needs are ones this file has already spent: S and R are
+        # shuffle and repeat, Space is play/pause, and all three are letters
+        # somebody is entitled to type. Ahead of the stepped-into row too --
+        # they are mutually exclusive, being on different categories, and the
+        # order costs nothing to state.
+        if self._searching:
+            handled = self._search_key(key, modifiers, text)
+            if handled is not None:
+                return handled
 
         # A stepped-into row takes the horizontal arrows before the crossbar
         # sees them -- first, so the branch below can go on treating Left and
@@ -1001,6 +1203,13 @@ class MainWindow(ChromeWindow):
             self._shuffle_pressed()
         elif key == Qt.Key_R:
             self._repeat_pressed()
+        # Music only: there are seven Settings rows and one Now Playing page,
+        # and neither is a list anybody needs to narrow. Returning False rather
+        # than swallowing it keeps `/` free to mean something else one day.
+        elif key == Qt.Key_Slash or (key == Qt.Key_F and modifiers & Qt.ControlModifier):
+            if self._category != CAT_MUSIC:
+                return False
+            self._begin_search()
         elif key == Qt.Key_F11 or (key == Qt.Key_Escape and self.isFullScreen()):
             self._fullscreen()
         else:

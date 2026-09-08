@@ -160,6 +160,18 @@ ITEM_FADE_SPAN = 9.0  # distance at which an item would fade out completely
 ITEM_FADE_FLOOR = 0.38  # ...except it never gets dimmer than this, so a short
 # action list doesn't read as half-disabled. Long track lists still fall away.
 
+# The search header, when Music is being filtered. It sits above the list in the
+# column's own x range, and the list is *clipped* below SEARCH_BAND rather than
+# having a panel drawn behind the query -- the standing rule is that children
+# leave their background unfilled so the window's one gradient stays continuous,
+# and a clip buys the same non-overlap for nothing. The band costs the topmost
+# row, which at the 720x480 minimum is the only one above it that was on screen.
+SEARCH_TOP = 14
+SEARCH_TEXT = 17  # the query itself; ITEM_TEXT, because it reads as a row
+SEARCH_LABEL_W = 52  # room for the "FIND" caption at 13px, letter-spaced
+SEARCH_CARET_W = 2
+SEARCH_BAND = 48
+
 # The art placeholder lives in the empty gutter left of the item column, below
 # the category label -- not above the items. Stacking it above the column meant
 # competing with them for vertical room, which the 720x480 minimum simply does

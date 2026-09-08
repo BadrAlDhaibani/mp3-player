@@ -51,6 +51,7 @@ from mp3player.core.audio.engine import (  # noqa: E402
     AudioEngine,
     StreamWatch,
 )
+from mp3player.core.library import matches as track_matches  # noqa: E402
 from mp3player.core.library import scan_folder  # noqa: E402
 from mp3player.core.models import Track  # noqa: E402
 from mp3player.core.tags import read_art  # noqa: E402
@@ -122,8 +123,24 @@ def check(name: str, condition: bool, detail: str = "") -> None:
     print(f"  [{mark}] {name}{'  -- ' + detail if detail else ''}")
 
 
-def press(window: MainWindow, code: Qt.Key, mods=Qt.NoModifier) -> None:
-    window.keyPressEvent(QKeyEvent(QEvent.KeyPress, code, mods))
+def press(window: MainWindow, code: Qt.Key, mods=Qt.NoModifier, text: str = "") -> None:
+    window.keyPressEvent(QKeyEvent(QEvent.KeyPress, code, mods, text))
+
+
+# The letter keys that already mean something outside a search. Typed with their
+# real key codes rather than a stand-in, because "S is literal in here and
+# shuffle out there" is exactly the claim being checked -- a probe that sent
+# Key_A for every character would pass while the app toggled shuffle.
+_KEY_FOR = {" ": Qt.Key_Space, "/": Qt.Key_Slash, "-": Qt.Key_Minus, ".": Qt.Key_Period}
+
+
+def type_text(window: MainWindow, text: str) -> None:
+    """Type `text` a character at a time, the way a keyboard delivers it."""
+    for char in text:
+        code = _KEY_FOR.get(char)
+        if code is None:
+            code = getattr(Qt, f"Key_{char.upper()}", Qt.Key_A)
+        press(window, code, text=char)
 
 
 def _mouse(kind, x: int, y: int, button=Qt.LeftButton) -> QMouseEvent:
@@ -206,6 +223,32 @@ class Clock:
 
     def tick(self, ms: float = 1000.0) -> None:
         self.ms += ms
+
+
+def pick_query(tracks) -> str:
+    """A query that matches some of this library but not all of it.
+
+    Built from the folder in front of it rather than hard-coded, because this
+    harness runs against whatever the user has saved -- a literal like "remix"
+    would quietly become a check that everything matches, or that nothing does,
+    on somebody else's music.
+    """
+    fallback = ""
+    # Short prefixes first, because they match more: several of the checks below
+    # need a result set they can walk down, and a query that happens to pin one
+    # track passes "End goes to the last match" without saying anything.
+    for size in (3, 4, 5, 6):
+        for track in tracks[:40]:
+            candidate = track.title[:size].strip().casefold()
+            if len(candidate) < 3:
+                continue
+            hits = sum(1 for other in tracks if track_matches(other, candidate))
+            if not 0 < hits < len(tracks):
+                continue
+            if hits >= 5:
+                return candidate
+            fallback = fallback or candidate
+    return fallback
 
 
 def main() -> int:
@@ -1774,6 +1817,228 @@ def main() -> int:
     controller.set_shuffle(saved.shuffle)
     controller.set_repeat(saved.repeat)
     app.processEvents()
+
+    print("\n-- finding a song: the Music column filters")
+    # Unusually much of this batch is assertable, because the whole risk in it
+    # is an arithmetic one: a filtered column breaks the "row number == index
+    # into controller.tracks" identity that `play_index`, the marker and
+    # "Track N of M" all still rely on. Everything here is about that map.
+    query = pick_query(controller.tracks)
+    bar.set_index(CAT_MUSIC)
+    app.processEvents()
+    bar.settle()
+    column.settle()
+    app.processEvents()
+    unfiltered = [item.label for item in column._items]
+    check("no search is open to begin with", column.search is None)
+    check(
+        "with no query the map is the identity",
+        window._matches == list(range(len(controller.tracks))),
+    )
+
+    clock.tick()
+    log.take()
+    press(window, Qt.Key_Slash, text="/")
+    app.processEvents()
+    check("`/` opens the search on Music", window._searching and column.search == "")
+    check("...and the list is still every track", column.count == len(controller.tracks))
+    check("...and it blips once", log.take() == [sfx.CONFIRM])
+
+    clock.tick()
+    type_text(window, query)
+    app.processEvents()
+    matches = list(window._matches)
+    check(f"typing {query!r} narrows the list", 0 < column.count < len(controller.tracks),
+          f"{column.count} of {len(controller.tracks)}")
+    check("the column shows exactly the matches", column.count == len(matches))
+    # The check the whole batch exists for. Restated from `controller.tracks`
+    # rather than from anything the window built, so a map that drifted would
+    # have to drift in two places at once to pass.
+    check(
+        "every row maps back to the track it is showing",
+        all(
+            controller.tracks[real].title == column._items[row].label
+            for row, real in enumerate(matches)
+        ),
+    )
+    check(
+        "and every match really matches",
+        all(track_matches(controller.tracks[real], query) for real in matches),
+    )
+    check(
+        "the status line counts them",
+        stage._status == f"{len(matches)} of {len(controller.tracks)} matching",
+        stage._status,
+    )
+
+    # S, R and Space are the three keys this file has already spent, and all
+    # three are characters somebody is entitled to type. Batch 18 bound the
+    # first two globally and with no modifier check at all.
+    was_shuffle, was_repeat, was_playing = (
+        controller.shuffle,
+        controller.repeat,
+        window._playing,
+    )
+    type_text(window, "sr ")
+    app.processEvents()
+    check("S, R and Space are literal inside a search", window._query == query + "sr ")
+    check(
+        "...so shuffle, repeat and play/pause are untouched",
+        (controller.shuffle, controller.repeat, window._playing)
+        == (was_shuffle, was_repeat, was_playing),
+    )
+    for _ in range(3):
+        press(window, Qt.Key_Backspace)
+    app.processEvents()
+    check("backspace deletes one character at a time", window._query == query)
+    check("...and the list comes back with it", column.count == len(matches))
+
+    # Ctrl and Shift arrows stay transport, verbatim from the theme row: you may
+    # well be listening while you look for something else.
+    before_index = controller.index
+    press(window, Qt.Key_Right, Qt.ControlModifier)
+    app.processEvents()
+    check("Ctrl+arrow is still transport inside a search", controller.index != before_index)
+    check("...and the search is still open", window._searching)
+    press(window, Qt.Key_Right, Qt.ShiftModifier)
+    app.processEvents()
+    check("Shift+arrow is not typed into the query", window._query == query)
+
+    # Moving the cursor is the point of having filtered, so this is the one
+    # place the search deliberately differs from the theme row -- which closes
+    # on exactly this signal.
+    press(window, Qt.Key_Down)
+    press(window, Qt.Key_Down)
+    app.processEvents()
+    check("arrows walk the filtered list", column.index == 2, f"index={column.index}")
+    check("...without closing the search", window._searching)
+    press(window, Qt.Key_End)
+    app.processEvents()
+    check("End goes to the last match", column.index == len(matches) - 1)
+
+    # The mouse's half of the same rule, and the one `index_changed` connection
+    # this mode must *not* take: the theme row closes on exactly this signal.
+    row_two = column._item_y(1)
+    click(stage, theme.ITEM_X + 60, row_two)
+    app.processEvents()
+    check("clicking a match selects it", column.index == 1, f"index={column.index}")
+    check("...and still does not close the search", window._searching)
+
+    # A keystroke that leaves the result set alone is a press that changed
+    # nothing, and those are silent everywhere else in this app too. A trailing
+    # space is the deterministic case: `matches` strips before it compares.
+    clock.tick()
+    log.take()
+    type_text(window, " ")
+    app.processEvents()
+    check("a keystroke that changes no rows is silent", log.take() == [],
+          f"query={window._query!r}, {column.count} rows")
+    press(window, Qt.Key_Backspace)
+    app.processEvents()
+
+    # Activating: the one thing that would be a *wrong song* rather than a
+    # wrong-looking screen.
+    row = min(2, len(matches) - 1)
+    column.set_index(row)
+    app.processEvents()
+    column.activate()
+    app.processEvents()
+    check(
+        "activating a row plays the track it was showing",
+        controller.index == matches[row],
+        f"played {controller.index}, expected {matches[row]}",
+    )
+    check("...and closes the search", not window._searching and column.search is None)
+    check("...leaving the whole library back on screen", column.count == len(controller.tracks))
+    check("...with the cursor on the track it just played", column.index == matches[row])
+    check(
+        "the unfiltered list is the list it always was",
+        [item.label for item in column._items] == unfiltered,
+    )
+    check(
+        "Now Playing reports the real index, not the row",
+        f"Track {matches[row] + 1} of {len(controller.tracks)}"
+        in window._now_playing().lines[POSITION_LINE],
+        window._now_playing().lines[POSITION_LINE],
+    )
+    check(
+        "the marker is on the real playing track",
+        [i for i, item in enumerate(window._music_items()) if item.marker] == [matches[row]],
+    )
+
+    # A query that matches nothing: an empty column that must not claim the
+    # folder is empty, and the one keystroke in here that is an error.
+    clock.tick()
+    press(window, Qt.Key_F, Qt.ControlModifier)
+    app.processEvents()
+    check("Ctrl+F opens it too", window._searching)
+    log.take()
+    type_text(window, "zzqqxx")
+    app.processEvents()
+    check("a query matching nothing empties the column", column.count == 0)
+    check("...and says so rather than claiming the folder is empty",
+          column._empty_text == "Nothing matches", column._empty_text)
+    check("...and blips an error", sfx.ERROR in log.take())
+    played = controller.index
+    column.activate()
+    press(window, Qt.Key_Return)
+    app.processEvents()
+    check("Enter on an empty result set does nothing", controller.index == played)
+
+    press(window, Qt.Key_Escape)
+    app.processEvents()
+    check("Escape closes and clears", not window._searching and window._query == "")
+    check("...and the full list is back", column.count == len(controller.tracks))
+
+    # Backspace past the start leaves, rather than falling through to the
+    # crossbar's "back" and stepping a category out of nowhere.
+    press(window, Qt.Key_Slash, text="/")
+    app.processEvents()
+    press(window, Qt.Key_Backspace)
+    app.processEvents()
+    check("backspace on an empty query closes the search", not window._searching)
+    check("...and does not step a category", bar.index == CAT_MUSIC)
+
+    # Leaving Music leaves the search, however you leave.
+    press(window, Qt.Key_Slash, text="/")
+    type_text(window, query)
+    app.processEvents()
+    press(window, Qt.Key_Right)
+    app.processEvents()
+    check("a category change closes the search", not window._searching)
+    check("...and the header goes with it", column.search is None)
+    check("...and the count comes off the status line", "matching" not in stage._status)
+    check(
+        "`/` does nothing outside Music",
+        not window._handle_key(Qt.Key_Slash, Qt.NoModifier, "/"),
+    )
+    bar.set_index(CAT_MUSIC)
+    app.processEvents()
+    bar.settle()
+    column.settle()
+    app.processEvents()
+
+    # The header's own geometry. A row is either wholly clear of the band or
+    # fading into it -- the first version clipped instead, and left a sliver of
+    # descenders hanging under the query line.
+    check(
+        "a row clear of the search header paints at full strength",
+        column._under_header(theme.SEARCH_BAND + theme.ITEM_SPACING) == 1.0,
+    )
+    check(
+        "a row wholly above it paints not at all",
+        column._under_header(theme.SEARCH_BAND - theme.ITEM_SPACING) == 0.0,
+    )
+    check(
+        "and one straddling it is somewhere in between",
+        0.0 < column._under_header(theme.SEARCH_BAND) < 1.0,
+        f"{column._under_header(theme.SEARCH_BAND):.2f}",
+    )
+    check(
+        "the header sits above the band that clears it",
+        theme.SEARCH_TOP + theme.SEARCH_TEXT + 8 <= theme.SEARCH_BAND,
+        f"{theme.SEARCH_TOP + theme.SEARCH_TEXT + 8} vs {theme.SEARCH_BAND}",
+    )
 
     print("\n-- re-enumerating devices fails loudly when it fails wrongly")
     # Never the real PortAudio: the stream is still open and `refresh_devices`

@@ -112,9 +112,13 @@ four backgrounds at once. Below 24 px the sweep stops tapering (`SIMPLE_BELOW` i
 `mp3player/ui/icon.py`), and 16 px is the frame that stops reading first.
 
 The taskbar button needs `app._claim_taskbar_identity` to have run — a window
-icon alone is not enough on Windows. It works on the packaged exe and **cannot**
-work on a source launch from the Store-Python venv; see the conventions in
-CLAUDE.md before filing that as a regression.
+icon alone is not enough on Windows. It works on the packaged exe, and since
+2026-09-08 it works on a source launch too: `venv/` was rebuilt on python.org
+3.13, so the app's windows no longer inherit MSIX package identity. **If a
+source launch ever shows the Python feather again, the venv is the first thing
+to check, not the icon code** — `GetCurrentPackageFullName` returning anything
+but `15700` means packaged. See the conventions in CLAUDE.md before filing it as
+a regression.
 
 > Batch 11 found two missing third-party licence texts by inspecting a built
 > zip rather than trusting the dependency table. Unzipping the artifact

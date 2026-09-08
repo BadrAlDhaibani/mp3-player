@@ -165,15 +165,28 @@ legal text, and where the two disagree the licence wins.
 > **`dist/` still has the old crossbar icon**; see the end of Batch 17 for why
 > that is a version question rather than a rebuild.
 >
-> **The taskbar shows the Python logo on a source launch and that is not fixable
-> from here.** `setWindowIcon` is set, the AppUserModelID is set, `WM_GETICON`
-> returns real handles — all three verified — and the shell ignores them because
-> **this venv is Microsoft Store Python and every process in it carries MSIX
-> package identity**, so the button belongs to the Store package. The packaged
-> `.exe` is unaffected and was verified showing the crescent. Fixing the source
-> launch means rebuilding the venv on a python.org interpreter, which is the
-> user's call. **Don't re-investigate this; it is measured, and it is in the
-> conventions.**
+> ~~**The taskbar shows the Python logo on a source launch and that is not
+> fixable from here.**~~ → **fixed on 2026-09-08 by rebuilding the venv, which
+> was the escape the old note named.** The diagnosis never changed and was never
+> wrong: `setWindowIcon`, the AppUserModelID and `WM_GETICON` were all set and
+> all verified, and the shell ignored them because every process in a Microsoft
+> Store Python venv carries MSIX package identity. **The interpreter was the
+> bug, so the interpreter is what moved.** `venv/` is now python.org 3.13.15 at
+> `%LOCALAPPDATA%\Programs\Python\Python313`, and
+> `GetCurrentPackageFullName` returns `15700` (`APPMODEL_ERROR_NO_PACKAGE`)
+> where the Store venv returned `122` (`ERROR_INSUFFICIENT_BUFFER`, i.e. *there
+> is a package name and your buffer is too small*). **`122` is the packaged
+> answer — don't read it as an error.**
+>
+> **The `%APPDATA%` redirection went with it, and that is the cheap proof.** A
+> source launch now writes the real `%APPDATA%\XMBPlayer\` rather than
+> `LocalCache\Roaming\`, so source and `.exe` finally share one `settings.json`
+> and one log. That is the *same* root cause as the icon showing up as an
+> observable file path, which makes it a better check than any API call — see
+> the conventions.
+>
+> Nothing in `mp3player/` changed for this; the code was already correct.
+> `venv-store/` is the old venv, kept until the last process holding it exits.
 >
 > **The audio was dropping blocks and nothing in the app could see it.** Fixed
 > in Batch 16. Two things to carry forward, because both are counter-intuitive:
@@ -639,8 +652,8 @@ here and write down why.
 | **The icon is fixed to `Mono`, and is the only thing in the app that ignores the theme** | Chosen with the user: "use the colours of the mono theme". Every other pixel this project draws takes the live palette, on purpose, and the icon is the one place that is wrong — an icon is an *identity*, and one that turns coral on Ember is five identities. `Mono`'s ramp is also what makes "one colour" true rather than aspirational: its saturation knots run 0.16–0.34, so the sweep's conical gradient moves through cyan, pale and faintly violet **within one hue family**, which is variation in temperature rather than in colour. `theme.ramp_color` was split out of `wave_color` so a named palette can be sampled without being made active, and `theme.palette_by_name` **raises** rather than falling back — a rename should break the build, not silently repaint the icon. |
 | **No tile, therefore a thin dark edge** | Also chosen with the user. The mark is the whole icon: no rounded square, no rim, all four corners transparent. That is more distinctive in a row of tiles and it costs something real — a tile-less mark is legible *per background*, and Mono's middle is a near-white that vanishes on Explorer's white list view. One low-alpha `BG_BOTTOM` pen fixes that and is invisible on dark. A soft radial shadow was tried first and is a grey blob on anything pale, which is a tile by another name and the worst of both. `make_icon.py --preview` draws every size over **four backgrounds** for exactly this reason; a single dark strip cannot answer the question this icon raises. |
 | **Below 24 px the sweep stops tapering** | A taper that reaches a point needs several pixels to do it in, and on a 16 px canvas the last third is sub-pixel and antialiases into a grey smear that makes the ring look broken. So the small sizes get a constant-width, shorter arc. Same shape of decision as the 32 px cutoff for the dark edge: each element is dropped or simplified at the size where it stops paying, and the job at 16 px is to be *recognisable*, not to be the same drawing. |
-| ~~The app sets its own window icon, and that is the only thing the taskbar reads~~ → **the taskbar reads the AppUserModelID, and a packaged interpreter overrules both** | *Written earlier in Batch 17 and wrong; corrected the same day by looking at the taskbar.* `setWindowIcon` is necessary and **not sufficient**. A Windows taskbar button belongs to an AppUserModelID, not to a window, and a process that never sets one inherits its executable's icon — which under `pythonw.exe` is the Python logo, which is exactly what the app showed while its window icon was set perfectly the whole time. `app._claim_taskbar_identity` sets one, before `QApplication`, because the shell reads it when the button is created and does not revisit it. **On the packaged build that is the whole fix and it is verified** — built to a scratch folder, launched, taskbar photographed, crescent present. See the row below for why it changes nothing on this machine. |
-| **Microsoft Store Python owns its windows' taskbar icon, and nothing in the app can take it back** | Measured, after the AUMID fix did not move the icon: `GetCurrentPackageFullName` in this venv returns `PythonSoftwareFoundation.Python.3.13_..._qbz5n2kfra8p0`, so **every process in it carries MSIX package identity**, and the shell binds those windows to the *package's* application entry and uses its icon. All three of the things that would normally win were verified present and are ignored: the AUMID reads back over `GetCurrentProcessExplicitAppUserModelID` with `S_OK`, `WM_GETICON` returns real big and small handles, and the class icon is set. The escape is not a code change — the Store binary lives inside the package, so anything running it is packaged. **A source launch on this machine will show the Python logo until the venv is rebuilt on a non-Store interpreter.** This is the same root cause as the `%APPDATA%` redirection already in the conventions, one consequence further on, and it is the second time this venv has quietly changed the meaning of something outside the source. |
+| ~~The app sets its own window icon, and that is the only thing the taskbar reads~~ → **the taskbar reads the AppUserModelID, and a packaged interpreter overrules both** | *Written earlier in Batch 17 and wrong; corrected the same day by looking at the taskbar.* `setWindowIcon` is necessary and **not sufficient**. A Windows taskbar button belongs to an AppUserModelID, not to a window, and a process that never sets one inherits its executable's icon — which under `pythonw.exe` is the Python logo, which is exactly what the app showed while its window icon was set perfectly the whole time. `app._claim_taskbar_identity` sets one, before `QApplication`, because the shell reads it when the button is created and does not revisit it. **On the packaged build that is the whole fix and it is verified** — built to a scratch folder, launched, taskbar photographed, crescent present. See the row below, which is why it changed nothing on this machine until the venv was rebuilt in 2026-09-08. |
+| ~~**Microsoft Store Python owns its windows' taskbar icon, and nothing in the app can take it back**~~ → **true of a Store venv, and the venv is no longer one** | *Resolved 2026-09-08, at the user's ask, by taking the escape this row already named rather than by disagreeing with it.* `venv/` is python.org 3.13.15 at `%LOCALAPPDATA%\Programs\Python\Python313`; `GetCurrentPackageFullName` returns `15700` where it returned `122`, and the `%APPDATA%` redirection lifted in the same move — which is what confirms the two symptoms were one cause rather than two. **Nothing in `mp3player/` changed**, because nothing in it was wrong: `_claim_taskbar_identity` and `setWindowIcon` had been correct since Batch 17 and were simply being overruled. The measurement below stands unedited and is still the thing to read if this recurs — a Store venv is one `python -m venv` away at any time, and the symptom is a Python feather with three APIs reporting success. Note what this cost: **no source change, no version bump, and no tracked file except this one**, since `venv/` and `*.lnk` are gitignored. Original finding follows. Measured, after the AUMID fix did not move the icon: `GetCurrentPackageFullName` in this venv returns `PythonSoftwareFoundation.Python.3.13_..._qbz5n2kfra8p0`, so **every process in it carries MSIX package identity**, and the shell binds those windows to the *package's* application entry and uses its icon. All three of the things that would normally win were verified present and are ignored: the AUMID reads back over `GetCurrentProcessExplicitAppUserModelID` with `S_OK`, `WM_GETICON` returns real big and small handles, and the class icon is set. The escape is not a code change — the Store binary lives inside the package, so anything running it is packaged. **A source launch on this machine will show the Python logo until the venv is rebuilt on a non-Store interpreter.** This is the same root cause as the `%APPDATA%` redirection already in the conventions, one consequence further on, and it is the second time this venv has quietly changed the meaning of something outside the source. |
 | **Seven sizes, each drawn at its own size, PNG payloads throughout** | Windows picks per slot — 16 in the tray, 32 on the desktop, 48 in Explorer, 256 for the preview — and a missing size is scaled from the nearest, badly. **Never downscaled**, because the detail is three hairlines and a hairline is what downscaling destroys first: 16 px rendered natively is one crisp pixel where 256 halved four times is four shades of grey. That is the conventions' "ask which axis the detail is in" rule reaching its limit — here the answer is "both, and it is one pixel wide". The container is assembled by hand because Qt's ICO writer takes one image per file, and the payloads are PNGs because an ICO entry may be either and Windows has taken PNG since Vista. Known and accepted: `System.Drawing.Icon` mishandles the 256 entry. That is a GDI+ limitation, the shell reads it correctly, and this project declares Windows 11. |
 | **The smoke test runs on the real platform, not offscreen** | *The plan for Batch 15 said offscreen; the runtime said otherwise.* Offscreen gives the app no window handle, so `WM_CLOSE` has nothing to arrive at — measured, a graceful `taskkill /T` is ignored outright and only `/F` ends it, which discards the exit code and the shutdown path in one go. On the real platform the same close lands in 0.3 s with **exit 0 and `settings.json` written**, i.e. `aboutToQuit` fired and `shutdown()` ran. A window appearing for a few seconds during a build is what that costs. `%APPDATA%` is redirected at a temp directory, because a build step that rewrites your saved music folder is worse than the bug it is looking for. |
 | **A build that fails the smoke test is not zipped** | The zip is written *after* the check, so a broken build leaves an error message and no archive. An archive sitting next to a failure is an archive that eventually gets uploaded — and the failure this catches is specifically the silent one, where `--collect-binaries` stops finding libsndfile or PortAudio, PyInstaller reports success, and the exe dies on first import. `--skip-smoke` exists for a machine with no audio output, where the app correctly puts up a modal box and never opens a stream; the flag's own help text says it is not for saving ten seconds. |
@@ -1084,21 +1097,31 @@ don't invent a second way to do a thing we've already solved.
   above are still right that only a picture says whether something *reads* —
   but where the claim is "identical", a render is the weaker instrument and an
   assertion is available.
-- **This venv is Microsoft Store Python, so `%APPDATA%` is redirected — and the
-  taskbar icon is not ours.** `settings.json` from `run.bat` lands in
-  `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/XMBPlayer/`,
-  while the packaged `.exe` writes the real `AppData/Roaming/XMBPlayer/`. They
-  are two different files. The exe showing a first-run screen while the source
-  build remembers your folder is this, not a bug. **The second consequence,
-  found in Batch 17:** every process in this venv carries MSIX package identity
-  (`GetCurrentPackageFullName` returns the package, rather than
-  `APPMODEL_ERROR_NO_PACKAGE`), so the shell uses the *Store Python package's*
-  icon for its windows and ignores the window icon and the AppUserModelID
-  alike. Both were verified set. There is no code fix; the venv would have to be
-  rebuilt on a python.org interpreter. **Before spending an hour on a Windows
-  shell integration that refuses to work, check whether the interpreter is
-  packaged** — it is two lines of `ctypes` and it is the answer surprisingly
-  often.
+- **Before spending an hour on a Windows shell integration that refuses to work,
+  check whether the interpreter is packaged.** Two lines of `ctypes`
+  (`GetCurrentPackageFullName`), and it was the answer to two separate mysteries
+  here. A Microsoft Store Python venv gives **every** process in it MSIX package
+  identity, and the consequences do not look related to each other: `%APPDATA%`
+  is silently redirected into
+  `AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_*/LocalCache/Roaming/`,
+  *and* the shell binds the process's windows to the Store package's app entry,
+  so it ignores `setWindowIcon` and the AppUserModelID alike and paints the
+  Python feather on the taskbar. Both were live in this repo for months — the
+  first from Batch 7, the second found in Batch 17 — and **neither has a code
+  fix**, because the Store binary lives inside the package and anything running
+  it is packaged. **`venv/` was rebuilt on python.org 3.13.15 on 2026-09-08 and
+  both went away at once**, which is the tell that they were ever one bug.
+  Read the return code carefully: **`15700` is `APPMODEL_ERROR_NO_PACKAGE` and
+  means unpackaged; `122` is `ERROR_INSUFFICIENT_BUFFER` and means there *is* a
+  package.** The failure answer is the one that looks like a generic error.
+- **Where a process writes its files is a cheaper identity check than any API
+  that reports on it.** The taskbar icon and the `%APPDATA%` redirection are the
+  same root cause, and three correct-looking API calls (`WM_GETICON`, the AUMID
+  read-back, the class icon) all reported success while the icon stayed wrong.
+  `ls %APPDATA%\XMBPlayer\` answers the same question in one command and cannot
+  report a success it did not have. Same family as *verify the artifact, not the
+  build log*: prefer the check whose evidence is a side effect rather than a
+  return value.
 
 ---
 

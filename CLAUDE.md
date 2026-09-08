@@ -66,10 +66,12 @@ legal text, and where the two disagree the licence wins.
 > Batch 21 (search that filters the Music column — 286 tests, 397 harness
 > checks, and a row number that is no longer a track index)
 >
-> **v1 is shipped; Batches 8 through 21 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 21 is ticked except the release
-> *upload* — the zip attached to a GitHub release, which needs a browser — and
-> the ones listed under *Open, and waiting on a human* below.
+> **v1 is shipped, Batches 8 through 21 landed on top of it, and `1.2.0` is
+> built, tagged and released.** Every box in the roadmap is now ticked — the
+> release upload that had been open since Batch 15 was done on 2026-09-08.
+> **The one thing left is not a box: the repo is private, so the release 404s to
+> anyone logged out.** See *The release* below; it is the user's call and not a
+> session's. The items under *Open, and waiting on a human* are also still open.
 >
 > **The docket is empty.** Nothing is agreed and not started. The queue below
 > still lists what has been *offered* and what is waiting on a human, but there
@@ -288,34 +290,33 @@ legal text, and where the two disagree the licence wins.
 >
 > ### State of the build
 >
-> **The `.exe` is current as of Batch 15, stamped `1.1.0`, and carries the
-> icon.** It was rebuilt because Batch 15 changed the build again, and it passed
-> its own smoke test inside the build: exit 0, settings flushed, four clean lines
-> in the log. `dist/XMB Player/` and `dist/XMB-Player-1.1.0-windows.zip` are
-> **the release artifact** — verified against the binary rather than the build
-> log (version resource read back, all seven icon sizes read back out of
-> `RT_ICON`, the licences at the top of the folder and libsndfile's `COPYING`
-> still inside the zip).
+> **The `.exe` is current as of Batch 21, stamped `1.2.0`, and carries the
+> crescent icon.** Built 2026-09-08 from `d7fadc4`, which is `v1.2.0`. It passed
+> its own smoke test inside the build: started and opened a device in 3.3 s,
+> exit 0, settings flushed, four clean lines in the log. `dist/XMB Player/` and
+> `dist/XMB-Player-1.2.0-windows.zip` are **the release artifact** — verified
+> against the binary rather than the build log: version resource reading
+> `1.2.0` / `XMB Player` / the GPL line, **all seven icon sizes read back out of
+> the PE's own `RT_ICON` tree** (16/24/32/48/64/128/256, PNG payloads), the three
+> licence destinations at the top of the folder, and libsndfile's `COPYING` and
+> `qjpeg.dll` still inside the 229-entry zip.
+>
+> Note *how* the icon was read back, because the obvious route does not work:
+> the `ctypes` `EnumResourceNamesW` callback kills the interpreter
+> (`_PyThreadState_Attach: non-NULL old thread state`) whatever the argtypes say.
+> **Parsing the PE resource directory by hand is about forty lines and has no
+> such problem** — and it is a genuinely independent second reader, which is what
+> the convention was asking for anyway.
 >
 > Rebuilding is still not part of development, which runs live source, and
 > **still isn't something to do to catch up**: rebuild when you have changed the
 > build, or when you are cutting a release.
 >
-> **Batch 17 is the first thing since 15 that the build would read differently.**
-> The icon changed — new mark, and the drawing moved to `mp3player/ui/icon.py` —
-> so `dist/` is stale in exactly one respect: the exe still wears the crossbar.
-> It was deliberately *not* rebuilt, because `v1.1.0` is tagged and the pending
-> release upload points at that artifact, so a rebuild now would produce a zip
-> that does not match its own tag. **Rebuilding means bumping `__version__`,
-> which is the user's call and has not been asked for.** Nothing else about the
-> artifact is out of date.
->
-> **`v1.1.0` now exists and points at `31a08af`**, which is the commit this
-> artifact was built from — checked rather than assumed: nothing under
-> `mp3player/` is newer than the build, and the only files edited after it
-> (`tools/shell_harness.py`, `docs/RELEASING.md`) do not enter the exe. The old
-> `v1` tag is left where it is as the historical marker it always was; it
-> describes Batch 7's code and nothing since.
+> **The 1.1.0 zip is gone**, deleted by `build_exe.py` itself — it removes stale
+> `XMB-Player-*windows.zip` files before building, which is the Batch 11
+> behaviour working as designed. `v1.1.0` still points at `31a08af` and the old
+> `v1` tag still marks Batch 7's code; neither has an artifact any more, and
+> neither ever had a release.
 >
 > ### Known flake — don't debug it
 >
@@ -346,7 +347,8 @@ legal text, and where the two disagree the licence wins.
 > | # | What | Where it is written | State |
 > |---|---|---|---|
 > | — | *(nothing agreed and not started)* | — | **The docket is empty** |
-> | — | Attach the zip to the `v1.1.0` GitHub release | Below, and `docs/RELEASING.md` step 7 | **Needs a browser; cannot be done from a session** |
+> | — | **Make the repo public, or the 1.2.0 release stays unreachable** | *The release*, below | **The user's call. Raise it; don't flip it** |
+> | — | Confirm the 1.2.0 asset once `gh` is re-authenticated | *The release*, below | One command; the token expired before it could run |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
 >
@@ -377,21 +379,37 @@ legal text, and where the two disagree the licence wins.
 > small folder and reshooting every screen. Raise it; don't do it inside another
 > batch.
 >
-> ### The release, which is still open
+> ### The release — cut at last, and blocked on one thing nobody expected
 >
-> The one piece of Batch 15 left is **step 7 and only step 7**: attach
-> `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release drafted against
-> `v1.1.0`. The tag was cut and pushed on **2026-08-05**, when the user asked for
-> the release — steps 1 through 6 of `docs/RELEASING.md` were re-run first, not
-> taken on trust: ruff and mypy clean, 256 tests, and the harness **294/294 with
-> the flake passing**. The upload is a browser job because `gh` is not installed
-> here. **Don't push a tag or publish a release without being asked to** — that
-> was true before this and is still true for whatever the next version is.
+> **`v1.2.0` is tagged, pushed, and published as a GitHub release with the zip
+> attached.** Done on **2026-09-08**, at the user's ask, after `gh` turned out to
+> be installed already at `C:\Program Files\GitHub CLI\gh.exe` — it is simply not
+> on this session's `PATH`, which is what made three previous sessions call it a
+> browser job. **Check the full path before believing `command not found`.**
+> All eight steps of `docs/RELEASING.md` were run, none taken on trust: ruff and
+> mypy clean, **286 tests**, the harness **397/397 with the flake passing**, the
+> renders looked at, the build smoke-tested inside itself, and the artifact
+> verified against the binary.
 >
-> **Batch 17 adds a second thing the next release has to carry**, and it is not a
-> box to tick here: the packaged exe still wears the old crossbar icon, and
-> fixing that means a version bump. Raise it when a release comes up; don't bump
-> it on your own initiative.
+> **And it is not downloadable, because the repo is private.** Logged out,
+> `github.com/BadrAlDhaibani/mp3-player` returns **404** — the repo root, the
+> release page and the asset URL all three. That is not a draft and not a
+> permissions bug on the release; it is the repository's visibility, and it means
+> the README's Download section, the Releases link and the CI badge have all been
+> pointing at something no stranger can reach for as long as they have existed.
+> **Making a repo public is the user's call and was not asked for** — it
+> publishes every commit in the history at once, which is not a step to take on
+> somebody's behalf. Raise it; don't flip it.
+>
+> One loose end from the same sitting: the `gh` token authenticated through the
+> device flow, created the release successfully, and **was invalid a minute
+> later** (`the token in keyring is invalid`). So the release was created and the
+> upload reported success, but *nothing independently confirmed the asset*.
+> `gh auth refresh -h github.com`, then
+> `gh release view v1.2.0 --json assets` is the check that was never able to run.
+>
+> **Don't push a tag or publish a release without being asked to.** That was true
+> before this and is still true for whatever the next version is.
 >
 > ### Before writing any of it
 >

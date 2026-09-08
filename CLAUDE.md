@@ -69,9 +69,9 @@ legal text, and where the two disagree the licence wins.
 > **v1 is shipped, Batches 8 through 21 landed on top of it, and `1.2.0` is
 > built, tagged and released.** Every box in the roadmap is now ticked — the
 > release upload that had been open since Batch 15 was done on 2026-09-08.
-> **The one thing left is not a box: the repo is private, so the release 404s to
-> anyone logged out.** See *The release* below; it is the user's call and not a
-> session's. The items under *Open, and waiting on a human* are also still open.
+> **The one thing left is not a box and not in the repo: the GitHub account is
+> flagged, so the release 404s to anyone logged out and no push, release or
+> visibility change will work until it lifts.** See *The release* below. The items under *Open, and waiting on a human* are also still open.
 >
 > **The docket is empty.** Nothing is agreed and not started. The queue below
 > still lists what has been *offered* and what is waiting on a human, but there
@@ -347,8 +347,8 @@ legal text, and where the two disagree the licence wins.
 > | # | What | Where it is written | State |
 > |---|---|---|---|
 > | — | *(nothing agreed and not started)* | — | **The docket is empty** |
-> | — | **Make the repo public, or the 1.2.0 release stays unreachable** | *The release*, below | **The user's call. Raise it; don't flip it** |
-> | — | Confirm the 1.2.0 asset once `gh` is re-authenticated | *The release*, below | One command; the token expired before it could run |
+> | — | **The GitHub account is flagged — nothing reaches GitHub until it lifts** | *The release*, below | **Not fixable from here.** An appeal to GitHub Support |
+> | — | Push `c309db0` and confirm the 1.2.0 asset, once the flag lifts | *The release*, below | Two commands, both blocked on the above |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
 >
@@ -391,22 +391,37 @@ legal text, and where the two disagree the licence wins.
 > renders looked at, the build smoke-tested inside itself, and the artifact
 > verified against the binary.
 >
-> **And it is not downloadable, because the repo is private.** Logged out,
-> `github.com/BadrAlDhaibani/mp3-player` returns **404** — the repo root, the
-> release page and the asset URL all three. That is not a draft and not a
-> permissions bug on the release; it is the repository's visibility, and it means
-> the README's Download section, the Releases link and the CI badge have all been
-> pointing at something no stranger can reach for as long as they have existed.
-> **Making a repo public is the user's call and was not asked for** — it
-> publishes every commit in the history at once, which is not a step to take on
-> somebody's behalf. Raise it; don't flip it.
+> **And it is not downloadable, because the GitHub account is flagged.** This was
+> first written down here as "the repo is private", which was wrong and is worth
+> leaving on the record because the two are **indistinguishable from outside** —
+> both 404 every URL to a logged-out visitor. What separates them is one request:
+> `api.github.com/users/BadrAlDhaibani` **also** 404s, and a private repo does not
+> hide its owner's profile. GitHub confirmed it in the user's own browser:
+> *"This account is flagged, and therefore cannot authorize a third party
+> application."*
 >
-> One loose end from the same sitting: the `gh` token authenticated through the
-> device flow, created the release successfully, and **was invalid a minute
-> later** (`the token in keyring is invalid`). So the release was created and the
-> upload reported success, but *nothing independently confirmed the asset*.
-> `gh auth refresh -h github.com`, then
-> `gh release view v1.2.0 --json assets` is the check that was never able to run.
+> That one fact explains every symptom of that sitting, and they had looked like
+> five unrelated problems: the `gh` device flow authenticating and then reporting
+> `the token in keyring is invalid` a minute later; `git push` failing with
+> *"Invalid username or token"* after two successful pushes; the repo 404ing; the
+> profile 404ing; and the release existing but being unreachable. **A flag
+> revokes tokens and hides everything the account owns, all at once.**
+>
+> The diagnostic that settled it is worth copying: **run the same request against
+> a known-good public account.** `users/torvalds` → 200 and
+> `repos/torvalds/linux` → 200 from the same shell, in the same second, proves
+> the 404s are about the account and not about the network, the proxy or the URL.
+> Two seconds, and it turns "something is broken" into "this specific thing is
+> broken". Note also that `users/<login>/repos` returns `[]` rather than 404 for a
+> flagged account, which reads as "no public repos" and points the wrong way —
+> **don't diagnose off that endpoint.**
+>
+> **Nothing about this is fixable from the repo, and nothing in the repo is
+> wrong.** Appealing the flag at <https://support.github.com/contact> is the
+> whole of the fix; pushing, re-releasing or changing visibility will all fail
+> the same way until it lifts. When it does: `gh auth login` again, push
+> `c309db0`, and run `gh release view v1.2.0 --json assets` — the confirmation
+> that the uploaded zip is really attached has never been able to run.
 >
 > **Don't push a tag or publish a release without being asked to.** That was true
 > before this and is still true for whatever the next version is.

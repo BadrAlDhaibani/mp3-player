@@ -38,13 +38,20 @@ DEFAULT_REPEAT = "all"
 
 MIN_VOLUME, MAX_VOLUME = 0.0, 1.0
 
-DAYCORE_SPEED = 0.80
+DAYCORE_SPEED = 0.70
 NIGHTCORE_SPEED = 1.30
 
 # The presets *are* the ends of the speed slider, which is the only reason its
 # two labels can be read literally: slam the handle right and you get nightcore.
 # Anything outside is clamped on load, so an older settings file that saved
 # 1.45x quietly comes back as 1.30x.
+#
+# Daycore was 0.80 through Batch 18 and reaches 0.70 because the user wanted more
+# room at the slow end. Widening it is *not* only a number here: `ui/theme.py`
+# derives `ANCHOR_FRACTION` from these three constants, because where 1.00x lands
+# on the slider is where every palette's middle knot has to sit, and that used to
+# be the hard-coded 0.4 that 0.80..1.30 happens to produce. Change the range
+# again and the knots follow on their own -- see the comment above `PALETTES`.
 MIN_SPEED, MAX_SPEED = DAYCORE_SPEED, NIGHTCORE_SPEED
 
 

@@ -29,7 +29,7 @@ worth naming one, it's the most interesting sentence on this page].
 ## What it does
 
 - **Nightcore and daycore, live.** Drag the slider and the pitch moves with the
-  speed, in the track you're already hearing. `0.80x` is daycore, `1.30x` is
+  speed, in the track you're already hearing. `0.70x` is daycore, `1.30x` is
   nightcore. Nothing is pre-rendered and nothing is pitch-corrected — speeding
   up is *supposed* to make it squeakier.
 - **The interface reads out the speed.** Deep blue at daycore, violet at

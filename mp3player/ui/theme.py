@@ -2,6 +2,10 @@
 
 Nothing here imports another `ui` module, so every widget can pull from it
 without a cycle. If a number appears in two widgets, it belongs in this file.
+It does import `core.settings`, which is legal -- the seam only forbids the
+other direction -- and is there for exactly one thing: `ANCHOR_FRACTION`, which
+is a *function* of the speed range rather than a number kept in step with it by
+hand. See the comment above `PALETTES`.
 
 The palette is PS3 XMB read from memory rather than sampled: a near-black navy
 that lifts toward the horizon, white text at three brightnesses, and one icy
@@ -16,6 +20,8 @@ from itertools import pairwise
 
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QFont, QLinearGradient
+
+from mp3player.core import settings as settings_mod
 
 # -- palette ---------------------------------------------------------------
 
@@ -304,8 +310,8 @@ WAVE_GLOW = 0.6  # how much of the blurred copy is added back
 #
 # Hue tracks the speed slider, so the atmosphere reads out the one thing this
 # app is for: deep blue at daycore, the accent itself at 1.00x, violet at
-# nightcore. The knots are (slider fraction, value) -- 1.00x is 0.4 of the way
-# along a 0.80..1.30 range, which is why the middle knot sits there.
+# nightcore. The knots are (slider fraction, value), and the middle one sits
+# wherever 1.00x lands along the range -- which is what `ANCHOR_FRACTION` is.
 #
 # A *theme* is a swap of these two tuples and nothing else. The navy gradient and
 # the white/grey text hold still whichever palette is on, for the same reason
@@ -313,6 +319,21 @@ WAVE_GLOW = 0.6  # how much of the blurred copy is added back
 # colour shift read as deliberate rather than as the app changing skin.
 
 Knots = tuple[tuple[float, float], ...]
+
+# Where 1.00x sits on the slider, and therefore where every palette's resting
+# colour has to be knotted. Derived, not typed: this was the literal 0.4 that a
+# 0.80..1.30 range produces, repeated in five knot tuples, in `_accent_fraction`
+# and fifteen times in the harness -- so widening the range to 0.70..1.30 in
+# Batch 19 would have moved 1.00x to 0.5 and quietly broken the one colour
+# invariant this project actually has ("1.00x is exactly the anchor"), on all
+# five presets at once, showing up as a colour rather than as an error.
+#
+# This is the conventions' "a cache that has to be refreshed is a cache keyed on
+# the wrong thing" applied to a constant. Move `DAYCORE_SPEED` again and the
+# knots follow 1.00x by themselves; nothing has to remember.
+ANCHOR_FRACTION = (settings_mod.DEFAULT_SPEED - settings_mod.MIN_SPEED) / (
+    settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,8 +353,17 @@ class Palette:
 
 
 # The default is first, and its knots are the ones the app shipped with. Every
-# other palette keeps the same shape -- three knots, the middle one at 0.4 --
-# because that is where 1.00x lands and the resting colour belongs on a knot.
+# other palette keeps the same shape -- three knots, the middle one at
+# `ANCHOR_FRACTION` -- because that is where 1.00x lands and the resting colour
+# belongs on a knot.
+#
+# Batch 19 widened the slider's slow end from 0.80x to 0.70x, and note what did
+# *not* change: every value below. Moving the middle knot is what keeps both ends
+# and the 1.00x anchor byte-identical to what they were -- the ramp is simply
+# stretched over a wider range of speeds, rather than extended into new colours
+# nobody has looked at. The alternative (a fourth knot, so 0.80x holds its
+# current colour and 0.70x goes somewhere new) means ten hand-fitted numbers and
+# five re-measured anchors, which is a batch and not an edit.
 #
 # Knots may run outside 0..1: `wave_color` takes the hue modulo 1 *after*
 # interpolating, so Ember's -0.08 is hot pink and Vapor's 1.02 is coral. That is
@@ -342,14 +372,14 @@ class Palette:
 PALETTES: tuple[Palette, ...] = (
     Palette(
         "XMB Blue",
-        hue=((0.0, 0.625), (0.4, 0.571), (1.0, 0.819)),
-        saturation=((0.0, 0.70), (0.4, 0.51), (1.0, 0.74)),
+        hue=((0.0, 0.625), (ANCHOR_FRACTION, 0.571), (1.0, 0.819)),
+        saturation=((0.0, 0.70), (ANCHOR_FRACTION, 0.51), (1.0, 0.74)),
         anchor=ACCENT,
     ),
     Palette(
         "Ember",
-        hue=((0.0, 0.085), (0.4, 0.035), (1.0, -0.08)),
-        saturation=((0.0, 0.85), (0.4, 0.70), (1.0, 0.62)),
+        hue=((0.0, 0.085), (ANCHOR_FRACTION, 0.035), (1.0, -0.08)),
+        saturation=((0.0, 0.85), (ANCHOR_FRACTION, 0.70), (1.0, 0.62)),
         anchor=QColor(255, 114, 76),
     ),
     # Daycore was 0.47 and rendered as the same teal Vapor opens on -- two
@@ -358,14 +388,14 @@ PALETTES: tuple[Palette, ...] = (
     # name promises.
     Palette(
         "Aurora",
-        hue=((0.0, 0.43), (0.4, 0.36), (1.0, 0.22)),
-        saturation=((0.0, 0.75), (0.4, 0.60), (1.0, 0.72)),
+        hue=((0.0, 0.43), (ANCHOR_FRACTION, 0.36), (1.0, 0.22)),
+        saturation=((0.0, 0.75), (ANCHOR_FRACTION, 0.60), (1.0, 0.72)),
         anchor=QColor(102, 255, 126),
     ),
     Palette(
         "Vapor",
-        hue=((0.0, 0.50), (0.4, 0.88), (1.0, 1.02)),
-        saturation=((0.0, 0.65), (0.4, 0.55), (1.0, 0.60)),
+        hue=((0.0, 0.50), (ANCHOR_FRACTION, 0.88), (1.0, 1.02)),
+        saturation=((0.0, 0.65), (ANCHOR_FRACTION, 0.55), (1.0, 0.60)),
         anchor=QColor(255, 114, 216),
     ),
     # Saturation stays low throughout -- but not *too* low. At 0.06 the anchor
@@ -375,8 +405,8 @@ PALETTES: tuple[Palette, ...] = (
     # colour" at a glance and still tells the two apart.
     Palette(
         "Mono",
-        hue=((0.0, 0.55), (0.4, 0.58), (1.0, 0.78)),
-        saturation=((0.0, 0.34), (0.4, 0.16), (1.0, 0.28)),
+        hue=((0.0, 0.55), (ANCHOR_FRACTION, 0.58), (1.0, 0.78)),
+        saturation=((0.0, 0.34), (ANCHOR_FRACTION, 0.16), (1.0, 0.28)),
         anchor=QColor(214, 235, 255),
     ),
 )
@@ -449,8 +479,8 @@ def ramp_color(
 def wave_color(fraction: float, *, alpha: int = 255, hue_shift: float = 0.0) -> QColor:
     """The wave's colour at a point along the speed slider.
 
-    At `fraction=0.4` this returns the active palette's anchor to within a
-    rounding step, which is the point: at 1.00x the wave is the same colour as
+    At `fraction=ANCHOR_FRACTION` this returns the active palette's anchor to
+    within a rounding step, which is the point: at 1.00x the wave is the colour of
     every other accent in the app, and only the effect pulls it away. On the
     default palette that anchor is ACCENT, so 1.00x is the icy blue it always
     was.
@@ -487,7 +517,7 @@ def palette_by_name(name: str) -> Palette:
 # once (see `transport_qss` below), and that is what `set_accent_fraction`
 # returns a bool for.
 
-_accent_fraction = 0.4  # 1.00x, where ACCENT lives
+_accent_fraction = ANCHOR_FRACTION  # 1.00x, where ACCENT lives
 _QSS_STEPS = 48  # buckets across the range; ~2 degrees of hue each
 _accent_bucket = int(_accent_fraction * _QSS_STEPS)
 

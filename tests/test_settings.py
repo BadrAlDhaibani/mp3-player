@@ -83,12 +83,30 @@ def test_volume_is_clamped(path, stored, expected) -> None:
 
 @pytest.mark.parametrize(
     ("stored", "expected"),
-    [(99.0, s.MAX_SPEED), (0.01, s.MIN_SPEED), (1.3, 1.3)],
+    [(99.0, s.MAX_SPEED), (0.01, s.MIN_SPEED), (1.3, 1.3), (0.75, 0.75)],
 )
 def test_speed_is_clamped(path, stored, expected) -> None:
-    """A hand-edited 99x would blow through the end of the sample array."""
+    """A hand-edited 99x would blow through the end of the sample array.
+
+    `0.75` is the Batch 19 case: it used to be below the floor and came back as
+    0.80, and now it is inside the range and survives. Worth a row of its own
+    rather than trusting the two ends -- a clamp is exactly the thing that goes
+    on passing its boundary tests while the boundary is in the wrong place.
+    """
     path.write_text(json.dumps({"speed": stored}))
     assert s.load(path).speed == expected
+
+
+def test_daycore_reaches_070() -> None:
+    """The slow end of the slider, named once outside `settings.py` itself.
+
+    Not a tautology: `ui/theme.py` derives where every palette's resting colour
+    is knotted from this constant, so moving it moves five ramps. That is fine
+    and deliberate -- it is what stops them desyncing -- but it should not
+    happen by accident, and the failure would otherwise be a colour.
+    """
+    assert s.DAYCORE_SPEED == 0.70
+    assert (s.MIN_SPEED, s.MAX_SPEED) == (s.DAYCORE_SPEED, s.NIGHTCORE_SPEED)
 
 
 @pytest.mark.parametrize("junk", ["nan", "null", '""', "{}"])

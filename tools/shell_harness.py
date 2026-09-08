@@ -392,6 +392,39 @@ def main() -> int:
     bar.settle()
     column.settle()
 
+    print("\n-- the speed range and where 1.00x lands on it")
+    # The two halves of one number, checked against each other rather than
+    # against a literal either of them could drift from. `_speed_fraction` maps
+    # the slider onto 0..1 and `ANCHOR_FRACTION` says where the knots were put;
+    # if those two ever disagree, every palette's resting colour is wrong and
+    # nothing else in this file would say so -- the anchor checks below would
+    # compare a moved colour against a knot that moved with it and pass.
+    check(
+        "1.00x maps to the fraction the knots are pinned at",
+        abs(main_window._speed_fraction(settings_mod.DEFAULT_SPEED)
+            - theme.ANCHOR_FRACTION) < 1e-9,
+        f"{main_window._speed_fraction(settings_mod.DEFAULT_SPEED):.4f} vs "
+        f"{theme.ANCHOR_FRACTION:.4f}",
+    )
+    check(
+        "the slider's ends are the two presets",
+        main_window._speed_fraction(settings_mod.DAYCORE_SPEED) == 0.0
+        and main_window._speed_fraction(settings_mod.NIGHTCORE_SPEED) == 1.0,
+    )
+    check(
+        "...and the anchor is strictly between them, so the knots stay in order",
+        0.0 < theme.ANCHOR_FRACTION < 1.0,
+        f"{theme.ANCHOR_FRACTION:.4f}",
+    )
+    # Daycore reaches 0.70x as of Batch 19. Named rather than implied: this is
+    # the number the batch was about, and a future edit that walks it back
+    # should have to delete a line that says so.
+    check(
+        "daycore reaches 0.70x",
+        abs(settings_mod.DAYCORE_SPEED - 0.70) < 1e-9,
+        f"{settings_mod.DAYCORE_SPEED:.2f}",
+    )
+
     print("\n-- the wave")
     check("the wave paints", not wave.grab().isNull())
     controller.set_speed(settings_mod.NIGHTCORE_SPEED)
@@ -403,10 +436,20 @@ def main() -> int:
     check("...and to daycore", abs(wave._fraction) < 1e-6, f"{wave._fraction:.3f}")
     controller.set_speed(1.0)
     app.processEvents()
-    check("...and 1.00x sits where the accent does", abs(wave._fraction - 0.4) < 1e-6)
+    check(
+        "...and 1.00x sits where the accent does",
+        abs(wave._fraction - theme.ANCHOR_FRACTION) < 1e-6,
+        f"{wave._fraction:.3f} vs {theme.ANCHOR_FRACTION:.3f}",
+    )
     # The claim in theme.py that 1.00x *is* ACCENT, checked rather than trusted:
     # the hue knots were fitted to it, and a palette edit could silently break it.
-    at_normal = theme.wave_color(0.4)
+    #
+    # Note what these read rather than what they used to: `theme.ANCHOR_FRACTION`,
+    # not the literal 0.4 that a 0.80..1.30 slider happens to put 1.00x at. Batch
+    # 19 widened the range to 0.70..1.30 and moved it to 0.5, and a harness full
+    # of the old literal would have gone on asserting a fraction that no longer
+    # means 1.00x -- passing, on a colour that had moved.
+    at_normal = theme.wave_color(theme.ANCHOR_FRACTION)
     check(
         "the wave at 1.00x is the accent colour",
         max(
@@ -417,7 +460,9 @@ def main() -> int:
         <= 2,
         f"{at_normal.getRgb()[:3]} vs {theme.ACCENT.getRgb()[:3]}",
     )
-    day, normal, night = (theme.wave_color(f).hue() for f in (0.0, 0.4, 1.0))
+    day, normal, night = (
+        theme.wave_color(f).hue() for f in (0.0, theme.ANCHOR_FRACTION, 1.0)
+    )
     check(
         "daycore, normal and nightcore are three distinct hues",
         len({day, normal, night}) == 3,
@@ -484,7 +529,10 @@ def main() -> int:
     check("...and crossing one does", theme.set_accent_fraction(0.9))
     controller.set_speed(1.0)
     app.processEvents()
-    check("the accent came back to 1.00x", abs(theme.accent_fraction() - 0.4) < 1e-6)
+    check(
+        "the accent came back to 1.00x",
+        abs(theme.accent_fraction() - theme.ANCHOR_FRACTION) < 1e-6,
+    )
 
     # The accent as *text*. Fills can be as saturated as they like; a pen can't,
     # because HSV value isn't lightness and the daycore blue came out dimmer
@@ -496,7 +544,11 @@ def main() -> int:
         "at 1.00x the text accent is the accent, untouched",
         theme.accent_text().getRgb() == theme.accent().getRgb(),
     )
-    for name, fraction in (("daycore", 0.0), ("1.00x", 0.4), ("nightcore", 1.0)):
+    for name, fraction in (
+        ("daycore", 0.0),
+        ("1.00x", theme.ANCHOR_FRACTION),
+        ("nightcore", 1.0),
+    ):
         theme.set_accent_fraction(fraction)
         contrast = theme._contrast(theme.accent_text(), theme.BG_MID)
         check(
@@ -535,7 +587,7 @@ def main() -> int:
         # The anchor is written by hand in the table, not derived from the
         # knots -- which is the only reason this proves anything. A fitted
         # value compared against itself would pass whatever the knots said.
-        at_normal = theme.wave_color(0.4)
+        at_normal = theme.wave_color(theme.ANCHOR_FRACTION)
         check(
             f"{palette.name}: 1.00x is the anchor it claims",
             max(
@@ -546,14 +598,14 @@ def main() -> int:
             <= 2,
             f"{at_normal.getRgb()[:3]} vs {palette.anchor.getRgb()[:3]}",
         )
-        hues = [theme.wave_color(f).hue() for f in (0.0, 0.4, 1.0)]
+        hues = [theme.wave_color(f).hue() for f in (0.0, theme.ANCHOR_FRACTION, 1.0)]
         check(
             f"{palette.name}: the ramp actually travels",
             len(set(hues)) == 3,
             " / ".join(str(h) for h in hues),
         )
         worst = 999.0
-        for fraction in (0.0, 0.4, 1.0):
+        for fraction in (0.0, theme.ANCHOR_FRACTION, 1.0):
             theme.set_accent_fraction(fraction)
             worst = min(worst, theme._contrast(theme.accent_text(), theme.BG_MID))
         check(
@@ -865,10 +917,22 @@ def main() -> int:
     app.processEvents()
     state = page.state
     check("the readout shows the speed", state.speed_text == "1.10x")
+    # The expected fraction is spelled out from the two constants rather than
+    # asked of `_speed_fraction`, which is the function under test -- deriving it
+    # from the thing it checks would pass whatever either of them said. Same
+    # reasoning as `Palette.anchor` being a hand-written literal.
+    #
+    # It used to *be* a hand-written literal, 0.6, which is what 1.10x is on a
+    # 0.80..1.30 slider. Batch 19 widened the range and this was the only check
+    # in 344 that noticed -- correctly, and it is worth knowing that the one
+    # that caught it was about a slider handle rather than about a colour.
+    expected = (1.10 - settings_mod.MIN_SPEED) / (
+        settings_mod.MAX_SPEED - settings_mod.MIN_SPEED
+    )
     check(
         "the handle sits proportionally along the track",
-        abs(state.fraction - 0.6) < 0.01,
-        f"fraction={state.fraction:.3f}",
+        abs(state.fraction - expected) < 0.01,
+        f"fraction={state.fraction:.3f} vs {expected:.3f}",
     )
     check("the title is the song", state.title == controller.current.title)
     # The info block is three fixed slots: who it is, how long it is, where it
@@ -1448,7 +1512,7 @@ def main() -> int:
     # unreadable text -- a colour, not an error. So the check writes the input
     # *directly*, which is the thing that used to desync it and now cannot.
     theme.set_palette("XMB Blue")
-    theme.set_accent_fraction(0.4)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
     check("XMB Blue at 1.00x needs no lift toward white", theme._text_mix() == 0.0,
           f"{theme._text_mix():.2f}")
     theme._palette = theme.PALETTES[1]  # Ember, straight past `set_palette`
@@ -1470,11 +1534,11 @@ def main() -> int:
     )
     # Every palette, every end, however the state got there.
     theme.set_palette(settings_mod.DEFAULT_THEME)
-    theme.set_accent_fraction(0.4)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
     floor_held = True
     for preset in theme.PALETTES:
         theme._palette = preset
-        for fraction in (0.0, 0.4, 1.0):
+        for fraction in (0.0, theme.ANCHOR_FRACTION, 1.0):
             theme._accent_fraction = fraction
             floor_held &= (
                 theme._contrast(theme.accent_text(), theme.BG_MID)
@@ -1483,7 +1547,7 @@ def main() -> int:
     check("the floor holds across all five presets at three speeds", floor_held)
     # And the invariant the whole ramp hangs on, re-checked after all that.
     theme.set_palette(settings_mod.DEFAULT_THEME)
-    theme.set_accent_fraction(0.4)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
     # "To within a rounding step", the same tolerance the checks further up use:
     # `wave_color` recomputes the anchor through HSV and lands a unit off in red.
     # What matters here is that it takes *no lift* -- a stale mix would move it

@@ -56,18 +56,40 @@ legal text, and where the two disagree the licence wins.
 > Batch 17 (the icon and the console — 263 tests, 305 harness checks, a crescent
 > sweep, and no cmd window) ·
 > Batch 18 (shuffle and repeat — 279 tests, 340 harness checks, and the first
-> item off the post-v1 list)
+> item off the post-v1 list) ·
+> Batch 19 (daycore reaches 0.70x — 281 tests, 344 harness checks, and a
+> constant that is now a function)
 >
-> **v1 is shipped; Batches 8 through 18 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 18 is ticked except the release
+> **v1 is shipped; Batches 8 through 19 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 19 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **The roadmap is finished.** Batches 16, 17 and 18 were not on it: the user
+> **The roadmap is finished.** Batches 16 through 19 were not on it: the user
 > reported audible pops, then asked for a nicer icon and for the console to stop
-> opening, then asked for shuffle and repeat. What is left is one outward-facing
-> action, three human judgements, and the rest of the post-v1 feature list — all
-> set out below.
+> opening, then asked for shuffle and repeat, then asked for three more things
+> at once. What is left is one outward-facing action, three human judgements,
+> **two of the three things that arrived with Batch 19**, and the rest of the
+> post-v1 feature list — all set out below.
+>
+> **The two still to build are agreed and specified**, in
+> `C:\Users\badrd\.claude\plans\can-we-make-the-memoized-summit.md`, which is the
+> approved plan for all three and holds the design decisions already settled with
+> the user. **Batch 20: the three category marks (`▶ ♪ ⚙`) become painted vectors
+> rather than `Segoe UI Symbol` glyphs** — the user dislikes the gear and chose
+> "paint all three" over a glyph swap, and asked to be shown candidate marks
+> before one is committed to. **Batch 21: a search that filters the Music
+> column** — `/` opens a query, matching on title *and* artist, and the one thing
+> that breaks is that column row number stops being the index into
+> `controller.tracks`. Neither is started. Ask before starting either.
+>
+> **The speed slider now runs 0.70x–1.30x, and the thing to know is that
+> `theme.ANCHOR_FRACTION` exists.** Where 1.00x sits on the slider is *derived*
+> from the three speed constants, because it is also where every palette knots
+> its resting colour — it used to be the literal `0.4` that a 0.80–1.30 range
+> produces, written out about thirty times. **Never retype it.** If the range
+> moves again the knots follow on their own, and the reason that matters is in
+> the decisions log: a stale copy of that number is a wrong colour, not an error.
 >
 > **Shuffle and repeat exist, and the thing to know is that auto-advance is no
 > longer `step(+1)`.** `PlayerController._advance()` is the end-of-track path and
@@ -264,13 +286,21 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **339/340 with
+> position read, it predates Batch 9, and it passes on a re-run. **343/344 with
 > that one line failing is the known state. Anything else failing is yours.**
+>
+> A second one, seen once in Batch 19 and not since: *"a wave frame at 1600x900
+> costs well under 33 ms"* can fail on a loaded machine. It is not a flake in the
+> same sense — it is a real measurement that is only meaningful when nothing else
+> is competing, and it passed at **7.38 ms against a 33 ms budget** on the idle
+> re-run. Re-run it idle before believing it.
 >
 > ### Next
 >
-> **The roadmap is empty. Nothing is queued, and nothing should be started
-> without asking.**
+> **Batches 20 and 21 are agreed but not started** — see the approved plan named
+> above, and stop for sign-off between them as always. Everything else below is
+> unchanged: nothing beyond those two is queued, and nothing should be started
+> without asking.
 >
 > The one piece of Batch 15 left is **step 7 and only step 7**: attach
 > `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release drafted against
@@ -317,6 +347,15 @@ legal text, and where the two disagree the licence wins.
 > as blue tiles and **cannot be coloured at all**, and then the correct
 > monochrome shuffle mark dissolving into a scribble at the size a button
 > actually draws it.
+>
+> **Batch 19 is the exception that sharpens the rule rather than weakening it.**
+> Its bug was caught by an *assertion* — a slider handle asserted at `0.6`, which
+> is where 1.10x sits on a 0.80–1.30 range and not on a 0.70–1.30 one. Note
+> which checks stayed silent: every colour check, all of them, because the knots
+> and the assertions had been updated together and both sides of each comparison
+> moved. A number is checkable when something independent still states it; the
+> handle check was the only place in 344 that had written the arithmetic out
+> rather than asking the code for it.
 >
 > So: if the question is "does this box clear that box", write the assertion. If
 > it is "does this read", **`tools/render.py` is how you look** — give it a flag
@@ -386,7 +425,8 @@ here and write down why.
 | **The info block shows the warped length** | `2:00 · plays in 1:44 at 1.15x`. It's the one number only this app can tell you and it moves as the slider does. Suppressed at 1.00x, where it would just repeat itself. |
 | **The crossbar rule stops at the item column** | Run full width it strikes through whatever sits on the row — the Now Playing song title most obviously — and past the selection plate it was only ever a stray segment. |
 | **The status line is right-aligned** | It's the only edge of the stage nothing else claims: the left gutter is the art, and the left of the column is the key hint and, further down a long list, the track titles. |
-| **The speed range is the two presets: 0.80x–1.30x** | So the slider's end labels can be read literally — slam the handle right and you get nightcore, no explanation needed. `MIN_SPEED`/`MAX_SPEED` are now *defined as* `DAYCORE_SPEED`/`NIGHTCORE_SPEED`. Costs the extremes; 1.50x is chipmunks and 0.50x is a dirge, so little was lost. `tools/engine_harness.py` keeps its own wider 0.5–1.5 bounds — it probes the engine, not the product. |
+| ~~The speed range is the two presets: 0.80x–1.30x~~ → **0.70x–1.30x** | So the slider's end labels can be read literally — slam the handle right and you get nightcore, no explanation needed. `MIN_SPEED`/`MAX_SPEED` are *defined as* `DAYCORE_SPEED`/`NIGHTCORE_SPEED`. `tools/engine_harness.py` keeps its own wider 0.5–1.5 bounds — it probes the engine, not the product. *Batch 19 moved the slow end down at the user's ask, and the original row's parenthetical — "costs the extremes; 0.50x is a dirge, so little was lost" — is the part that turned out to be worth revisiting: 0.70 is still music and 0.80 was a conservative floor rather than a measured one.* Verified at the new end on a real device rather than assumed: **0.698x of wallclock against a requested 0.70**, zero xruns, 18.0 ms of slack, and the largest sample-to-sample step in a 2-second render is *smaller* at 0.70x than at 1.00x — which is what slowing down should do, since it interpolates more finely between source samples. **The one thing this is not is a one-constant change**; see the row below. |
+| **Where 1.00x lands on the slider is derived, not typed** | `theme.ANCHOR_FRACTION`. Every palette knots its resting colour at the fraction 1.00x maps to, and on a 0.80–1.30 range that is exactly 0.4 — which is why the literal `0.4` sat in five knot tuples, in `_accent_fraction`, and fifteen times in the harness. Widening to 0.70–1.30 moves it to 0.5, so retyping it would have been thirty-odd edits with **no way to tell you had missed one**: a stale fraction is a colour, not an error, and the anchor checks would have compared a moved colour against a knot that moved with it. Derived from `DEFAULT_SPEED`, `MIN_SPEED` and `MAX_SPEED`, it cannot desync — which makes this Batch 14's "a derived cache is keyed on its inputs" row applied to a *constant*, and the reason `ui/theme.py` now imports `core.settings` at all. The seam is unbothered: `ui` may import `core`, and only the reverse is forbidden. |
 | **Slider rows are stepped into: Enter, then arrows, then Enter/Esc** | Left/Right are category navigation and can't be spent on a value. This is what real XMB does with slider items, and the row outlines itself while it holds the arrow keys so the mode is visible. |
 | **The art placeholder lives in the gutter, not above the items** | Stacked above the column it competed with them for vertical room, and at 720x480 there wasn't any — it clipped, then had to be dropped. Out in the empty space left of the column its size is bounded by the *gutter*, so no supported window size can take it away. |
 | **The window is a plain `QWidget`, not a `QMainWindow`** | The only thing wanted from `QMainWindow` was a central widget, and its layout ignores the contents margins that give the frameless resize grips somewhere to live. |
@@ -523,6 +563,10 @@ mp3player/
   ui/                    # all Qt
     theme.py             # colors, fonts, metrics, motion -- single source of truth
                          #   + PALETTES: the five speed-driven colour ramps
+                         #   + ANCHOR_FRACTION: where 1.00x lands on the slider,
+                         #   derived from core.settings' speed range -- the one
+                         #   core import in here, and the reason a knot never
+                         #   has to be retyped when that range moves
     icon.py              # the app icon: a crescent sweep, Mono's ramp, no tile
                          #   app_icon() -> QIcon, for setWindowIcon; also the
                          #   source tools/make_icon.py builds the .ico from
@@ -779,6 +823,19 @@ don't invent a second way to do a thing we've already solved.
 - **A log is not a print, and this project still has no `print()` in shipped
   code.** The hole Batch 13 filled was that nothing was *recorded*, not that
   nothing was displayed. `tools/` prints because printing is the point there.
+- **A literal that is arithmetic on other constants is a cache with no key,
+  and it will not fail loudly the day one of them moves.** `0.4` was where
+  1.00x sits on a 0.80–1.30 slider — true, load-bearing, and written out
+  thirty-odd times across five knot tuples, a module global and the harness.
+  Widening the range to 0.70 made every one of them wrong at once, and the
+  telling part is what *would* have happened had it been retyped by hand rather
+  than derived: the harness compares each palette's 1.00x against a hand-written
+  anchor, so a knot moved to 0.5 while a check still asked for 0.4 would have
+  compared two different colours and said so — but a knot left at 0.4 while the
+  check was updated would have **passed**, because both sides move together.
+  The rule is the same one as the cache below, one level down: if a number is a
+  function of other numbers in the repo, write the function. The cost here was
+  one import and one expression.
 - **A cache that has to be refreshed is a cache keyed on the wrong thing.**
   If the answer is a function of two module-level values, key it on those two
   values and recompute on a miss. Refreshing it from the setters means every
@@ -2494,6 +2551,84 @@ bump, which is the user's call.
 
 ---
 
+### Batch 19 — Daycore reaches 0.70x ✅
+
+Not on any roadmap either. The user asked for three things in one message —
+more room at the slow end, a Settings icon they like better, and a way to search
+the folder — and agreed to them being taken one batch at a time. This is the
+first.
+
+- [x] `DAYCORE_SPEED = 0.70`
+- [x] `theme.ANCHOR_FRACTION`, derived, and the five knot tuples reading it
+- [x] The harness's fifteen `0.4` literals, and the round-trip nothing checked
+- [x] Tests, renders, a real device at the new floor, `README.md`
+
+**The ask was one constant and the batch was not.** `main_window._speed_fraction`
+maps the slider onto `0..1` and *that* fraction drives every colour in the app,
+so 1.00x sitting at `(1.00 − 0.80) / 0.50 = 0.4` is why every palette knots its
+resting colour there. Widening to 0.70 moves it to 0.5, and left alone the
+decisions log's central colour invariant — *1.00x is exactly the anchor* —
+breaks on all five presets simultaneously. Two decisions-log rows and a
+convention came out of that, and the convention is the one worth reading: the
+literal would have been retyped in about thirty places, and **the failure mode
+of getting one wrong is a colour rather than an error**.
+
+**Stretch, not extend.** Settled with the user before anything was written. The
+middle knot moves to where 1.00x now lands, which leaves both ramp ends and all
+five anchors byte-identical and simply spreads the daycore half over more speed.
+The alternative — a fourth knot, so 0.80x holds its current colour and 0.70x
+travels somewhere new — is ten hand-fitted numbers and five re-measured anchors,
+which is a batch and not an edit.
+
+**The harness found the bug, and it is the first time in nine batches that the
+renders did not.** One check in 344 failed: *"the handle sits proportionally
+along the track"*, which asserted `0.6` for 1.10x — correct on a 0.80–1.30
+slider and wrong on this one. That it was a **slider** check rather than a
+colour check is the interesting part, because every colour check passed: the
+knots and the assertions had been moved together, so both sides of every anchor
+comparison agreed. It is spelled out from the two constants now, rather than
+derived from `_speed_fraction`, which is the function it exists to test — the
+same reasoning that makes `Palette.anchor` a hand-written literal.
+
+**The renders confirmed rather than caught**, for the second time (Batch 14 was
+the first). All five palettes were rendered at 0.70x and at 0.85x — the ends
+because they must be unchanged, and 0.85x because it is a speed whose colour
+genuinely *did* move, from fraction 0.1 to 0.25. All five still read as
+themselves at both; Vapor travels hardest early and is the one that shifted
+most, which is a property of its knots rather than of this change.
+
+**And the audio was probed rather than assumed**, because no sample had ever
+gone through the resampler at 0.70 — the mixer could not be asked for it before.
+Offline first, no device: the largest sample-to-sample step over 200 blocks is
+**0.0168 at 0.70x against 0.0246 at 1.00x and 0.0313 at 1.30x**, i.e. slower is
+smoother, which is what fractional interpolation should do and is the shape a
+click would break. Then on the real WASAPI stream: **0.698x of wallclock against
+a requested 0.70**, 45.7 ms buffer, 18.0 ms of least slack, zero xruns.
+
+Verified: **281 tests green** (2 new, core-only as the convention requires — a
+`0.75` clamp case that used to come back as `0.80`, and the floor named once
+outside `settings.py`). `tools/shell_harness.py` **344/344** on the second run
+with the known WASAPI flake passing; 4 new, all in a new section about the range
+itself: 1.00x maps to the fraction the knots are pinned at, the ends *are* the
+two presets, the anchor is strictly between them so the knots stay in order, and
+daycore reaches 0.70. `ruff check .` and `mypy` clean. Ran the real entrypoint
+through `pythonw.exe` — clean start, `45.7 ms` in the log, no warnings.
+
+Also landed: `README.md`'s feature list says `0.70x`.
+
+**Not done, and it is a loose end rather than a decision:
+`docs/images/speeds.png` is stale.** It is captioned "at daycore, normal and
+nightcore" and shows the handle pinned at the left end labelled `0.80x`, which
+is no longer the end. It cannot be regenerated faithfully from here — it was
+shot against an 11-track *demo* folder with real cover art that is not in the
+repo, and re-rendering it from the current library would swap a good screenshot
+for a worse one (no art, a 196-track list, a skipped-files line). **It is also
+already stale from Batch 18**, which added two buttons to the transport bar that
+the image does not show. Both want the same fix: reshoot the README's screens
+against a small curated folder, which is a job of its own.
+
+---
+
 ## Running it
 
 ```bash
@@ -2536,8 +2671,9 @@ venv/Scripts/python.exe tools/shell_harness.py
 
 # Known flake, not a regression: `...resuming where it left off` fails maybe one
 # run in five at 0.00s. It is a real WASAPI reopen racing the position read, it
-# predates Batch 9, and it passes on a re-run. 339/340 with *that* line failing
-# is the known one; anything else failing is yours.
+# predates Batch 9, and it passes on a re-run. 343/344 with *that* line failing
+# is the known one; anything else failing is yours. The wave's 33 ms frame-cost
+# check can also fail on a loaded machine; re-run it idle before believing it.
 #
 # It writes its log to a temp file, not to yours -- and its crash-probe section
 # prints a real traceback to stderr on purpose. Both are meant to be there.

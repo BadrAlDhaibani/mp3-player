@@ -57,6 +57,11 @@ class NowPlayingPage(QWidget):
         self._appear = 1.0
         self._arrival = Tween(self, "appear", theme.APPEAR_MS)
 
+        # The painted page, kept as pixels. Same reasoning as `ItemColumn`'s --
+        # see `_paint_key` there for why this is keyed rather than flagged.
+        self._cache = QPixmap()
+        self._cache_key: tuple[object, ...] | None = None
+
     def set_state(self, state: NowPlaying) -> None:
         if state != self._state:
             self._state = state
@@ -168,7 +173,52 @@ class NowPlayingPage(QWidget):
     # -- painting ----------------------------------------------------------
 
     def paintEvent(self, event) -> None:
+        """Blit the cached page. See `ItemColumn.paintEvent` for the reasoning.
+
+        The wave is a full-size sibling that dirties the whole stage ~21 times a
+        second, so this was redrawing an unchanged page at that rate. Smaller
+        than the column's -- 0.82 ms at 980x640, 1.09 at 1920x1080 -- but the
+        same free millisecond, and the same twenty lines.
+
+        A drag of the speed slider correctly misses on every step: the readout,
+        the handle and the accent all move. That path costs exactly what it did.
+        """
         painter = QPainter(self)
+        painter.drawPixmap(0, 0, self._content())
+
+    # -- the cache ---------------------------------------------------------
+
+    def _paint_key(self) -> tuple[object, ...]:
+        """Everything the picture depends on.
+
+        `_art` is in here by identity rather than by value: `set_art` already
+        treats a new cover as a new object, and comparing two megabytes of
+        decoded image on every frame would cost more than the paint it saves.
+        """
+        return (
+            self._state,
+            id(self._art),
+            round(self._appear, 3),
+            self.width(),
+            self.height(),
+            self.devicePixelRatio(),
+            theme.palette().name,
+            theme.accent_fraction(),
+        )
+
+    def _content(self) -> QPixmap:
+        key = self._paint_key()
+        if key == self._cache_key and not self._cache.isNull():
+            return self._cache
+
+        ratio = self.devicePixelRatio()
+        cache = QPixmap(
+            round(max(1, self.width()) * ratio), round(max(1, self.height()) * ratio)
+        )
+        cache.setDevicePixelRatio(ratio)
+        cache.fill(Qt.transparent)
+
+        painter = QPainter(cache)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
 
@@ -182,6 +232,10 @@ class NowPlayingPage(QWidget):
         self._paint_title(painter)
         self._paint_info(painter)
         self._paint_slider(painter)
+        painter.end()
+
+        self._cache, self._cache_key = cache, key
+        return cache
 
     def _paint_art(self, painter: QPainter) -> None:
         art = self.art_rect()

@@ -329,12 +329,6 @@ class PlayerController(QObject):
         index, _wrapped = self._next_index(delta)
         self.play_index(index)
 
-    def next_track(self) -> None:
-        self.step(+1)
-
-    def previous_track(self) -> None:
-        self.step(-1)
-
     def restart(self) -> None:
         """Play the current track again from the top, without re-decoding it.
 

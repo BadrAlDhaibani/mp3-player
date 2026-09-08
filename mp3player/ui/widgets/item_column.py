@@ -27,10 +27,11 @@ the filtered list arrives here as a plain shorter list of items.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from PySide6.QtCore import Property, QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QFontMetrics, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from mp3player.ui import theme
@@ -77,6 +78,11 @@ class ItemColumn(QWidget):
         self._appear = 1.0
         self._slide = Tween(self, "display_index", theme.SLIDE_MS)
         self._arrival = Tween(self, "appear", theme.APPEAR_MS)
+
+        # The painted rows, kept as pixels. See `_paint_key` for why this is
+        # keyed rather than invalidated, and `paintEvent` for what it costs.
+        self._cache = QPixmap()
+        self._cache_key: tuple[object, ...] | None = None
 
     # -- the animated offsets ----------------------------------------------
 
@@ -236,18 +242,124 @@ class ItemColumn(QWidget):
     # -- painting ----------------------------------------------------------
 
     def paintEvent(self, event) -> None:
+        """Blit the cached rows. See `_paint_key` for when they are redrawn.
+
+        The column is a full-size sibling of the wave, which is not, and the
+        wave dirties the whole stage about 21 times a second -- so this was
+        redrawing an unchanged track list at that rate for as long as the app
+        was open. Measured against the real 196-track library: **4.56 ms a
+        frame at 980x640 and 5.82 ms at 1920x1080**, against 0.07 and 0.31 for
+        the blit that replaced it.
+
+        That is not only a CPU figure. The audio callback is Python and shares
+        the GIL with everything in here, and it is the one with a 10.7 ms
+        deadline (CLAUDE.md, conventions) -- so the milliseconds come back to
+        the audio thread as headroom.
+        """
         painter = QPainter(self)
+        painter.drawPixmap(theme.COLUMN_INK_LEFT, 0, self._content())
+
+    # -- the cache ---------------------------------------------------------
+
+    def _paint_key(self) -> tuple[object, ...]:
+        """Everything the picture below depends on.
+
+        **Keyed on its inputs rather than invalidated by whoever moved one**,
+        which is this project's standing rule for a derived value (decisions
+        log: *a derived cache is keyed on its inputs*; conventions: *a cache
+        that has to be refreshed is a cache keyed on the wrong thing*). It
+        matters more here than usual because two of the inputs are `theme`
+        module state that this widget is never told about: the palette and the
+        accent both move without anything calling a setter on the column, and a
+        stale colour is a colour rather than an error.
+
+        The two animated values are both in here, so an arrival and a slide each
+        miss on every frame and redraw. That is correct rather than a
+        concession: the rows really are moving. It was worth checking, though --
+        the arrival is `setOpacity` plus a translate, so applying it to the blit
+        instead looked like a way to get it free. **It is not the same picture.**
+        Per-element opacity composites each ring, plate and label at `_appear`
+        against what is under it; fading the finished layer composites them at
+        full and scales the result, and the selection glow is six translucent
+        rings stacked on a plate. Measured, they differ over ~2.5% of the inked
+        bytes. Both fades are defensible and this one is the one that shipped --
+        and the cost of keeping it is a redraw for the 160 ms after a category
+        step, which is not what this cache was built for.
+        """
+        return (
+            self._items,  # same tuple object, so `==` is a pointer compare a row
+            self._index,
+            # 0.001 of a row is 0.04 px at ITEM_SPACING -- below what a frame
+            # can show, and it keeps a tween's float noise from missing forever.
+            round(self._display, 3),
+            round(self._appear, 3),
+            self._empty_text,
+            self._stepping,
+            self._search,
+            self.width(),
+            self.height(),
+            self.devicePixelRatio(),
+            theme.palette().name,
+            theme.accent_fraction(),
+        )
+
+    def _content(self) -> QPixmap:
+        """The rows as pixels, redrawn only when `_paint_key` has moved.
+
+        Sized to the box the column can actually ink rather than to the widget:
+        it draws nothing left of the selection glow and nothing right of
+        `RIGHT_MARGIN`, and at 1920x1080 that is 0.31 ms of blit against 0.86.
+        """
+        key = self._paint_key()
+        if key == self._cache_key and not self._cache.isNull():
+            return self._cache
+
+        ratio = self.devicePixelRatio()
+        left = theme.COLUMN_INK_LEFT
+        width = max(1, self.width() - left)
+        height = max(1, self.height())
+
+        cache = QPixmap(round(width * ratio), round(height * ratio))
+        cache.setDevicePixelRatio(ratio)
+        cache.fill(Qt.transparent)
+
+        painter = QPainter(cache)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
-
+        # Everything below goes on drawing in the widget's own coordinates, so
+        # no metric in `theme` had to learn that this is a smaller canvas.
+        painter.translate(-left, 0)
         # Arriving from a crossbar step: the whole column drifts in from the
-        # right as it fades up. Transform rather than per-item offsets, so
-        # nothing below has to know this is happening -- and the geometry the
-        # mouse is tested against never sees it.
+        # right as it fades up. Nothing below has to know this is happening, and
+        # the geometry the mouse is tested against never sees it.
         if self._appear < 1.0:
             painter.setOpacity(self._appear)
             painter.translate((1.0 - self._appear) * theme.APPEAR_OFFSET, 0)
+        self._paint_content(painter)
+        painter.end()
 
+        self._cache, self._cache_key = cache, key
+        return cache
+
+    def _visible_range(self) -> tuple[int, int]:
+        """The half-open range of rows that can land on screen.
+
+        The loop used to walk all 196 items to `continue` past the ~185 that are
+        off-stage. Cheap (0.29 ms) and pointless: `_paint_y` is linear in the
+        index, so the range it puts on screen is arithmetic rather than a search.
+        """
+        if not self._items:
+            return 0, 0
+        # A row sits at `row_y + (index - _display) * ITEM_SPACING`, and the old
+        # test kept it while that is within one spacing of the widget. Solved
+        # for `index`, that is a range rather than a scan.
+        span = theme.ITEM_SPACING
+        offset = self._display - self.row_y() / span
+        first = max(0, math.floor(offset - 1.0))
+        last = min(len(self._items), math.ceil(offset + self.height() / span + 1.0) + 1)
+        return first, last
+
+    def _paint_content(self, painter: QPainter) -> None:
         if self._search is not None:
             self._paint_search(painter)
             # The list is clipped below the header rather than the header being
@@ -272,7 +384,9 @@ class ItemColumn(QWidget):
         self._paint_selection(painter)
 
         base = painter.opacity()
-        for index, item in enumerate(self._items):
+        first, last = self._visible_range()
+        for index in range(first, last):
+            item = self._items[index]
             y = self._paint_y(index)
             if y < -theme.ITEM_SPACING or y > self.height() + theme.ITEM_SPACING:
                 continue  # off-stage; a 200-track folder only paints what shows

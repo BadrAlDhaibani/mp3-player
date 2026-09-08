@@ -44,10 +44,23 @@ class DecodeError(RuntimeError):
         super().__init__(f"{self.path.name}: {reason}")
 
 
-def load_audio(path: Path | str) -> tuple[np.ndarray, int]:
-    """Decode `path` to `(float32[n, 2], sample_rate)`.
+def probe(path: Path | str) -> tuple[int, int]:
+    """Check `path` is playable and report `(frames, sample_rate)`.
 
-    Raises `DecodeError` -- and only `DecodeError` -- for anything unplayable.
+    Everything `load_audio` can refuse a file for, **except a read that fails
+    part way through a file libsndfile was willing to open** -- the magic-byte
+    sniff, the MP4/AAC case, a header libsndfile will not take, and a file with
+    no audio in it. Raises the same `DecodeError`, worded the same way.
+
+    It exists so the caller can find out whether a track is going to load
+    *before* committing memory to it. `AudioEngine.load_path` drops the track it
+    is playing before decoding the next one -- a 4-minute file is ~92 MB and
+    holding two of them doubles the app's working set for the length of a
+    decode -- and that is only safe if a file that was never going to play
+    cannot take the current one down with it.
+
+    Allocates nothing beyond libsndfile's own header parse: `sf.SoundFile` opens
+    and reads metadata, and the samples are not touched.
     """
     path = Path(path)
 
@@ -56,6 +69,29 @@ def load_audio(path: Path | str) -> tuple[np.ndarray, int]:
         raise DecodeError(path, "could not be opened")
     if kind in _UNSUPPORTED:
         raise DecodeError(path, _UNSUPPORTED[kind])
+
+    try:
+        with sf.SoundFile(str(path)) as handle:
+            frames, sample_rate = len(handle), int(handle.samplerate)
+    except Exception as exc:  # libsndfile raises several unrelated types
+        raise DecodeError(path, str(exc) or "not a decodable audio file") from exc
+
+    if frames < _MIN_FRAMES:
+        raise DecodeError(path, "contains no audio")
+
+    return frames, sample_rate
+
+
+def load_audio(path: Path | str) -> tuple[np.ndarray, int]:
+    """Decode `path` to `(float32[n, 2], sample_rate)`.
+
+    Raises `DecodeError` -- and only `DecodeError` -- for anything unplayable.
+    """
+    path = Path(path)
+
+    # One place says what "playable" means, and it is the one a caller can ask
+    # without paying for the samples.
+    probe(path)
 
     try:
         data, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)

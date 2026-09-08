@@ -203,7 +203,10 @@ class ChromeWindow(QWidget):
         `theme.background_brush`, which the harness and `tools/render.py` go on
         calling directly.
         """
-        if self._background.size() != self.size():
+        if (
+            self._background.size() != self.size() * self.devicePixelRatio()
+            or self._background.devicePixelRatio() != self.devicePixelRatio()
+        ):
             self._rebuild_background()
         painter = QPainter(self)
         painter.drawPixmap(0, 0, self._background)
@@ -215,8 +218,19 @@ class ChromeWindow(QWidget):
         window can also arrive at a new size without one -- the first show, and
         a device-pixel-ratio change when the window is dragged to another
         monitor. Comparing sizes costs nothing and cannot be forgotten.
+
+        Built in *device* pixels and told its ratio, which the first version did
+        not do: a pixmap made at the logical size carries a ratio of 1, so on a
+        150% display Qt drew it at two-thirds scale and blew it back up. On a
+        gradient that is a soft edge nobody would ever report, and it is the
+        same mistake `ItemColumn` and `NowPlayingPage` cache *text* through --
+        which is why it is fixed here too rather than only there. Both screens
+        on the machine this was written on report a ratio of 1, so this is
+        reasoned rather than seen.
         """
-        self._background = QPixmap(self.size())
+        ratio = self.devicePixelRatio()
+        self._background = QPixmap(self.size() * ratio)
+        self._background.setDevicePixelRatio(ratio)
         painter = QPainter(self._background)
         painter.fillRect(self.rect(), theme.background_brush(self.rect()))
 

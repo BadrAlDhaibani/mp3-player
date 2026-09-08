@@ -283,6 +283,18 @@ GLOW_FALLOFF = 1.6  # exponent; >1 keeps the light close to the plate
 # would simply be missing for most of it.
 GLOW_FLOOR = 0.35
 
+# The leftmost pixel the item column can ink, which is the outermost glow ring
+# around the selection plate rather than the plate or the marker. Derived rather
+# than typed, so moving a glow constant moves this with it -- `ItemColumn` caches
+# its paint into a pixmap that starts here, and a box that is a few pixels too
+# narrow is a clipped glow that only shows up on the selected row.
+#
+#   plate.left()  ITEM_X - 14
+#   spread        GLOW_RINGS * GLOW_STEP, the outermost ring
+#   pen           GLOW_STEP + 1, drawn centred on the ring, so half either side
+#   slack         a few pixels of antialiasing
+COLUMN_INK_LEFT = ITEM_X - 14 - GLOW_RINGS * GLOW_STEP - (GLOW_STEP + 1) - 6
+
 
 # -- the wave --------------------------------------------------------------
 #

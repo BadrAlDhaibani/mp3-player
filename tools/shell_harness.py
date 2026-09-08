@@ -39,7 +39,7 @@ for _stream in (sys.stdout, sys.stderr):
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1  # noqa: E402
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from mp3player import app as app_mod  # noqa: E402
 from mp3player.core import log as log_mod  # noqa: E402
@@ -72,6 +72,7 @@ from mp3player.ui.main_window import (  # noqa: E402
     SET_THEME,
     MainWindow,
 )
+from mp3player.ui.widgets.now_playing import NowPlaying  # noqa: E402
 from mp3player.ui.widgets.transport import (  # noqa: E402
     REPEAT_ALL_GLYPH,
     REPEAT_ONE_GLYPH,
@@ -2413,6 +2414,109 @@ def main() -> int:
             f"the wave's band mask is unchanged at {width}x{height}",
             wave._build_mask(width, height) == direct,
         )
+
+    # The item column and the Now Playing page went the same way, and they are
+    # the two that were actually costing something: the column redrew 196 rows
+    # on every wave frame, at 5.0 ms a frame at 980x640 and 9.6 at 1920x1080.
+    #
+    # Two claims here, and the second is the one that took a second try. The
+    # first is that the cached render *is* the old picture, which is what these
+    # loops compare. The second is that the key notices an input moving -- and a
+    # comparison that builds a fresh widget per case cannot see it, because the
+    # cache is cold every time. Written that way first, it passed 243/243 with
+    # `theme.accent_fraction()` deliberately deleted from the key. The stale
+    # loop below is what has teeth.
+    def painted(widget, width, height, uncached):
+        """The widget's own paint, and what it draws through the cache."""
+        widget.resize(width, height)
+        first = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
+        first.fill(Qt.transparent)
+        painter = QPainter(first)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        uncached(painter)
+        painter.end()
+
+        second = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
+        second.fill(Qt.transparent)
+        widget.render(second, QPoint(0, 0), renderFlags=QWidget.RenderFlag.DrawChildren)
+        return first, second
+
+    column, page = window.stage.column, window.stage.page
+    theme.set_palette(settings_mod.DEFAULT_THEME)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
+
+    for width, height in ((720, 480), (980, 640), (1920, 1080)):
+        direct, blitted = painted(column, width, height, column._paint_content)
+        check(
+            f"the item column's cache is the pixels it replaced at {width}x{height}",
+            direct == blitted,
+        )
+
+        def page_paint(painter, target=page):
+            target._paint_art(painter)
+            target._paint_title(painter)
+            target._paint_info(painter)
+            target._paint_slider(painter)
+
+        direct, blitted = painted(page, width, height, page_paint)
+        check(
+            f"the Now Playing cache is the pixels it replaced at {width}x{height}",
+            direct == blitted,
+        )
+
+    # Hold one widget and move one input at a time. Anything the key forgets
+    # shows up here as a picture that did not change when it had to -- which is
+    # what a stale accent or a stale palette looks like from the outside, and
+    # neither of them arrives through a setter on these widgets.
+    def blit(widget):
+        out = QImage(980, 640, QImage.Format_ARGB32_Premultiplied)
+        out.fill(Qt.transparent)
+        widget.render(out, QPoint(0, 0), renderFlags=QWidget.RenderFlag.DrawChildren)
+        return out
+
+    column.resize(980, 640)
+    before = blit(column)
+    for label, move in (
+        ("the accent moving", lambda: theme.set_accent_fraction(0.0)),
+        ("a palette swap", lambda: theme.set_palette("Ember")),
+        ("the list sliding", lambda: setattr(column, "_display", column._display + 0.5)),
+        ("stepping into a row", lambda: column.set_stepping(True)),
+        ("a search opening", lambda: column.set_search("tet")),
+        ("the arrival fading in", lambda: setattr(column, "_appear", 0.4)),
+    ):
+        move()
+        after = blit(column)
+        check(f"the item column's cache notices {label}", after != before)
+        before = after
+
+    theme.set_palette(settings_mod.DEFAULT_THEME)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
+    column.set_stepping(False)
+    column.set_search(None)
+    column._appear = 1.0
+
+    page.resize(980, 640)
+    before = blit(page)
+    for label, move in (
+        ("the accent moving", lambda: theme.set_accent_fraction(0.0)),
+        ("a palette swap", lambda: theme.set_palette("Ember")),
+        (
+            "a new state",
+            lambda: page.set_state(
+                NowPlaying(title="something else", lines=("", "0:31"), fraction=0.9)
+            ),
+        ),
+        ("the arrival fading in", lambda: setattr(page, "_appear", 0.4)),
+    ):
+        move()
+        after = blit(page)
+        check(f"the Now Playing cache notices {label}", after != before)
+        before = after
+
+    theme.set_palette(settings_mod.DEFAULT_THEME)
+    theme.set_accent_fraction(theme.ANCHOR_FRACTION)
+    page._appear = 1.0
 
     controller.shutdown()
     log_mod.close()

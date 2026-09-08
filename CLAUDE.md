@@ -64,9 +64,11 @@ legal text, and where the two disagree the licence wins.
 > Batch 20 (the category marks become drawings — 281 tests, 350 harness checks,
 > and three painted marks where three glyphs were) ·
 > Batch 21 (search that filters the Music column — 286 tests, 397 harness
-> checks, and a row number that is no longer a track index)
+> checks, and a row number that is no longer a track index) ·
+> Batch 22 (the cleanup pass — 293 tests, 413 harness checks, idle CPU cut by
+> 43%, and a track change that no longer holds two songs)
 >
-> **v1 is shipped, Batches 8 through 21 landed on top of it, and `1.2.0` is
+> **v1 is shipped, Batches 8 through 22 landed on top of it, and `1.2.0` is
 > built, tagged and released.** Every box in the roadmap is now ticked — the
 > release upload that had been open since Batch 15 was done on 2026-09-08.
 > **`v1.2.0` is downloadable by anyone, and that was verified logged out**: the
@@ -81,10 +83,46 @@ legal text, and where the two disagree the licence wins.
 > is no next batch until the user names one — see *When the docket is empty*
 > under **The docket** for the standing candidates, none of which are agreed.
 >
+> **The `.exe` in `dist/` is now one batch behind the source in more than the
+> icon.** It is still `1.2.0` and still passes its own smoke test, but Batch 22's
+> paint caches and the decode reordering are not in it. That is the usual state
+> between releases and not a problem; it is noted because the gap is now
+> *behavioural* rather than cosmetic, which the Batch 17 icon note was not.
+>
 > The original roadmap ran out at Batch 15. Everything since has come from the
 > user directly: audible pops (16), a nicer icon and no console window (17),
 > shuffle and repeat (18), and then three things in one message — a lower daycore
 > (19), a Settings icon they dislike (20), and a way to search the folder (21).
+> Batch 22 came the same way, from a Task Manager screenshot.
+>
+> **Two widgets cache their paint now, and the thing to know is that the cache
+> is keyed rather than flagged.** `ItemColumn` and `NowPlayingPage` render into
+> a `QPixmap` and blit it; `_paint_key` on each is the list of everything the
+> picture depends on, and a miss redraws. **Two of those inputs are `theme`
+> module state that never arrives through a setter** — the palette and the
+> accent — which is exactly why a dirty flag would have been the Batch 9 bug
+> with a new way in. If you add anything to either paint path, add its input to
+> the key; the harness will tell you, because it moves each input on a *held*
+> widget and demands the picture change.
+>
+> **The reason there was anything to win: one wave frame repaints the whole
+> stage.** `WaveBackground` is a full-size, non-opaque sibling, so `update()`
+> dirties everything over it. Measured directly —
+> `after ONE wave.update(): {'stage': 1, 'wave': 1, 'bar': 1, 'column': 1}` —
+> and the column was redrawing 196 rows about 21 times a second for as long as
+> the app was open. **Idle CPU, all 8 cores, playing, on Music: 3.92% → 2.25%
+> at 980x640 and 7.19% → 5.96% at fullscreen.** The 3.92 is worth noting: it is
+> the figure in the user's own Task Manager screenshot, which is what says the
+> right thing was being measured.
+>
+> **A track change no longer holds two decoded songs.** `AudioEngine.load_path`
+> drops the playing track *before* decoding the next, which it can only do
+> safely because `decode.probe` has already established the file will open — a
+> bad track must leave the music playing and say so, not stop it to find out.
+> Measured on the two longest files in the library: **peak 560 MB → 325 MB
+> across one skip.** It costs a gap: the outgoing track is silent for the decode
+> (70–210 ms) where it used to play under it. Swapping two lines in `load_path`
+> is the whole of the undo.
 >
 > **Music can be filtered now, and the thing to know is that a column row is no
 > longer a track index.** `MainWindow._matches` is the map — column row → index
@@ -349,6 +387,20 @@ legal text, and where the two disagree the licence wins.
 > is competing, and it passed at **7.38 ms against a 33 ms budget** on the idle
 > re-run. Re-run it idle before believing it.
 >
+> A third, found in Batch 22 and **reproducible on demand, which is the useful
+> part**: *"arrows walk the filtered list"* fails roughly one run in twelve with
+> `index=13` instead of `index=2`. Run the harness under `random.seed(3)` and it
+> fails every time. The cause is two checks above it: `Ctrl+Right` inside the
+> search is transport, and `set_shuffle(saved.shuffle)` a few lines earlier
+> restores the *user's* saved value — which on this machine is `True` — so the
+> jump lands on a random track. When that track happens to match the query,
+> `_on_track` moves the Music cursor to its row and the two `Down`s that follow
+> land at row+2 rather than at 2. **Nothing about it is new** — it was
+> reproduced on an untouched tree — and it is machine-dependent, in that it
+> cannot fire at all for someone whose saved `shuffle` is off. The fix, if it is
+> ever wanted, is for that section to pin shuffle rather than inherit it, the
+> same way the top of the file already pins the palette.
+>
 > ### The docket
 >
 > **This is the queue, and as of Batch 21 there is nothing agreed on it.** If you
@@ -366,6 +418,8 @@ legal text, and where the two disagree the licence wins.
 > | — | ~~The GitHub account is flagged~~ | *The release*, below | **Closed 2026-09-08.** Support lifted it; everything below it went green |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
+> | — | The wave is now most of the frame | Batch 22 | Raised, not agreed. **Offer; don't start.** After the caches it is ~3.1 of a 5.0 ms frame at 980x640 and ~6 of 9.9 at fullscreen, and every remaining lever changes how it *looks* — the frame rate, `WAVE_SCALE_X`, idling it when the window is inactive. All three were put to the user in Batch 22 and **declined**; don't re-offer them as though they were untouched |
+> | — | The decode is still synchronous, and now audible | Batch 22 | Raised, not agreed. Dropping the old track first means the gap between tracks is 70–210 ms of silence rather than the old track playing under the decode. Moving the decode to a worker is the decisions-log row it always was — a self-contained change, and a batch |
 >
 > **Batch 20's stop is the pattern to reach for whenever the question is *which
 > drawing***: four candidate marks were drawn, put up as a sheet and one was
@@ -475,6 +529,18 @@ legal text, and where the two disagree the licence wins.
 > actually draws it, and Batch 21's search header clipping the list into a
 > sliver of descenders that reads as a paint bug where the identical cut at the
 > window's own edge reads as a list running off the top.
+>
+> **Batch 22 belongs on neither list either, and for a third reason.** Its
+> renders confirmed (nothing moved, which was the whole intent) and its
+> assertions found nothing — because the two things it *did* get wrong were
+> found by **instruments**, before either was written: the widget that was
+> actually costing the CPU was not the one anyone suspected, and the wave crop
+> that looked obviously worth doing measured as worth nothing at the default
+> window. The lesson is the oldest one in this file pointed at performance
+> rather than at layout: **measure the thing before optimising it, and measure
+> it again afterwards to find out whether you were right.** Its one genuinely
+> alarming moment — a check that passed 243/243 with the bug it guards
+> deliberately introduced — is in the conventions.
 >
 > **Batch 20 belongs on neither list, and the reason is worth copying.** Its
 > renders found nothing because the sheet *was* the design step: four candidate
@@ -679,6 +745,10 @@ here and write down why.
 | **A keystroke that leaves the results alone leaves the cursor alone too** | The first version reset the Music cursor to the top match on every keystroke, on the reasoning that row 4 under `tetris` is a different track from row 4 under `tetri` — true, and only true when the results actually moved. Typing the back half of a word already narrowed to one track yanked the cursor and blipped at you, because `keyPressEvent`'s index comparison saw a move. So `_set_query` asks `_match_indices` what the query *would* match before applying it, and the cursor and the sound both hang off that. This is the standing "a press that changes nothing makes no sound" rule meeting the case where the press *did* change something — the query — and only the **result** is the thing to compare. Found by an assertion written for the sound. |
 | **The query line is a header the list is clipped under, and rows fade into it rather than being cut** | No child in this app fills its background (that is what keeps the window's one gradient continuous), so a panel behind the query was never available and a clip buys the same non-overlap for no pixels. The clip alone left a **sliver of descenders hanging under the caption**, which reads as a paint bug where the identical cut at the window's own top edge reads as a list running off the screen. `_under_header` ramps a row out over one `ITEM_SPACING`; the clip stays underneath it as the hard guarantee. The band costs the topmost row, which at the 720x480 minimum is the only one above it that was on screen anyway. |
 | **The query elides from the left** | The only elision in the app that does. Every other one is a label or a readout whose *beginning* identifies it, so `ElideRight` keeps the useful half; a query is text you are still typing and the useful half is the end. It is also what keeps the caret meaning something — a caret after an ellipsis is a text field, a caret after a truncated word is a bug. Same family as the "a field whose text comes from a file has no length" convention, one step worse: a filename at least stops. |
+| **`ItemColumn` and `NowPlayingPage` cache their paint, keyed on their inputs** | The wave is a full-size non-opaque sibling, so one `update()` on it repaints every sibling over it — measured, not assumed: `{'stage': 1, 'wave': 1, 'bar': 1, 'column': 1}` from a single call. That made the column redraw 196 rows ~21 times a second forever, at **5.0 ms a frame at 980x640 and 9.6 at 1920x1080**, against 0.11 and 0.56 for the blit that replaced it. Keyed rather than flagged for the reason the accent-text cache is (Batch 14): **two of the inputs are `theme` module state that never passes through a setter on these widgets**, so "invalidate on write" would be a requirement with no writer to attach it to, and the symptom of forgetting is a colour rather than an error. The cache is sized to the box the column can actually ink (`theme.COLUMN_INK_LEFT`, derived from the glow constants) rather than to the widget — 0.31 ms against 0.86 at fullscreen. |
+| **The arrival animation stays *inside* the cache, and it was checked rather than assumed** | `_appear` is `setOpacity` plus a translate, so applying it to the blit instead of the render looks like a way to make the fly-in free. **It is not the same picture.** Per-element opacity composites each glow ring, the plate and every label at `_appear` against what is beneath it; fading the finished layer composites them at full and scales the result — and the selection glow is six translucent rings stacked on a plate. Measured across 243 cases: identical everywhere except the arrival, which differed over ~2.5% of the inked bytes. Both fades are defensible; this one is the one that shipped. Keeping it costs a redraw for the 160 ms after a category step, which is not what the cache was built for. |
+| **The old track is dropped before the new one is decoded, and `decode.probe` is what makes that safe** | `load_path` decoded first, so both arrays were live at once and a skip briefly cost two full tracks. Measured on the two longest files in the real library: **peak 560 MB against 325 MB**, this library having a twelve-minute track that is 279 MB of `float32[n,2]`. Clearing first is only correct because `probe` has already established the file opens — a `DecodeError` must leave the current track playing and put a line on the status bar, which is what `PlayerController.play_index` does, and stopping the music to discover a file was unplayable would be a worse bug than the memory. `probe` is the magic-byte sniff, the MP4/AAC case, a `sf.SoundFile` open and the empty check: everything `load_audio` refuses except a read that fails part-way through a file libsndfile agreed to open. **The cost is audible and was accepted**: the outgoing track is now silent for the decode instead of playing under it. |
+| ~~The wave's buffer should be cropped to its band~~ → **measured, and dropped** | Everything outside `row ± WAVE_BAND` is multiplied by a mask alpha of exactly zero, so 16% of every ribbon fill, bloom and upscale is spent on pixels that cannot appear. It was built, and then it was measured: **3.36 ms against 3.32 at 980x640 — nothing — and 6.04 against 7.32 at fullscreen.** So it buys nothing at the size the app actually runs at. It also came out **not** byte-identical: max delta 1 on ~0.2% of bytes, because `_add_glow` blits into a sub-rect of the glow image and a fractional destination shifts the resampler's phase. Invisible, certainly — and "byte-identical" was the constraint agreed with the user for the app's signature element, so an invisible difference for a fullscreen-only 1.3 ms is the wrong trade. **Reverted. Don't rebuild it without a reason to care about fullscreen specifically.** |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 | **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
@@ -717,6 +787,8 @@ mp3player/
                          #   record_exception() -- never raises, never prints
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
+                         #   + probe(path): the same refusals, no samples --
+                         #   what lets the engine drop the old track first
       dsp.py             # resample(), Fader, fade_before_end() -- pure numpy
       engine.py          # Mixer (the callback, no device) + AudioEngine (the stream)
                          #   + StreamWatch: has the callback stopped being called?
@@ -750,7 +822,9 @@ mp3player/
       crossbar.py        # category row + the rule it sits on. Category.draw is
                          #   a function now, not a glyph string -- see marks.py
       item_column.py     # the item list -- Music and Settings only. Two modes,
-                         #   both only a look: set_stepping and set_search
+                         #   both only a look: set_stepping and set_search.
+                         #   Paints into a pixmap: `_paint_key` is every input,
+                         #   and two of them are theme module state
       now_playing.py     # the Now Playing *page*: art, track, speed slider
       transport.py       # bottom bar: seek, transport buttons, volume
       wave.py            # the wave: ribbons in a band on the crossbar row
@@ -1114,6 +1188,42 @@ don't invent a second way to do a thing we've already solved.
   Read the return code carefully: **`15700` is `APPMODEL_ERROR_NO_PACKAGE` and
   means unpackaged; `122` is `ERROR_INSUFFICIENT_BUFFER` and means there *is* a
   package.** The failure answer is the one that looks like a generic error.
+- **A cache comparison that builds a fresh object per case cannot fail, and it
+  will look thorough while it does nothing.** Batch 22's first byte-identical
+  check ran 243 cases across three sizes, three palettes, three speeds and nine
+  widget states — and passed 243/243 with `theme.accent_fraction()` *deleted
+  from the cache key*, because every case built a new widget and so never had a
+  warm cache to be stale. There are two claims and they need two instruments:
+  "the cached render is the old picture" wants a cold comparison, and "the key
+  notices an input moving" wants **one held object, one input moved at a time,
+  and an assertion that the picture changed**. Only the second one is about the
+  cache at all. Same family as *an assertion nobody has watched fail is an
+  assertion nobody has tested*, and it is how that convention gets found out:
+  the breaking was done, and the check passed anyway.
+- **`QWidget.render()` fills the widget's palette background by default, and
+  none of this project's widgets do.** `renderFlags=QWidget.RenderFlag.DrawChildren`
+  is what compares what the app actually paints. Left at the default it draws an
+  opaque `#efefef` over the whole surface first — which silently added a
+  full-surface fill to every per-widget timing in Batch 22's first pass (the
+  column read ~2 ms dearer than it is) and made a byte-comparison report that
+  *every* pixel differed, in both directions, for a reason that had nothing to
+  do with the code under test.
+- **`ctypes` calls into Win32 need `argtypes` and `restype`, and the failure is
+  a plausible number rather than an error.** `GetProcessMemoryInfo` without them
+  returned a working set of 0.0 MB; `GetProcessTimes` without them reported the
+  app using 0.0% CPU. Neither raised. Both read as a *finding* — "the app is
+  using nothing" — which is the most expensive kind of wrong measurement,
+  because it is the answer you were hoping for. Same shape as the
+  `APPMODEL_ERROR_NO_PACKAGE` note below: read the call's contract before
+  reading its result.
+- **Before optimising a paint for the audio's sake, measure the audio.** The
+  standing convention says this and Batch 22 is the second batch to confirm it
+  from the other side: the caches cut idle CPU by 43%, and the audio was
+  **already clean before them and equally clean after** — 0 ms lost, 0 xruns,
+  ~15 ms of headroom, on the same fullscreen-and-hammering-arrow-keys case
+  Batch 16 was built around. The paint work buys CPU and battery, which is a
+  real thing to want; it did not buy audio, because Batch 16 had already left
+  none to buy.
 - **Where a process writes its files is a cheaper identity check than any API
   that reports on it.** The taskbar icon and the `%APPDATA%` redirection are the
   same root cause, and three correct-looking API calls (`WM_GETICON`, the AUMID
@@ -3198,6 +3308,133 @@ renders have caught eight batches running. Then run it against the real
 196-track folder: search, play a match, and confirm the transport bar and "Track
 N of M" report the **real** index, that Next advances through the whole library
 rather than the filtered view, and that shuffle still deals from all of it.
+
+---
+
+### Batch 22 — The cleanup pass ✅
+
+Not on any roadmap. The user sent a Task Manager screenshot — **3.8% CPU,
+141.9 MB** — and asked for the program to run smoothly without costing that much.
+
+- [x] `ItemColumn` caches its paint, keyed on its inputs
+- [x] `NowPlayingPage` does the same
+- [x] `decode.probe`, so a track change holds one decoded track and not two
+- [x] `ChromeWindow._background` gets its device pixel ratio right
+- [x] The visible-row slice; `next_track` / `previous_track` deleted
+- [x] Byte-identical *and* staleness checks in the harness, both watched failing
+- [x] ~~Crop the wave to its band~~ — built, measured, **reverted**; see below
+
+**Two questions were settled with the user before anything was written**, and
+both narrowed the work: the wave keeps its motion, its colours and its ~21 fps
+(optimise only, no look change, no idling when inactive, no frame-rate drop),
+and memory work is limited to the track-change peak rather than reaching for a
+streaming decode.
+
+**The measurement came first and it moved the whole batch.** The suspicion going
+in was the wave, because it is the thing that moves. The wave was mostly
+innocent. What the instrument actually said was that **one `update()` on the
+wave repaints every sibling over it** — `{'stage': 1, 'wave': 1, 'bar': 1,
+'column': 1}` from a single call — so the *item column* was redrawing 196 rows
+21 times a second, at 5.0 ms a frame at 980x640 and 9.6 at fullscreen, for a
+list that had not changed since the last keypress. It was half the frame and
+nobody had ever looked at it.
+
+Two things were measured and **rejected**, and they are in the decisions log and
+the conventions so nobody spends an afternoon on them:
+
+*Rebuilding the Music list is not a cost.* `_music_items()` plus
+`_match_indices` over 196 tracks is **0.196 ms**, and `set_items` with an
+unchanged list is **0.004 ms**. `_on_speed` calling `_refresh_column()` on every
+pixel of a drag looks like the obvious culprit and is 0.2% of a frame.
+
+*Vectorising the ribbon paths with numpy is slower.* Building the sines with
+numpy and handing Qt a `QPolygonF` measured **1.17 ms against the `lineTo`
+loop's 0.63** — 242 `QPointF` constructions cost more than the 484 `lineTo`
+calls they replace. The `while` loop in `_ribbon_path` is already the fast one.
+
+**The wave crop was built and then thrown away, which is the batch's most
+useful negative result.** Everything outside the band is masked to alpha zero,
+so 16% of every buffer is spent on pixels that cannot appear — a clean-looking
+win. Measured: **3.36 ms against 3.32 at 980x640, i.e. nothing**, and 6.04
+against 7.32 only at fullscreen. It also came out *not* byte-identical (max
+delta 1 on 0.2% of bytes, from the glow blit's fractional destination shifting
+the resampler's phase). Invisible — and "byte-identical" was the constraint
+agreed for the app's signature element, so it went back. **Building it was not
+wasted: the number is what makes the decision reusable.**
+
+**The assertion that could not fail is the thing to carry forward.** The first
+byte-identical check ran 243 cases and passed 243/243 with
+`theme.accent_fraction()` deliberately deleted from the cache key — because
+every case built a fresh widget, so the cache was cold every time and staleness
+had no way to appear. It is a convention now. The second version holds one
+widget, moves one input at a time and demands the picture change; under the same
+sabotage it fails on both widgets, for both `theme` inputs, which is what the
+check is for.
+
+**Three measurement traps, all of which reported a plausible number rather than
+an error.** `QWidget.render()` at its default flags fills the palette background,
+which none of these widgets does — that inflated every per-widget timing and made
+a byte-comparison say *every* pixel differed. `GetProcessMemoryInfo` and
+`GetProcessTimes` without `argtypes` returned 0.0 MB and 0.0% CPU respectively,
+i.e. "the app uses nothing", which is the most expensive kind of wrong answer
+because it is the one you were hoping for. And a numpy view over a `QImage`
+temporary segfaults, which is the decisions log's *"a Qt object built from a
+Python temporary is a segfault, not an error"* row one layer along.
+
+**The audio did not improve, and that is the honest headline.** The whole
+argument for cutting paint work is that the callback is Python and shares the
+GIL with it. Measured on Batch 16's own case — fullscreen, playing, hammering
+the arrow keys, 25 s, real WASAPI device — **before and after are both 0 ms
+lost, 0 xruns, ~15 ms of least headroom.** Batch 16 had already left nothing to
+buy. What this pass buys is CPU and battery, which is what was asked for.
+
+**A harness failure was chased down and turned out to be pre-existing.**
+*"arrows walk the filtered list"* failed once in twelve runs and never on the
+baseline in six — which is exactly the shape of "probably mine". It is not:
+`random.seed(3)` reproduces it every time **on an untouched tree**. See *Known
+flake* above for the mechanism; it is shuffle, and it can only fire for someone
+whose saved `shuffle` is on.
+
+Measured on this machine, all 8 cores, playing, sitting on Music with 196
+tracks — the same figure the user's screenshot shows:
+
+| | before | after |
+|---|---|---|
+| 980x640 (the default window) | **3.92%** | **2.25%** |
+| 1920x1080 (fullscreen) | 7.19% | 5.96% |
+| one core, 980x640 | 31.3% | 18.0% |
+| one core, fullscreen | 57.5% | 47.7% |
+| frame, Music, 980x640 | 9.69 ms | 4.98 ms |
+| frame, Music, fullscreen | 24.16 ms | 9.90 ms |
+| item column paint, 980x640 | 5.02 ms | 0.11 ms |
+| item column paint, fullscreen | 9.59 ms | 0.56 ms |
+| peak across one track change | 560 MB | 325 MB |
+
+Memory otherwise is what it always was and is not a defect: **73 MB is Qt,
+numpy, libsndfile and PortAudio with the widgets up**, the 196-track scan costs
+1.7 MB, and the rest is the decoded track — a decisions-log choice that buys
+instant seeking and the speed trick. The user's 141.9 MB is that floor plus one
+song.
+
+Verified: **293 tests green** (7 new, core-only as the convention requires — the
+`probe` failure cases paired one-for-one with `load_audio`'s, that `probe`
+allocates nothing, and that the two accept and refuse exactly the same files.
+The allocation one is measured rather than asserted about, with `tracemalloc`:
+**9.4 KB against `load_audio`'s 3.4 MB**, which is the property the memory
+change actually rests on and the one a reader would otherwise assume).
+`tools/shell_harness.py` **413/413** on the second run,
+16 new, with the known WASAPI flake on the first. `ruff check .` and `mypy`
+clean. Rendered Music, Now Playing, Settings with the stepped-into row, and the
+search with the cursor deep in the results, at 720x480 and 980x640 across three
+speeds, and looked at them; plus `filmstrip.py --what appear`, because the
+arrival is the one animation this batch reasoned about. Ran the real entrypoint
+through `pythonw.exe` with `%APPDATA%` redirected: **started in 1.0 s, exit 0**,
+settings written, four clean lines in the log, 0 late audio blocks.
+
+Not done: the `.exe`, for the same reason as every batch since 15 — nothing here
+changes what PyInstaller reads. **Batch 17's note still stands**: the packaged
+exe wears the old crossbar icon, and fixing that means a version bump, which is
+the user's call.
 
 ---
 

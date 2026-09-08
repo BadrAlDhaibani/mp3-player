@@ -7,11 +7,19 @@ exercise the real decoder without adding binaries to git.
 
 from __future__ import annotations
 
+import tracemalloc
+
 import numpy as np
 import pytest
 import soundfile as sf
 
-from mp3player.core.audio.decode import CHANNELS, DecodeError, load_audio, to_canonical
+from mp3player.core.audio.decode import (
+    CHANNELS,
+    DecodeError,
+    load_audio,
+    probe,
+    to_canonical,
+)
 
 SR = 44100
 
@@ -110,6 +118,91 @@ def test_error_carries_the_path_and_reason(tmp_path) -> None:
     assert caught.value.path == target
     assert caught.value.reason
     assert "gone.mp3" in str(caught.value)
+
+
+# -- probe ---------------------------------------------------------------
+#
+# `probe` is what lets `AudioEngine.load_path` drop the track it is playing
+# *before* decoding the next one, which halves the working set across a track
+# change. That is only safe while it refuses everything `load_audio` refuses:
+# if a file gets past here and then fails, the music has already stopped for a
+# track that was never going to play. So these mirror the failure tests above,
+# case for case, and the pairing is the point rather than the coverage.
+
+
+def test_probe_reports_frames_and_rate(tmp_path) -> None:
+    frames, rate = probe(write_wav(tmp_path / "tone.wav", seconds=0.25))
+    assert rate == SR
+    assert frames == int(0.25 * SR)
+
+
+def test_probe_does_not_read_the_samples(tmp_path) -> None:
+    """The whole reason it exists: it must not allocate the array it describes.
+
+    Measured rather than asserted about, because "cheap" is what a reader would
+    assume of `load_audio` too. A 10-second stereo float32 file is 3.4 MB of
+    samples; probing it may not move the process's peak by anything like that.
+    """
+    big = write_wav(tmp_path / "big.wav", seconds=10.0)
+    tracemalloc.start()
+    try:
+        probe(big)
+        _, probed = tracemalloc.get_traced_memory()
+        tracemalloc.reset_peak()
+        load_audio(big)
+        _, loaded = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert loaded > 1_000_000  # the samples really are this big
+    assert probed < loaded / 10
+
+
+def test_probe_refuses_a_missing_file(tmp_path) -> None:
+    with pytest.raises(DecodeError):
+        probe(tmp_path / "gone.mp3")
+
+
+def test_probe_refuses_an_mp4_wearing_an_mp3_extension(tmp_path) -> None:
+    fake = tmp_path / "video.mp3"
+    fake.write_bytes(MP4_HEADER + b"\x00" * 64)
+    with pytest.raises(DecodeError, match="MP4"):
+        probe(fake)
+
+
+def test_probe_refuses_garbage(tmp_path) -> None:
+    junk = tmp_path / "junk.mp3"
+    junk.write_bytes(b"\xff\xfb" + b"not actually an mpeg frame" * 8)
+    with pytest.raises(DecodeError):
+        probe(junk)
+
+
+def test_probe_refuses_a_container_with_no_audio(tmp_path) -> None:
+    silent = tmp_path / "silent.wav"
+    sf.write(str(silent), np.zeros((0, 2), dtype=np.float32), SR)
+    with pytest.raises(DecodeError, match="no audio"):
+        probe(silent)
+
+
+def test_probe_accepts_exactly_what_load_audio_accepts(tmp_path) -> None:
+    """The invariant the memory change rests on, stated once and directly."""
+    good = write_wav(tmp_path / "ok.wav")
+    bad = tmp_path / "video.mp3"
+    bad.write_bytes(MP4_HEADER + b"\x00" * 64)
+    missing = tmp_path / "gone.mp3"
+    empty = tmp_path / "empty.mp3"
+    empty.write_bytes(b"")
+
+    for path in (good, bad, missing, empty):
+        probe_failed = load_failed = False
+        try:
+            probe(path)
+        except DecodeError:
+            probe_failed = True
+        try:
+            load_audio(path)
+        except DecodeError:
+            load_failed = True
+        assert probe_failed == load_failed, path
 
 
 # -- to_canonical --------------------------------------------------------

@@ -867,7 +867,22 @@ class AudioEngine:
 
         Raises `decode.DecodeError`; decoding is synchronous and takes a moment,
         so from Batch 3 on this belongs off the UI thread.
+
+        **The old track is dropped before the new one is decoded**, which is the
+        whole reason `probe` exists. Decoding first meant both arrays were live
+        at once and a track change briefly cost two full tracks -- ~92 MB each
+        for a four-minute file, so the app's working set doubled for the length
+        of every skip. Clearing first is only safe because `probe` has already
+        established the file will open: a bad track must leave the current one
+        playing and say so (`PlayerController.play_index`), not stop the music
+        to discover it was unplayable.
+
+        What it costs, stated because it is audible: the outgoing track now goes
+        quiet for the decode (70-210 ms on this library) instead of playing
+        under it. Swapping the two lines back is the whole of the undo.
         """
+        decode.probe(path)  # raises DecodeError; allocates no samples
+        self.clear()  # fades out, then lets the old array go
         samples, rate = decode.load_audio(path)
         self.load(samples, rate, autoplay=autoplay)
         return rate, len(samples) / rate

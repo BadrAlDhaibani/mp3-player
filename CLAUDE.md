@@ -23,7 +23,9 @@ what the filename means. Four things live here and nowhere else:
   written the day a bug proved they were needed, and several name that bug.
 - **The roadmap** — one batch at a time, each ending in something runnable, each
   stopping for sign-off. Ticked boxes are done and verified; unticked ones are
-  not started, whatever the surrounding prose sounds like.
+  not started, whatever the surrounding prose sounds like. Its unticked tail is
+  **the docket**: the agreed queue, listed in order in the resume block, and the
+  answer to "what is left to do". Nothing outside it has been agreed to.
 - **The measurements** — latency, frame costs, scan times, contrast ratios. If a
   number appears here it was measured on real hardware, and the machine it was
   measured on is named.
@@ -58,30 +60,37 @@ legal text, and where the two disagree the licence wins.
 > Batch 18 (shuffle and repeat — 279 tests, 340 harness checks, and the first
 > item off the post-v1 list) ·
 > Batch 19 (daycore reaches 0.70x — 281 tests, 344 harness checks, and a
-> constant that is now a function)
+> constant that is now a function) ·
+> Batch 20 (the category marks become drawings — 281 tests, 350 harness checks,
+> and three painted marks where three glyphs were)
 >
-> **v1 is shipped; Batches 8 through 19 landed on top of it, and `v1.1.0` is
-> tagged and pushed.** Every box through Batch 19 is ticked except the release
+> **v1 is shipped; Batches 8 through 20 landed on top of it, and `v1.1.0` is
+> tagged and pushed.** Every box through Batch 20 is ticked except the release
 > *upload* — the zip attached to a GitHub release, which needs a browser — and
 > the ones listed under *Open, and waiting on a human* below.
 >
-> **The roadmap is finished.** Batches 16 through 19 were not on it: the user
-> reported audible pops, then asked for a nicer icon and for the console to stop
-> opening, then asked for shuffle and repeat, then asked for three more things
-> at once. What is left is one outward-facing action, three human judgements,
-> **two of the three things that arrived with Batch 19**, and the rest of the
-> post-v1 feature list — all set out below.
+> **One batch is agreed, specified and not started: 21.** It is **the docket** —
+> the queue a few screens down, and the answer if you have been told to pick up
+> whatever is left. It is written out in full at the end of the roadmap, with the
+> design decisions already settled with the user, so it is work to do rather than
+> questions to re-open.
 >
-> **The two still to build are agreed and specified**, in
-> `C:\Users\badrd\.claude\plans\can-we-make-the-memoized-summit.md`, which is the
-> approved plan for all three and holds the design decisions already settled with
-> the user. **Batch 20: the three category marks (`▶ ♪ ⚙`) become painted vectors
-> rather than `Segoe UI Symbol` glyphs** — the user dislikes the gear and chose
-> "paint all three" over a glyph swap, and asked to be shown candidate marks
-> before one is committed to. **Batch 21: a search that filters the Music
-> column** — `/` opens a query, matching on title *and* artist, and the one thing
-> that breaks is that column row number stops being the index into
-> `controller.tracks`. Neither is started. Ask before starting either.
+> The original roadmap ran out at Batch 15. Everything since has come from the
+> user directly: audible pops (16), a nicer icon and no console window (17),
+> shuffle and repeat (18), and then three things in one message — a lower daycore
+> (19), a Settings icon they dislike (20), and a way to search the folder (21).
+>
+> **The three category marks are painted now, and they live in
+> `mp3player/ui/marks.py`.** `Category.glyph` is `Category.draw`, a plain
+> function taking a painter and a box; `crossbar._paint_category` calls it where
+> it used to call `drawText`. Two things to carry forward. **The box is now the
+> mark's own square** rather than the glyph's constant 120x88 text rectangle, so
+> nothing clips a mark that overflows and the harness asserts that none does. And
+> **the size is no longer `round()`ed** — a font snapped to hinted pixel sizes and
+> a drawing does not, which is what the 30.0-vs-30.5 harness check is about.
+> The Settings mark is **three faders**, picked by the user from a sheet of four;
+> `tools/render.py --marks` still draws all three beside the glyphs they replaced,
+> which is the sheet to look at after touching any of them.
 >
 > **The speed slider now runs 0.70x–1.30x, and the thing to know is that
 > `theme.ANCHOR_FRACTION` exists.** Where 1.00x sits on the slider is *derived*
@@ -286,8 +295,10 @@ legal text, and where the two disagree the licence wins.
 >
 > `tools/shell_harness.py` fails `...resuming where it left off` maybe one run in
 > five, at `0.00s` instead of `~0.05s`. It is a real WASAPI reopen racing a
-> position read, it predates Batch 9, and it passes on a re-run. **343/344 with
+> position read, it predates Batch 9, and it passes on a re-run. **349/350 with
 > that one line failing is the known state. Anything else failing is yours.**
+> (It failed twice running in Batch 20 before passing on the third, which is
+> within character for it — one in five is an impression, not a measurement.)
 >
 > A second one, seen once in Batch 19 and not since: *"a wave frame at 1600x900
 > costs well under 33 ms"* can fail on a loaded machine. It is not a flake in the
@@ -295,12 +306,50 @@ legal text, and where the two disagree the licence wins.
 > is competing, and it passed at **7.38 ms against a 33 ms budget** on the idle
 > re-run. Re-run it idle before believing it.
 >
-> ### Next
+> ### The docket
 >
-> **Batches 20 and 21 are agreed but not started** — see the approved plan named
-> above, and stop for sign-off between them as always. Everything else below is
-> unchanged: nothing beyond those two is queued, and nothing should be started
-> without asking.
+> **This is the queue. If you were told to "do whatever is left on the docket",
+> this is the list, and item 1 is the answer.** Everything on it is agreed with
+> the user already; nothing *below* it is, so do not start anything that is not
+> here without asking first.
+>
+> The working agreement has not changed: **one batch at a time, each ending in
+> something runnable, and stop for sign-off before starting the next.** Do not
+> run two of these together because they look small.
+>
+> | # | What | Where it is written | State |
+> |---|---|---|---|
+> | **1** | **Batch 21 — search that filters the Music column** | Roadmap, end of file | Agreed, not started |
+> | — | Attach the zip to the `v1.1.0` GitHub release | Below, and `docs/RELEASING.md` step 7 | **Needs a browser; cannot be done from a session** |
+> | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
+> | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
+>
+> **Batch 20 is done and its stop worked**, which is worth knowing because Batch
+> 21 has no equivalent: four candidate marks were drawn, put up as a sheet and
+> one was picked before anything was committed to. That pattern is the one to
+> reach for whenever the question is *which drawing* — the last four attempts at
+> a mark in this project were all settled by looking at a picture, and the
+> cheapest place to look is before the wiring, not after.
+>
+> When the docket is empty, the queue goes back to the post-v1 list in the v1
+> scope section: the **queue** half of the shuffle line, export to file,
+> subfolder recursion, multiple library folders. **None of that is started, and
+> none of it is agreed** — offer, don't begin. A spectrum visualizer was offered
+> and **declined** in Batch 9 (the accent ramp was wanted instead), so don't
+> re-offer it as though it were untouched.
+>
+> One more that is not a batch and not on the docket, because it is a chore
+> rather than a feature: **the README's screenshots are stale in two ways.**
+> `docs/images/speeds.png` shows the handle pinned left at `0.80x` captioned "at
+> daycore", which Batch 19 made wrong, and it *also* predates Batch 18's two new
+> transport buttons. It cannot be regenerated faithfully — it was shot against an
+> 11-track demo folder with real cover art that is not in the repo, and
+> re-rendering from the live library swaps a good screenshot for a worse one (no
+> art, 196 tracks, a skipped-files line). Fixing it properly means curating a
+> small folder and reshooting every screen. Raise it; don't do it inside another
+> batch.
+>
+> ### The release, which is still open
 >
 > The one piece of Batch 15 left is **step 7 and only step 7**: attach
 > `dist/XMB-Player-1.1.0-windows.zip` to a GitHub release drafted against
@@ -315,13 +364,6 @@ legal text, and where the two disagree the licence wins.
 > box to tick here: the packaged exe still wears the old crossbar icon, and
 > fixing that means a version bump. Raise it when a release comes up; don't bump
 > it on your own initiative.
->
-> After that the queue goes back to the post-v1 list in the v1 scope section.
-> **Shuffle and repeat came off it in Batch 18**; what is left there is the
-> *queue* half of that line, export to file, subfolder recursion and multiple
-> library folders. **None of that is started.** A spectrum visualizer was offered
-> and **declined** in Batch 9 (the accent ramp was wanted instead), so don't
-> re-offer it as though it were untouched.
 >
 > ### Before writing any of it
 >
@@ -347,6 +389,16 @@ legal text, and where the two disagree the licence wins.
 > as blue tiles and **cannot be coloured at all**, and then the correct
 > monochrome shuffle mark dissolving into a scribble at the size a button
 > actually draws it.
+>
+> **Batch 20 belongs on neither list, and the reason is worth copying.** Its
+> renders found nothing because the sheet *was* the design step: four candidate
+> Settings marks were drawn and looked at **before** anything was wired, so the
+> class of bug that list is made of — a mark that passes every assertion and does
+> not read — was the thing being decided rather than a surprise afterwards. Its
+> one real finding came from an assertion instead, and it was about the
+> assertion: the odd-even check failed at 44 px on the note stem's own
+> antialiasing, because at that size the stem is two and a half pixels wide and
+> has no interior to sample.
 >
 > **Batch 19 is the exception that sharpens the rule rather than weakening it.**
 > Its bug was caught by an *assertion* — a slider handle asserted at `0.6`, which
@@ -520,6 +572,9 @@ here and write down why.
 | **The mode glyphs are monochrome, and the emoji that mean exactly this are unusable** | `🔀 🔁 🔂` (U+1F500–2) are the right marks and shipped for about an hour. Segoe UI Symbol hands all three to Segoe UI **Emoji**, which is a colour font: they render as blue rounded tiles that look nothing like the `⏮ ▶ ⏭` beside them and — the part that actually matters — **ignore `color:` in the stylesheet entirely**, so the lit/dim state the buttons exist to show could not be drawn at all. The whole `:checked` mechanism above is dead with them. `⇄` (U+21C4) and `⭮` (U+2B6E) are in the same font as the rest of the bar and take the accent. |
 | **`⇄` rather than a crossing-arrows glyph, because it survives 15 px** | U+2928/292D/292E *are* the shuffle mark and all three collapse into a four-pixel scribble at button size — the diagonals and their heads have nowhere to go. Two horizontal arrows keep both heads and read at a glance. Same trade as the app icon dropping its taper below 24 px: **the mark that survives the size beats the mark that is right**, and both times the answer came from a blown-up render rather than from picking a codepoint. |
 | **The modes go on the third info line, ahead of the folder name** | Not a fourth slot: the block is three fixed lines and the third clears the slider's box by 1 px, so a fourth is a new metric and a fresh collision to check. It belongs on that line by meaning anyway — "Track 4 of 196" is already the sentence about where you are in the list. **Ahead of the folder** because `_paint_info` elides from the right and a folder name is the one field on that line that comes out of a file and so has no length; put the modes last and a library called `Nightcore Collection Remastered` silently eats them. Silent at the defaults, like the length line dropping its "plays in" at 1.00x. |
+| **All three category marks are painted, not just the one that was complained about** | The user asked for a nicer Settings icon and got three drawings. One painted mark beside two font glyphs reads as **mismatched weight** — a typeface has its own opinions about stroke thickness and optical size and they are not this project's — so fixing the gear alone would have traded one complaint for a subtler one. `ui/icon.py` is the precedent and the argument: the app icon is drawn from `theme.py` rather than shipped as a binary, for the same reason there are no `.wav` files for the UI sounds. The scope discipline that made it cheap is Batch 9's and Batch 10's: `_paint_category` had already computed the centre, the size and the focus-mixed colour before any of this existed, so `drawText` became a call and **`_paint_x`, the tween, the hit-testing and every `theme.CATEGORY_*` are untouched**. |
+| **The Settings mark is three faders** | Chosen with the user from a sheet of four (`tools/render.py --marks`), against a six-tooth gear, an open dial and a wrench. Two reasons, and only the first is about the picture: it is the most legible of the four at **30 px**, being made of horizontal lines and lumps where the other three each have a counter that closes up at that size — a gear's tooth gaps, a dial's ring, a wrench's jaw; and it rhymes with *this* app rather than with the desktop in general, the player being two sliders and a list. The dial lost partly on a third and more general point: **`ui/icon.py` is already a ring**, and two rings in one window is one idea said twice. Same trade as Batch 18's `⇄` and the icon's taper below 24 px — **the mark that survives the size beats the mark that is right** — and for the third time the answer came from a blown-up render rather than from reasoning. |
+| **A category's box is the mark's own square, and the size is no longer rounded** | The glyph was drawn into a constant `QRectF(centre - 60, row - 44, 120, 88)` — a *text* box, much larger than the ink, whose 120 had nothing to do with `CATEGORY_ICON`'s 44. A painted mark is handed a square exactly `size` across, which has two consequences worth writing down. The harness check that the furthest-right icon clears `ITEM_X` was an approximation and is now **exact**, because the half-width really is `CATEGORY_ICON_SMALL / 2`; and nothing clips a mark to its box, so "paints outside the box it was handed" became a thing to assert rather than a thing the text layout was quietly preventing. The size also stopped being `round()`ed: a font snaps to whole hinted pixel sizes, so the old mark *stepped* through the slide, and a painted one is happy at 37.4 px. That continuity is what the 30.0-vs-30.5 harness check states. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 | **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
@@ -570,6 +625,9 @@ mp3player/
     icon.py              # the app icon: a crescent sweep, Mono's ramp, no tile
                          #   app_icon() -> QIcon, for setWindowIcon; also the
                          #   source tools/make_icon.py builds the .ico from
+    marks.py             # the three category marks, painted: draw_play,
+                         #   draw_note, draw_settings (three faders). Each takes
+                         #   a painter and a box and inks with the pen it finds
     motion.py            # Tween: one easing helper, shared by the three animators
     sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
@@ -579,7 +637,8 @@ mp3player/
     chrome.py            # frameless drag/resize/min/close
     main_window.py       # composes the shell; XmbStage owns the mouse
     widgets/
-      crossbar.py        # category row + the rule it sits on
+      crossbar.py        # category row + the rule it sits on. Category.draw is
+                         #   a function now, not a glyph string -- see marks.py
       item_column.py     # the item list -- Music and Settings only
       now_playing.py     # the Now Playing *page*: art, track, speed slider
       transport.py       # bottom bar: seek, transport buttons, volume
@@ -896,6 +955,26 @@ don't invent a second way to do a thing we've already solved.
   it was a signal whose floor swamped the effect — which is worse, because the
   numbers moved plausibly and pointed at the wrong culprit. Before trusting a
   new counter, run it against the case where the answer must be zero.
+- **A check on a fill rule needs a canvas where the shape has an interior.**
+  The odd-even trap punches holes where a mark overlaps itself, so the assertion
+  for it samples the overlap — and at the size a crossbar actually draws a note,
+  its stem is **two and a half pixels wide**, i.e. every pixel in it is a partly
+  covered edge and none of them is evidence of anything. Batch 20's first
+  version failed on the stem's own antialiasing and would have gone on failing
+  whatever the fill rule was, which is the worst kind of red: it looks like the
+  bug it was written for. The winding bug is scale-independent, so the
+  instrument should be too — assert on a 256 px frame, the way the icon section
+  already does, and keep the small sizes for the *render*. Related trap in the
+  same check: an inset that makes the sampled region empty turns a passing
+  assertion into a vacuous one, so count what you sampled and assert on that too.
+- **An assertion nobody has watched fail is an assertion nobody has tested.**
+  Batch 15 checked the shortcut's icon fallback by renaming the file it needed;
+  Batch 20 checked the winding assertion by patching `setFillRule` back out in a
+  scratch copy — 158 punched-out pixels with the bug, 0 without. Both are ten
+  minutes, and both answer a question staring at a green line cannot: *would
+  this have caught it?* Worth doing specifically for a check that guards a bug
+  the project has already hit more than once, because that is the check most
+  likely to be quietly load-bearing.
 - **"Invisible" is a claim about bytes, so compare bytes.** Both of Batch 16's
   paint caches are asserted at three sizes as `0 differing pixels`, not looked
   at and pronounced fine. This does not replace the render — the conventions
@@ -2629,6 +2708,276 @@ against a small curated folder, which is a job of its own.
 
 ---
 
+## Roadmap — the docket
+
+Batches 20 and 21, both agreed with the user in the same sitting as Batch 19 and
+neither started. Same working agreement as everything above: **one batch at a
+time, each ending in something runnable, tick the boxes, report, and stop for
+sign-off before starting the next.**
+
+They are independent — 21 does not need 20 — but they are in this order because
+20 is the smaller one and because the user raised it first.
+
+### Batch 20 — The category marks become drawings ✅
+
+The user asked for a nicer Settings icon: *"I don't like how this one looks."*
+
+- [x] `mp3player/ui/marks.py` — the three marks, painted
+- [x] `tools/render.py --marks` — the candidate sheet, at both real sizes
+- [x] **Show the sheet and get a pick before committing to a mark** — four
+      candidates put up, **sliders** picked, play and note redraws approved
+- [x] `Category.glyph` becomes `Category.draw`; `crossbar.py` calls it
+- [x] Harness checks, renders in place, a real run
+
+**Settled with the user: paint all three, not just the gear.** The options put
+up were a glyph swap, painting only Settings, and painting all three. The reason
+all three won is that one painted mark beside two font glyphs reads as mismatched
+weight — and the project already has the precedent in `mp3player/ui/icon.py`,
+which paints the app icon from `theme.py` rather than shipping a binary.
+
+**Where they are now.** `main_window.py` holds
+`CATEGORIES = (Category("▶", "Now Playing"), Category("♪", "Music"),
+Category("⚙", "Settings"))`, and `widgets/crossbar.py._paint_category` draws
+`category.glyph` as **text** in `theme.GLYPH_FAMILY` ("Segoe UI Symbol"), at a
+size lerped between `CATEGORY_ICON_SMALL` (30) and `CATEGORY_ICON` (44) by the
+focus fraction, in a colour mixed between `TEXT_FAINT` and `TEXT` by the same
+fraction, into `QRectF(centre - 60, row - 44, 120, 88)`.
+
+**The shape of the change is deliberately tiny.** One function per mark, each
+painting into a box it is handed:
+
+```python
+def draw_play(painter: QPainter, box: QRectF) -> None: ...
+def draw_note(painter: QPainter, box: QRectF) -> None: ...
+def draw_settings(painter: QPainter, box: QRectF) -> None: ...
+```
+
+`_paint_category` already computes the box and the pen; only `drawText` changes.
+**Nothing about geometry, animation, sizing, focus mixing or hit-testing moves**,
+and if a diff in this batch touches `_paint_x`, `theme.CATEGORY_*` or the
+crossbar's animation, something has gone wrong.
+
+Two traps this project has already paid for, both in Batch 17, both within an
+hour of each other:
+
+1. **A `QPainterPath` fills odd-even by default.** A gear's teeth joined to its
+   ring, or a note's stem crossing its beam, will punch transparent holes at
+   every self-intersection — and it looks like an alpha or z-order bug, not a
+   winding one, so it sends you somewhere else. `setFillRule(Qt.WindingFill)`
+   **then** `simplified()`. Both, if the path is stroked as well as filled.
+2. **The small size is a different drawing, not the same drawing scaled.** These
+   render at **30 px** unfocused, and a gear's hub and tooth gaps go sub-pixel
+   around there and antialias into a grey blob. Expect the Settings mark to need
+   a simplified variant below ~34 px, exactly as the app icon drops its taper
+   below 24 px and its counter below 24. **The job at the small size is to be
+   recognisable, not to be the same mark.**
+
+**The design step comes first and has a stop in it.** The user asked to see
+options rather than pick from a description. `tools/render.py --marks` (a flag,
+per the conventions — do not write another script) should draw candidates at
+**30 px and 44 px over the real background**, blown up nearest-neighbour: three
+or four Settings ideas (a low-tooth-count gear, a sliders/faders mark, a wrench,
+a concentric-ring dial), plus the play and note redraws **beside the current
+glyphs** so the weight can be compared. Show it. Wait.
+
+Files: `mp3player/ui/marks.py` (new) · `widgets/crossbar.py` (the `Category`
+dataclass and `_paint_category`) · `main_window.py`'s three `Category(...)`
+literals · `tools/render.py` · `tools/shell_harness.py`, where the existing
+crossbar checks are about *position* and stay, and the new ones should follow the
+icon section's style: each mark opaque at its centre, each inside its box at
+**both** sizes, and each taking the pen colour rather than a hard-coded one.
+
+Verify: the `--marks` sheet, then `render.py --what settings` and `--what music`
+at 720x480 and 980x640 to see them in place, then run the app and arrow across
+the bar — **the motion wants looking at too**, because these now scale
+continuously where a font was snapping to hinted sizes.
+
+---
+
+**The stop worked, and the sheet is what the pick was made from.** Four Settings
+candidates were drawn and put up at both real sizes — a six-tooth gear, three
+faders, an open dial and a wrench — beside the play and note redraws and the
+three glyphs they replace. **Sliders won**, and both redraws were approved. The
+losing three were deleted the same hour, along with the `SETTINGS_CANDIDATES`
+table that held them: a module that keeps its rejects is a module where the next
+person cannot tell which one is live.
+
+**The dial was redrawn once before the sheet was shown, and that was the right
+call rather than a liberty.** The first version put the ring's gap at the top
+with the pointer standing in it, and the whole mark read unmistakably as a
+capital **C** with a tick on it. That is a flaw in a drawing, not in an idea, and
+showing it would have been asking the user to judge my draft rather than the
+concept. Gap moved to the bottom, pointer shortened so it stops clear of the
+ring, and it reads as a gauge. It still lost, on its merits.
+
+**Why sliders and not the gear, which is the conventional answer.** Two reasons,
+and only the first is about the picture. It is the most legible of the four at
+30 px, being made of horizontal lines and lumps where the other three all have a
+counter that closes up — a gear's tooth gaps, a dial's ring, a wrench's jaw. And
+it rhymes with *this* app rather than with the desktop in general: the player is
+two sliders and a list. The dial lost partly on a third, which is worth writing
+down because it is a whole-app judgement rather than a local one: **`ui/icon.py`
+is already a ring**, and a second ring in the same window is one idea said twice.
+
+**The shape of the change stayed as small as the plan asked.** `_paint_x`,
+`theme.CATEGORY_*`, the tween, the hit-testing and `row_y` are untouched.
+`_paint_category` lost its `drawText` and gained a call; the box it builds
+changed from the glyph's 120x88 *text* rectangle to the mark's own square, which
+is the one line with a consequence — see the decisions log, and note that the
+existing harness check about the furthest-right icon clearing `ITEM_X` went from
+being an approximation to being exact.
+
+**Nothing was found by the renders this time**, which is the third batch that can
+say so (14 and 19 were the others) and again not luck: the sheet *is* the design
+step here, so the class of bug the renders usually catch — a mark that passes
+every assertion and does not read — was the thing being decided rather than a
+side effect being discovered afterwards. Looking early is cheaper than looking
+late, and this batch is what that looks like when it works.
+
+**The one real finding came from an assertion, and it was about the
+assertion.** The odd-even check on the note's stem — the same trap Batch 17 paid
+for twice — failed on its first run at 44 px, with exactly one transparent pixel.
+Not a winding bug: at button size the stem is **two and a half pixels wide**, so
+every pixel in it is a partly covered edge and the one that failed was the stem's
+own antialiased bottom. Sampled on a 256 px frame instead, the way the icon
+section already samples its 256, it finds 1440 interior pixels and zero holes.
+**The winding bug is scale-independent, and an instrument for it has to be too**
+— that is a convention now.
+
+And the check was **broken on purpose before being believed**: a scratch copy of
+`draw_note` with the one `setFillRule` line removed punches 158 of those 1440
+pixels transparent. Batch 15 tested a fallback by renaming the file it depended
+on for the same reason. An assertion nobody has watched fail is an assertion
+nobody has tested, and this one guards a bug this project has now hit three
+times.
+
+**`marks.note_stem` is exported for that check**, following `icon.sweep_point`'s
+precedent exactly: the overlap is where the bug lands, so a harness that restated
+the rectangle by hand would go on passing after the geometry moved. `draw_note`
+calls it too, so there is one copy rather than two that agree today.
+
+Verified: **281 tests green** (unchanged, and unchanged is right — `tests/` is
+core-only by convention and every line of this batch is Qt).
+`tools/shell_harness.py` **350/350** on the third run, with the known WASAPI
+flake failing on the first two; 6 new, in a section of their own: every mark
+inking a sensible share of its box at both sizes (a mark that draws nothing and a
+mark that fills its square are both silent failures), none of them painting
+outside the box it was handed, a focused mark being narrower than the gap to the
+next category, every mark taking the *painter's pen* rather than a colour of its
+own, the note's stem solid where it crosses the head, and — the one that states
+what the batch bought — **a mark at 30.0 px and one at 30.5 px being different
+pictures**, which a hinted font could not have been. `ruff check .` and `mypy`
+clean. Looked at the `--marks` sheet, at Settings at 720x480 and Music and Now
+Playing at 980x640 with the marks in place, and at a `filmstrip.py --what bar`
+of a category step — the marks scale past each other continuously with no
+stepping, which is the half a still cannot show. Ran the real entrypoint through
+`pythonw.exe`: device open at `45.7 ms`, **exit 0**, four clean lines, 0 late
+audio blocks.
+
+**What the real run could *not* do, and it is not new.** `AppActivate` returns
+false for this process, so SendKeys cannot reach the window and the crossbar
+could not be walked by hand from a script. That is Batch 12's finding — the
+window is frameless and sets no title, so Windows reports no main window handle
+— and it is why the keyboard half is covered by the harness driving real
+`QKeyEvent`s and the motion half by the filmstrip. Worth knowing before spending
+an hour on it a third time.
+
+**A loose end this batch surfaced and deliberately did not take.** The Now
+Playing cover placeholder still draws a **`♪` glyph** (`now_playing.py`, at
+`art.width() * 2 // 5`), so a screen with no cover art now shows a painted note
+on the crossbar and a font note in the art panel at the same time — which is the
+exact mismatched-weight argument this batch was built on, one element further
+along. It is not the same *kind* of element (a content placeholder rather than a
+navigation mark) and it is not in scope, so it is raised rather than done. One
+line if it is wanted: `marks.draw_note` into the placeholder box.
+
+### Batch 21 — Finding a song
+
+The user asked for a way to search the folder. 196 tracks is a long list to
+arrow through.
+
+- [ ] The row→track map, and `_activate` translating through it
+- [ ] The search mode in `_handle_key`, ahead of everything
+- [ ] Where the query is drawn, and the `N of M matching` count
+- [ ] `tools/render.py --find`, harness checks, renders, a real run
+
+**Settled with the user:** a **filter** (the column narrows to matches) rather
+than type-to-jump (the cursor hops and the list stays whole), matching **title
+and artist**, case-insensitive substring. Type-to-jump was the smaller change and
+was not what was wanted.
+
+**The one thing that breaks.** `_activate(index)` does
+`self.controller.play_index(index)`, and `_music_items()` does
+`marker=(i == playing)`. Both rely on **column row number == index into
+`controller.tracks`**, and a filtered column breaks that identity. It is the only
+place that identity exists: `controller.tracks`, `play_index`, `_order` and the
+shuffle bag, `track_changed(int)` and "Track 4 of 196" all address *real* track
+indices and keep working untouched. So the fix is a map, built by the method that
+already builds the rows:
+
+```python
+self._matches: list[int] = []   # column row -> index into _library.tracks
+```
+
+With no query it is `range(len(tracks))` and the app behaves exactly as it does
+today, which is the property to assert.
+
+**The mode should be built the way the Theme row was** (Batch 10), because that
+design is already argued out in the decisions log and cost almost nothing:
+
+- **Enter it** with `/` and `Ctrl+F`, on Music only. The branch sits **at the top
+  of `_handle_key`**, ahead of everything, exactly where `if self._stepping:`
+  sits — because `S` and `R` are already bound globally to shuffle and repeat,
+  and **Space is play/pause**, and all three have to be literal characters
+  inside a query.
+- **Inside:** printable characters append; Backspace deletes one and exits on an
+  empty query (rather than falling through to the crossbar's "back");
+  Up/Down/PageUp/PageDown/Home/End move the cursor through the *filtered* list;
+  Enter plays the highlight and closes; Esc closes and clears. **Ctrl+arrows and
+  Shift+arrows stay transport**, verbatim from the Theme row's reasoning: you may
+  well be listening while you search.
+- **Leave it** on a category change and on a click elsewhere. **Unlike the Theme
+  row it must *not* exit on `index_changed`** — moving the cursor is the entire
+  point of having a filtered list. That is the one place the two modes differ.
+- **Sounds** go at the input, never on a signal (standing rule): `move()` on a
+  keystroke that changes the result set, `confirm()` on Enter (already fired by
+  `_activate`), `back()` on Esc, `error()` on a query that matches nothing.
+
+**Where the query is drawn** is the open implementation question, and the two
+candidates should be rendered before one is picked. Preferred: a `set_search`
+on `ItemColumn` mirroring `set_stepping`'s contract — **one value in, a look out,
+and the widget still knowing nothing about what any row means**. The alternative
+is the existing status line, which needs no new code and is the wrong place and
+wrong voice (13 px, `WARN` colour, bottom right, where failures go). Either way
+the `4 of 196 matching` count goes through `stage.set_status`, and
+`_music_empty_text()` needs a "no match" branch so an over-narrow query says so
+rather than claiming the folder is empty.
+
+Files: `main_window.py` (the state, the key branch, `_music_items`, `_activate`,
+`_music_empty_text`, and **the per-category cursor memory in `_refresh_column` —
+the banked Music index means a different track under a different query and has
+to be reset when the query changes**) · `widgets/item_column.py` ·
+`tools/render.py --find` · `tools/shell_harness.py`, heavily, because unusually
+much of this *is* assertable: the map is right, activating row *n* plays the
+right track, the marker follows the real playing index, `S`/`R`/Space are literal
+inside and transport outside, Ctrl+arrow is transport in both, every exit works,
+Enter on an empty result set is a no-op, and **the unfiltered list is identical
+to today's**.
+
+`tests/` gets something only if the match predicate is written as a pure function
+of a `Track` and a query, in which case it belongs in `core/library.py`.
+Otherwise this is a `ui/`-only batch and adds none, which is the convention.
+
+Verify with renders at 720x480 and 980x640 of a long query, a query matching one
+track, and a query matching nothing — **the query line is text of unbounded
+length sitting next to a track list**, which is precisely the class of bug the
+renders have caught eight batches running. Then run it against the real
+196-track folder: search, play a match, and confirm the transport bar and "Track
+N of M" report the **real** index, that Next advances through the whole library
+rather than the filtered view, and that shuffle still deals from all of it.
+
+---
+
 ## Running it
 
 ```bash
@@ -2687,6 +3036,11 @@ venv/Scripts/python.exe tools/render.py out.png --theme Ember --theme Mono
 venv/Scripts/python.exe tools/render.py out.png --what settings --select 2 --step
 venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
 venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
+
+# the three category marks at both real sizes, beside the glyphs they replaced.
+# Opens no audio device and builds no window -- it is a question about three
+# drawings. This is the sheet to look at after touching mp3player/ui/marks.py.
+venv/Scripts/python.exe tools/render.py out.png --marks
 
 # the four that exist for shots that end up on a page rather than in front of
 # you -- the README's screenshots are these. `--track` because most of a real

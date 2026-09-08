@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
 from mp3player.core import library
 from mp3player.core import settings as settings_mod
 from mp3player.core.library import ScanResult
-from mp3player.ui import theme
+from mp3player.ui import marks, theme
 from mp3player.ui.chrome import ChromeWindow
 from mp3player.ui.controller import (
     REPEAT_ALL,
@@ -73,10 +73,13 @@ class SettingsRow:
     action: Callable[[], object]
 
 
+# The marks are painted, not glyphs -- see `ui/marks.py`. Adding a fourth
+# category still means moving `theme.ITEM_X`, not just appending here; that
+# constraint is about the bar's width and is unaffected by what fills it.
 CATEGORIES = (
-    Category("▶", "Now Playing"),
-    Category("♪", "Music"),
-    Category("⚙", "Settings"),
+    Category(marks.draw_play, "Now Playing"),
+    Category(marks.draw_note, "Music"),
+    Category(marks.draw_settings, "Settings"),
 )
 
 STATUS_MS = 6000  # how long a failure line stays up

@@ -96,7 +96,10 @@ def lerp(first: float, second: float, amount: float) -> float:
 # -- fonts -----------------------------------------------------------------
 
 UI_FAMILY = "Segoe UI"
-GLYPH_FAMILY = "Segoe UI Symbol"  # the ▶ ⏮ ♪ ⚙ set, present on Windows 10+
+# The ▶ ⏮ ⏭ ♪ ⇄ ⭮ set, present on Windows 10+. Note what is *not* on this list
+# any more: the three crossbar marks are painted (`ui/marks.py`), so a glyph
+# here is one of the small marks inside a control rather than a category.
+GLYPH_FAMILY = "Segoe UI Symbol"
 
 _fonts: dict[tuple[str, int, int, bool], QFont] = {}
 

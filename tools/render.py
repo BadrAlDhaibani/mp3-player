@@ -7,6 +7,7 @@
     venv/Scripts/python.exe tools/render.py out.png --theme all
     venv/Scripts/python.exe tools/render.py out.png --status "Could not save settings"
     venv/Scripts/python.exe tools/render.py out.png --what now --shuffle --repeat one
+    venv/Scripts/python.exe tools/render.py out.png --marks
 
 The third leg of the stool. `shell_harness.py` asserts where things come to
 rest, `filmstrip.py` shows what happens on the way, and this shows what a screen
@@ -34,11 +35,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.engine import AudioEngine
+from mp3player.ui import marks as marks_mod
 from mp3player.ui import theme
 from mp3player.ui.controller import REPEAT_MODES, PlayerController
 from mp3player.ui.main_window import (
@@ -89,6 +92,109 @@ def stack(shots, path: Path, across: bool = False, caption: bool = True) -> None
 
     sheet.save(str(path))
     print(f"wrote {path}  ({sheet.width()}x{sheet.height()}, {len(shots)} frame(s))")
+
+
+# -- the candidate sheet ---------------------------------------------------
+#
+# `--marks` answers a different question from the rest of this tool: not "does
+# this screen read" but "which of these should the screen have". It needs no
+# controller, no engine and no window -- only the real fonts, so the current
+# glyphs can be set beside the drawings and compared for weight.
+
+MARK_CELL = 88  # the crossbar's own text box height, so a glyph is at true scale
+MARK_ZOOM = 2
+MARK_LABEL_W = 168
+
+
+def _mark_cell(size: float, ink: QColor, draw=None, glyph: str = "") -> QImage:
+    """One mark or one glyph, drawn the way `_paint_category` draws it."""
+    image = QImage(MARK_CELL, MARK_CELL, QImage.Format_ARGB32_Premultiplied)
+    image.fill(Qt.transparent)
+
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.TextAntialiasing)
+    painter.setPen(ink)
+    if draw is not None:
+        offset = (MARK_CELL - size) / 2
+        draw(painter, QRectF(offset, offset, size, size))
+    else:
+        painter.setFont(theme.font(round(size), family=theme.GLYPH_FAMILY))
+        painter.drawText(QRectF(0, 0, MARK_CELL, MARK_CELL), Qt.AlignCenter, glyph)
+    painter.end()
+    return image
+
+
+def marks_sheet(path: Path) -> None:
+    """Every mark at both real sizes, blown up, over the real background.
+
+    The two sizes are the only two that matter: `CATEGORY_ICON_SMALL` is what
+    every unselected category wears and `CATEGORY_ICON` is the selection, and
+    the whole reason the app icon has a second drawing below 24 px is that a
+    mark can be fine at one and mush at the other. Nearest-neighbour on the
+    blow-up, so what is on screen is what is in the file rather than what a
+    smooth scale wishes were there.
+    """
+    # Each mark beside the glyph it replaced. The comparison outlived the choice
+    # it was built for: the glyphs are what the marks have to hold their weight
+    # against, so this stays the sheet to look at after touching any of them.
+    rows = [
+        ("Now Playing  ·  was ▶", None, "▶"),
+        ("Now Playing  ·  painted", marks_mod.draw_play, ""),
+        ("Music  ·  was ♪", None, "♪"),
+        ("Music  ·  painted", marks_mod.draw_note, ""),
+        ("Settings  ·  was ⚙", None, "⚙"),
+        ("Settings  ·  painted", marks_mod.draw_settings, ""),
+    ]
+
+    zoomed = MARK_CELL * MARK_ZOOM
+    gap = 16
+    width = MARK_LABEL_W + (MARK_CELL + zoomed) * 2 + gap * 5
+    height = len(rows) * (zoomed + gap) + gap
+
+    sheet = QPixmap(width, height)
+    # The colour the window actually has on the crossbar row: `CROSSBAR_Y_RATIO`
+    # is 0.44 and `background_brush` puts BG_MID at 0.45, so the row sits within
+    # a hair of it. Filling with the whole gradient instead would run the bottom
+    # rows out into BG_BOTTOM and compare marks against different backgrounds.
+    sheet.fill(theme.BG_MID)
+
+    painter = QPainter(sheet)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
+    for row, (label, draw, glyph) in enumerate(rows):
+        y = gap + row * (zoomed + gap)
+        painter.setPen(theme.TEXT_DIM)
+        painter.setFont(theme.font(14))
+        painter.drawText(QRectF(gap, y, MARK_LABEL_W, zoomed), Qt.AlignVCenter, label)
+
+        x = MARK_LABEL_W + gap * 2
+        # Unfocused takes TEXT_FAINT and focused takes TEXT -- the two ends of
+        # the mix `_paint_category` runs, so these are the real colours and not
+        # an approximation of them.
+        for size, ink in (
+            (theme.CATEGORY_ICON_SMALL, theme.TEXT_FAINT),
+            (theme.CATEGORY_ICON, theme.TEXT),
+        ):
+            cell = QPixmap.fromImage(_mark_cell(size, ink, draw, glyph))
+            painter.drawPixmap(x, y + (zoomed - MARK_CELL) // 2, cell)
+            x += MARK_CELL + gap
+            painter.drawPixmap(
+                x, y, cell.scaled(zoomed, zoomed, Qt.IgnoreAspectRatio, Qt.FastTransformation)
+            )
+            x += zoomed + gap
+
+    painter.setPen(QColor(255, 220, 120))
+    painter.setFont(theme.font(13))
+    painter.drawText(
+        QRect(MARK_LABEL_W + gap * 2, 2, width, 14),
+        Qt.AlignLeft,
+        f"{theme.CATEGORY_ICON_SMALL} px (unfocused)"
+        f"{' ' * 44}{theme.CATEGORY_ICON} px (focused)",
+    )
+    painter.end()
+
+    sheet.save(str(path))
+    print(f"wrote {path}  ({sheet.width()}x{sheet.height()}, {len(rows)} mark(s))")
 
 
 def main() -> int:
@@ -146,6 +252,12 @@ def main() -> int:
              "page; `one` and `off` are the two that do",
     )
     parser.add_argument(
+        "--marks", action="store_true",
+        help="the category marks at both real sizes, beside the glyphs they "
+             "replaced. Opens no audio device and builds no window -- it is a "
+             "question about three drawings, not about a screen.",
+    )
+    parser.add_argument(
         "--across", action="store_true",
         help="lay the frames left to right instead of stacking them",
     )
@@ -163,6 +275,11 @@ def main() -> int:
         themes = list(theme.palette_names())
 
     app = QApplication(sys.argv)
+
+    if args.marks:
+        marks_sheet(Path(args.out))
+        return 0
+
     saved = settings_mod.load()
     # Silent by default: this renders pictures, and the startup swell is not one
     # of them. `--volume` is for when the transport's readout is in the shot.

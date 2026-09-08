@@ -19,6 +19,7 @@ the keyboard and calls `set_index`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import Property, QPoint, QRectF, Qt, Signal
@@ -31,7 +32,16 @@ from mp3player.ui.motion import Tween
 
 @dataclass(frozen=True, slots=True)
 class Category:
-    glyph: str
+    """A category's mark and its caption.
+
+    `draw` was `glyph: str` until Batch 20, when the three marks stopped being
+    text in `theme.GLYPH_FAMILY` and became `ui/marks.py`. It is a plain
+    function taking a painter and the box to fill, which is what kept the change
+    to one line down in `_paint_category` -- the centre, the size and the colour
+    were all already computed there.
+    """
+
+    draw: Callable[[QPainter, QRectF], None]
     label: str
 
 
@@ -164,12 +174,20 @@ class Crossbar(QWidget):
         # than vanish so the bar reads as a bar and not as a lone icon.
         alpha = max(0.0, 1.0 - distance / 3.5)
 
-        box = QRectF(centre - 60, row - 44, 120, 88)
+        # Not rounded any more. A font snapped to whole hinted pixel sizes, so
+        # the old mark stepped through the slide; a painted one is happy at
+        # 37.4 px and the scaling is continuous.
+        size = theme.lerp(theme.CATEGORY_ICON_SMALL, theme.CATEGORY_ICON, focus)
+        # The mark's own square, where the glyph had a 120x88 *text* box it was
+        # centred in. Same centre, same row -- only what fills it changed.
+        box = QRectF(centre - size / 2, row - size / 2, size, size)
 
-        size = round(theme.lerp(theme.CATEGORY_ICON_SMALL, theme.CATEGORY_ICON, focus))
-        painter.setFont(theme.font(size, family=theme.GLYPH_FAMILY))
+        # The pen is the mark's ink: `ui/marks.py` reads its colour off the
+        # painter rather than taking a colour argument, so the focus mix and the
+        # distance falloff below reach it without either side knowing about the
+        # other.
         painter.setPen(theme.mix(theme.faded(theme.TEXT_FAINT, alpha), theme.TEXT, focus))
-        painter.drawText(box, Qt.AlignCenter, category.glyph)
+        category.draw(painter, box)
 
         if focus <= 0.0:
             return  # nothing left of the label to draw

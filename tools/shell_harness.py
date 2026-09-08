@@ -1968,6 +1968,149 @@ def main() -> int:
     icon_dir.cleanup()
     theme.set_palette(was_palette)
 
+    print("\n-- the three category marks, painted since Batch 20")
+    # The existing crossbar checks are about *position* -- where a category comes
+    # to rest, which one a click lands on, that the furthest-right icon clears
+    # the item column -- and every one of them still holds, because nothing about
+    # the geometry moved. These are about the drawings that replaced the glyphs,
+    # and they follow the icon section above: what a picture cannot be asked
+    # (does it read) goes to `render.py --marks`; what it can (is it there, is it
+    # inside its box, is it the pen's colour) goes here.
+    from mp3player.ui import marks as marks_mod
+
+    MARKS = (
+        ("play", marks_mod.draw_play),
+        ("note", marks_mod.draw_note),
+        ("settings", marks_mod.draw_settings),
+    )
+    MARK_SIZES = (theme.CATEGORY_ICON_SMALL, theme.CATEGORY_ICON)
+    PAD = 20  # slack around the box, so an overflowing mark has somewhere to go
+
+    def paint_mark(draw, size, ink=theme.TEXT):
+        """One mark, in a canvas deliberately larger than the box it is given."""
+        side = round(size) + PAD * 2
+        image = QImage(side, side, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(ink)
+        draw(painter, QRectF(PAD, PAD, size, size))
+        painter.end()
+        return image
+
+    def coverage(image, rect=None):
+        """Fraction of `rect` the mark actually inks, and what falls outside it."""
+        inside = outside = 0
+        for x in range(image.width()):
+            for y in range(image.height()):
+                if image.pixelColor(x, y).alpha() < 40:
+                    continue
+                if rect is None or rect.contains(x + 0.5, y + 0.5):
+                    inside += 1
+                else:
+                    outside += 1
+        return inside, outside
+
+    # A mark that draws nothing is a category that vanished, and a mark that
+    # inks its whole box is a black square -- both are silent, because neither
+    # raises and the crossbar goes on animating an empty rectangle. The band is
+    # wide on purpose: this is a smoke test for "there is a drawing here", not a
+    # second opinion about the design.
+    empty = []
+    for name, draw in MARKS:
+        for size in MARK_SIZES:
+            box = QRectF(PAD, PAD, size, size)
+            inked, _ = coverage(paint_mark(draw, size), box)
+            share = inked / (size * size)
+            if not 0.05 <= share <= 0.60:
+                empty.append(f"{name}@{size} {share:.0%}")
+    check("every mark inks a sensible share of its box, at both sizes", not empty, f"{empty}")
+
+    # The glyph had a 120x88 text box and its ink sat well inside it. A painted
+    # mark is handed a square exactly `size` across and has nothing stopping it
+    # painting past the edge -- and the neighbour it would reach into is
+    # `CATEGORY_SPACING` away with no clipping anywhere in `_paint_category`.
+    spilled = []
+    for name, draw in MARKS:
+        for size in MARK_SIZES:
+            box = QRectF(PAD, PAD, size, size)
+            _, out = coverage(paint_mark(draw, size), box)
+            if out:
+                spilled.append(f"{name}@{size} {out}px")
+    check("...and none of them paints outside the box it was handed", not spilled, f"{spilled}")
+
+    # Two focused marks cannot touch. Arithmetic on `theme.py` constants, which
+    # is exactly the kind the offscreen harness *can* settle -- and the reason it
+    # is worth stating is that the box side is now the icon size itself, where
+    # the old text box was a constant 120 that had nothing to do with it.
+    check(
+        "a focused mark is narrower than the gap to the next category",
+        theme.CATEGORY_ICON < theme.CATEGORY_SPACING,
+        f"{theme.CATEGORY_ICON} px in {theme.CATEGORY_SPACING} px",
+    )
+
+    # The marks take no colour argument: `_paint_category` mixes `TEXT_FAINT`
+    # toward `TEXT` by the focus fraction and fades by distance, and the ink is
+    # whatever pen it left behind. A hard-coded colour in a mark would break the
+    # slide's crossfade while every check about *position* went on passing, so
+    # this paints with a colour the palette never produces and demands it back.
+    probe = QColor(255, 0, 255)
+    wrong = []
+    for name, draw in MARKS:
+        image = paint_mark(draw, theme.CATEGORY_ICON, probe)
+        strays = {
+            image.pixelColor(x, y).name()
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() > 200
+            and image.pixelColor(x, y).rgb() != probe.rgb()
+        }
+        if strays:
+            wrong.append(f"{name}: {sorted(strays)[:2]}")
+    check(
+        "every mark inks with the painter's pen, not a colour of its own",
+        not wrong,
+        f"{wrong}",
+    )
+
+    # The odd-even fill rule, written down as the bug it would be. The note's
+    # stem runs *into* its head, so without `WindingFill` before `simplified()`
+    # the overlap counts as outside and is punched transparent -- a notch across
+    # the stem that reads as an alpha bug. `marks.note_stem` is exported so this
+    # samples the real rectangle rather than a copy of it that would go on
+    # passing after the geometry moved.
+    #
+    # Asserted on a 256 px frame rather than on the 44 px one the crossbar draws,
+    # for the same reason the icon section samples its 256: at button size the
+    # stem is two and a half pixels wide and *every* pixel in it is a partly
+    # covered edge, so the first version of this check failed on the stem's own
+    # antialiasing and would have gone on failing whatever the fill rule was. The
+    # winding bug is scale-independent; the instrument for it should be too.
+    BIG = 256
+    note = paint_mark(marks_mod.draw_note, BIG)
+    stem = marks_mod.note_stem(QRectF(PAD, PAD, BIG, BIG)).adjusted(2, 2, -2, -2)
+    sampled = [
+        (x, y)
+        for x in range(note.width())
+        for y in range(note.height())
+        if stem.contains(x + 0.5, y + 0.5)
+    ]
+    holes = [(x, y) for x, y in sampled if note.pixelColor(x, y).alpha() < 200]
+    check(
+        "the note's stem is solid where it crosses the head, not punched out",
+        not holes and len(sampled) > 500,  # or the inset ate the thing being checked
+        f"{len(holes)} transparent of {len(sampled)} px, e.g. {holes[:3]}",
+    )
+
+    # What the change actually bought. A font snaps to whole hinted pixel sizes,
+    # so the old mark stepped through the slide -- 30 and 30.5 were the same
+    # bitmap. `_paint_category` no longer rounds, so a half-pixel of focus has to
+    # be a different picture or the continuity is a claim rather than a fact.
+    check(
+        "a painted mark scales continuously, where a font snapped",
+        paint_mark(marks_mod.draw_play, 30.0) != paint_mark(marks_mod.draw_play, 30.5),
+    )
+
     print("\n-- the cached paints, which must be the pixels they replaced")
     #
     # Both of these exist to stop the app re-deriving, 21 times a second, a

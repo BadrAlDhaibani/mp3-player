@@ -313,16 +313,31 @@ COLUMN_INK_LEFT = ITEM_X - 14 - GLOW_RINGS * GLOW_STEP - (GLOW_STEP + 1) - 6
 # so 30 asks for 33 ms and gets 46.8 (~21 fps) and 15 asks for 66 and gets 78
 # (~13 fps).
 #
-# Halved in Batch 22, at the user's ask, once the wave turned out to be **93% of
-# the app's CPU** -- 6.27% of eight cores against 0.47% with it stopped. The
-# original row was about the cost of going *up* ("buying the other 9 fps costs
-# about four times the CPU"), and the same curve is what makes coming down worth
-# it: 6.27% to 3.14%, for a fastest ribbon that moves ~4 px between frames
-# rather than ~2. Checked on a filmstrip before it stood, not reasoned about.
+# Halved to 15 in Batch 22 and **put straight back**, which is the useful half of
+# the story. The CPU case was real -- 6.27% of eight cores to 3.14% -- and it was
+# made from that number without looking at the motion, against this file's own
+# standing rule that motion is judged from a filmstrip. At 15 the timer lands on
+# a 78 ms interval, i.e. **12.8 fps**, and a continuously drifting background at
+# 12.8 fps reads as the app lagging. It was reported as exactly that.
 #
-# 12 was measured too and is not better than 15 -- both land on the same coarse
-# tick -- so there is nothing below this until the timer type changes.
-WAVE_FPS = 15
+# Worth keeping the diagnostic, because the obvious suspect was wrong: it was
+# reported as lag *on refocus*, which points at the focus pause below. Measured,
+# the first frame after a `WindowActivate` arrives **9 ms** later and the gaps
+# that follow are 79/83/80/74/74 ms. There is no hitch at all -- the transition
+# is clean, and refocusing is simply when a frozen wave starts moving again and
+# the steady rate becomes visible.
+#
+# Windows' 15.6 ms tick leaves only three rates to choose between, measured
+# maximised at 1920x1032 with `WAVE_SCALE_X = 8`:
+#
+#     30 -> 46.8 ms, 21.5 fps, 5.59%   <- this, and what the app has always had
+#     20 -> 62.4 ms, 16.0 fps, 4.35%
+#     15 -> 78.0 ms, 12.8 fps, 3.60%   <- too slow to look right
+#
+# The rest of Batch 22 is what makes 30 affordable again: the coarser buffer and
+# the focus pause take the same 30 fps from 7.19% to 5.59% focused and ~0.5%
+# unfocused, without touching how it moves.
+WAVE_FPS = 30
 # Across: coarse, and the axis a ribbon has resolution to spare on -- its edges
 # run almost horizontally, so only the *vertical* sampling decides how crisp it
 # looks. Batch 5 measured 4 as indistinguishable from full res; Batch 22 took it

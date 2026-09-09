@@ -66,7 +66,8 @@ legal text, and where the two disagree the licence wins.
 > Batch 21 (search that filters the Music column — 286 tests, 397 harness
 > checks, and a row number that is no longer a track index) ·
 > Batch 22 (the cleanup pass — 293 tests, 416 harness checks, maximised CPU from
-> 7.2% to ~3.1%, and a track change that no longer holds two songs)
+> 7.2% to 5.3% focused and 0.7% unfocused, a track change that no longer holds
+> two songs, and one change made from a number and reverted on sight)
 >
 > **v1 is shipped, Batches 8 through 22 landed on top of it, and `1.2.0` is
 > built, tagged and released.** Every box in the roadmap is now ticked — the
@@ -113,11 +114,16 @@ legal text, and where the two disagree the licence wins.
 > the window gradient — is under half a percent *together*. So the caches had
 > removed the part that was not the problem, and the three levers the user had
 > declined earlier were re-offered with that number attached and taken:
-> **`WAVE_FPS` 30 → 15** (~21 fps → ~13), **`WAVE_SCALE_X` 4 → 8**, and **the
-> timer stops when the window loses focus**. Maximised, playing: **7.19% before
-> any of this → 3.06% focused → 0.66% with focus elsewhere.** The 8.3% reading
-> itself was the window maximised — three times the pixels of the default size —
-> plus Task Manager sampling instantaneously.
+> `WAVE_FPS` 30 → 15, **`WAVE_SCALE_X` 4 → 8**, and **the timer stops when the
+> window loses focus**. **The frame-rate one was then reverted** — the user
+> reported the app lagging, and they were right: 15 lands on 12.8 fps and a
+> drifting background cannot do that without stuttering. It had been changed off
+> a CPU number without anyone looking at the motion. The other two stand, and
+> they are what makes the *original* ~21 fps affordable: maximised and playing,
+> **7.19% before any of this → 5.31% focused → 0.66% with focus elsewhere**,
+> with the wave moving exactly as it always has. The 8.3% reading itself was the
+> window maximised — three times the pixels of the default size — plus Task
+> Manager sampling instantaneously.
 >
 > **The reason there was anything to win: one wave frame repaints the whole
 > stage.** `WaveBackground` is a full-size, non-opaque sibling, so `update()`
@@ -668,7 +674,7 @@ here and write down why.
 | **Resting geometry and painted geometry are separate functions** | `_centre_x` / `_item_y` are where things come to rest; `_paint_x` / `_paint_y` are where they are this instant. Hit-testing uses the resting pair on purpose — a click during a slide should mean the row you aimed at, not the one passing under the pointer — and it's also what keeps the harness's "the selection never moves" assertions meaningful once things move. |
 | **Animations are `QPropertyAnimation` on a float property, via `ui/motion.py`** | Qt already owns the timer, the easing and the repaint. `Tween.to()` restarts from the value's *current* position, which is what stops a held arrow key from stuttering. `finish()` exists for animations nobody can see — a hidden column, and the offscreen harness, which drives clocks rather than sleeping. |
 | **The wave's buffer is coarse across and full-height down** — ~~quartered~~ **eighthed** along x | A ribbon is a long, slowly-varying horizontal band, so its edges run almost horizontally and only the *vertical* sampling decides whether they look crisp; along x a feature spans hundreds of pixels and three in four can go. Quartering both axes — the obvious thing, and what shipped first — looks soft for the same money. Full res 14 ms, both axes quartered 4 ms, **only x quartered 5.6 ms and looks like the 14**. *Batch 22 took x from 4 to 8 at the user's ask, and unlike the original this one is **not** free: at 1920 it is worth 3.97% of eight cores against 2.54%, and a sheet of 1 / 4 / 8 / 12 at the same phase shows 4 as indistinguishable from full resolution and **8 as visibly softer** — the thin strands merge into broader bands. It was chosen with that picture in hand rather than from the number, which is the only way this row could honestly move. 12 is mush; there is nothing past 8.* |
-| **The wave runs on a coarse timer at ~21 fps** → **~13** | Windows' 15.6 ms tick makes a 33 ms coarse timer fire every 46.8. A precise timer does deliver 30 fps but raises the *system-wide* timer resolution — a battery cost the whole machine pays for an app that sits open for hours — and measured about four times the CPU. *Halved in Batch 22, at the user's ask, once the wave turned out to be **93% of the app's CPU**. The original row is about the cost of going up, and the same curve is what makes coming down pay: `WAVE_FPS` 30 → 15 asks for 66 ms, gets 78, and takes 6.27% of eight cores to 3.14%. The quickest ribbon now moves ~4 px between frames rather than ~2. **12 was measured and is not better than 15** — both land on the same coarse tick — so there is nothing below this until the timer type changes, which is the one thing this row has always refused.* |
+| **The wave runs on a coarse timer at ~21 fps** ~~→ ~13~~ → **~21, and this row should not have moved** | Windows' 15.6 ms tick makes a 33 ms coarse timer fire every 46.8. A precise timer does deliver 30 fps but raises the *system-wide* timer resolution — a battery cost the whole machine pays for an app that sits open for hours — and measured about four times the CPU. *Halved to 15 in Batch 22 on a CPU number (6.27% → 3.14%) and **reverted in the same batch when the user reported the app lagging**. They were right and the number was irrelevant: 15 lands on a 78 ms interval, i.e. **12.8 fps**, and a background that drifts continuously cannot do it at 12.8 fps without reading as a stutter. It was changed **without looking at the motion**, which is the one thing this file's conventions are most insistent about, and no amount of profiling would have caught it.* There are only three rates to pick from and their cost maximised at `SCALE_X = 8` is **30 → 21.5 fps, 5.59%; 20 → 16.0 fps, 4.35%; 15 → 12.8 fps, 3.60%**. The rest of Batch 22 is what makes 30 affordable: the same 30 now costs 5.31% where it cost 7.19%, and ~0.5% unfocused. |
 | **The wave stops when the window loses focus** | Chosen with the user in Batch 22, on the strength of one measurement: **6.27% of eight cores with the wave running against 0.47% with it stopped**, maximised and playing. It is ~93% of everything the app costs, and none of that is worth spending on ribbons behind somebody's browser. **Focus, not occlusion** — `WindowDeactivate` is a question Qt will actually answer, where "am I covered?" has no portable answer and would cost more to ask than it saves. A window that is visible but unfocused keeps painting, which is the conservative half: the app never freezes while you are looking at it. It **fails open** — the timer is started by `showEvent` and only ever stopped by an explicit deactivation, so the offscreen platform (which never delivers these) animates exactly as it did, and so does the harness. Verified on the real platform rather than from the API: a second window took focus and the process went **3.06% → 0.66%**, timer off, 0.1 fps. |
 | **Sound policy lives in `ui/sounds.py`, not the controller** | The controller cannot tell the cases apart: `step(+1)` is a press of Next *and* the end of a track, and only one of those should blip. The window can, because it is the half that was pressed. So the controller announces (`failed`, `playing_changed`) and forwards `play_sfx`, and every decision about *what* makes a noise is made at the input that caused it. |
 | **Sound follows intent, not state** | Nothing is wired to `index_changed`: auto-advance moves the cursor too, and a blip nobody asked for reads as an alert rather than as feedback. Keyboard navigation compares the indices around the keypress and blips if they differ, which also buys the right silence at the end of a list for free. |
@@ -1231,6 +1237,25 @@ don't invent a second way to do a thing we've already solved.
   because it is the answer you were hoping for. Same shape as the
   `APPMODEL_ERROR_NO_PACKAGE` note below: read the call's contract before
   reading its result.
+- **A frame rate is motion, so it is judged by looking — a CPU number is not a
+  second opinion, it is a different question.** Batch 22 halved `WAVE_FPS` off a
+  measurement (6.27% → 3.14%), shipped it, and the user reported the app
+  lagging within minutes. Windows' coarse tick turned the requested 66 ms into
+  78, i.e. 12.8 fps, and a background that drifts continuously cannot do that
+  without stuttering. The standing convention — *judge motion from a filmstrip,
+  not from watching it* — exists for tuning easing curves, and this is the same
+  rule one step out: **anything that changes how often the screen updates is a
+  motion change**, however much it looks like a constant. Every other number in
+  that pass was checked against a picture; this one was not, and it is the only
+  one that had to be undone.
+- **When a report names the moment, that is a clue about visibility, not
+  necessarily about cause.** "It lags *when I focus again*" points straight at
+  the focus pause, which was the new and moving part — and the focus pause was
+  innocent: the first frame after `WindowActivate` lands 9 ms later and the
+  gaps after it are 79/83/80/74/74 ms, so there is no hitch at all. Refocusing
+  was simply when a *frozen* wave started moving and the steady rate became
+  visible for the first time. Measure the thing the user described (the
+  intervals, not the average) before believing the thing they pointed at.
 - **Before optimising a paint for the audio's sake, measure the audio.** The
   standing convention says this and Batch 22 is the second batch to confirm it
   from the other side: the caches cut idle CPU by 43%, and the audio was
@@ -3417,12 +3442,18 @@ tracks — the same figure the user's screenshot shows:
 
 | | before | caches only | + the wave pass |
 |---|---|---|---|
-| 980x640 (the default window) | **3.92%** | 2.25% | **~1.4%** |
-| maximised / fullscreen 1920x | **7.19%** | 6.27% | **~3.1%** |
+| 980x640 (the default window) | **3.92%** | ~2.3% | **~2.3–2.9%** |
+| maximised / fullscreen 1920x | **7.19%** | 6.27% | **5.31%** |
 | …with focus elsewhere | 7.19% | 6.27% | **0.66%** |
 | …minimised | ~0.4% | ~0.4% | ~0.4% |
-| one core, 980x640 | 31.3% | 18.0% | ~11% |
-| one core, maximised | 57.5% | 50.2% | ~24% |
+| wave, delivered frame rate | 21.4 fps | 21.4 fps | **21.4 fps** |
+
+**`WAVE_SCALE_X = 8` buys nothing at the default window size** and was measured
+three times each way to be sure — 2.07/2.90/2.87 against 2.62/2.64/2.73, which
+is one noise band. It pays only maximised (5.31% against ~6.3%), because at
+980 px the wave's cost is path geometry rather than pixels, which is Batch 5's
+finding still holding. **So the softer ribbons buy nothing at the size the app
+opens at**, and reverting that one to 4 would cost only the fullscreen case.
 | frame, Music, 980x640 | 9.69 ms | 4.98 ms | — |
 | frame, Music, fullscreen | 24.16 ms | 9.90 ms | — |
 | item column paint, 980x640 | 5.02 ms | 0.11 ms | 0.11 ms |
@@ -3467,6 +3498,29 @@ Measured properly over 25 s of fullscreen key-hammering, both settings give
 **0 ms lost, 0 xruns, 15.3 ms of headroom**: the line came from the app's own
 startup window, which includes the decode. The audio is fine either way and the
 wave work is about CPU, not about sound.
+
+**And then the frame rate was reverted, which is the most instructive thing in
+the batch.** The user reported the app lagging *when focus came back*, which
+points squarely at the focus pause — the new, clever, moving part. It was not
+the focus pause. Measured across a real deactivate/reactivate cycle: the first
+frame after `WindowActivate` arrives **9 ms** later and the gaps that follow are
+79/83/80/74/74 ms. **There is no hitch of any kind.** What refocusing does is
+start a frozen wave moving again, which is simply when the steady rate becomes
+visible — and the steady rate was 12.8 fps, because `WAVE_FPS = 15` asks for
+66 ms and Windows' 15.6 ms tick rounds it to 78.
+
+So the report was accurate and the diagnosis it suggested was wrong, and both
+halves matter. `WAVE_FPS` went back to 30 (21.7 fps, 47 ms median, measured
+after the revert). **The change had been made from a CPU number without ever
+looking at the motion**, in a file whose conventions say in as many words that
+motion is judged from a filmstrip and that no assertion can judge it. Profiling
+would never have caught this; a person looking at the screen caught it in about
+a minute.
+
+Note what survived the revert and why it is not a wash: the coarser buffer and
+the focus pause do not touch how the wave *moves*, so the original 21.5 fps now
+costs **5.31% maximised against 7.19%** before the batch, and **0.66%** whenever
+the window is not focused.
 
 **The focus pause was verified on the real platform, not from the API.** The
 harness sends `WindowDeactivate` by hand, which proves the wiring and nothing

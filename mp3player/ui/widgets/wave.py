@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -100,6 +100,9 @@ class WaveBackground(QWidget):
 
         self._frames = 0
         self._render_ms = 0.0
+        # The top-level window, while we are watching it for focus. Held so the
+        # filter can be taken off again if this widget is ever reparented.
+        self._watched: QWidget | None = None
 
         self._timer = QTimer(self)
         self._timer.setInterval(max(1, 1000 // theme.WAVE_FPS))
@@ -137,12 +140,54 @@ class WaveBackground(QWidget):
 
     def showEvent(self, event) -> None:
         self._clock.restart()
+        self._watch_window()
         self._timer.start()
         super().showEvent(event)
 
     def hideEvent(self, event) -> None:
         self._timer.stop()
         super().hideEvent(event)
+
+    # -- the wave stops when nobody is looking ------------------------------
+    #
+    # This widget is ~93% of the app's CPU (measured: 6.27% of eight cores with
+    # it running against 0.47% with it stopped, maximised at 1920x1032, playing).
+    # None of that is worth spending on ribbons behind somebody's browser.
+    #
+    # Focus rather than occlusion, because focus is the question Qt will
+    # actually answer: `WindowDeactivate` arrives the moment another app takes
+    # over, where "am I covered?" has no portable answer and would cost more to
+    # ask than it saves. A window that is visible but unfocused keeps painting,
+    # which is the conservative half of the trade -- the app never freezes while
+    # you are looking at it.
+
+    def _watch_window(self) -> None:
+        """Follow the top-level window's focus. Safe to call repeatedly."""
+        window = self.window()
+        if window is self._watched:
+            return
+        if self._watched is not None:
+            self._watched.removeEventFilter(self)
+        self._watched = window
+        if window is not None:
+            window.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        # Deliberately fails *open*: the timer is started by `showEvent` and only
+        # ever stopped by an explicit deactivation, so a platform that never
+        # delivers these -- the offscreen one the harness and `tools/render.py`
+        # run on -- goes on animating exactly as it did.
+        if watched is self._watched:
+            if event.type() == QEvent.WindowDeactivate:
+                self._timer.stop()
+            elif event.type() == QEvent.WindowActivate and self.isVisible():
+                # Restart the clock, not just the timer: `_advance` moves the
+                # phase by elapsed time, and an hour in another app would
+                # otherwise arrive as one very large step. `MAX_STEP_S` already
+                # clamps that, but this is the reason it does not have to.
+                self._clock.restart()
+                self._timer.start()
+        return super().eventFilter(watched, event)
 
     # -- painting ----------------------------------------------------------
 

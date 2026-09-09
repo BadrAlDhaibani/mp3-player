@@ -309,11 +309,26 @@ COLUMN_INK_LEFT = ITEM_X - 14 - GLOW_RINGS * GLOW_STEP - (GLOW_STEP + 1) - 6
 # is what made the first version look soft.
 
 # A cap, not a promise -- see the note on the timer in `wave.py`. Windows'
-# 15.6 ms tick turns a 33 ms coarse timer into roughly 21 fps, which is
-# deliberately left alone: the fastest ribbon moves 2 px a frame at 1600 px
-# wide, and buying the other 9 fps costs about four times the CPU.
-WAVE_FPS = 30
-WAVE_SCALE_X = 4  # across: coarse, and invisible
+# 15.6 ms tick turns a coarse timer's interval into the next multiple of 15.6,
+# so 30 asks for 33 ms and gets 46.8 (~21 fps) and 15 asks for 66 and gets 78
+# (~13 fps).
+#
+# Halved in Batch 22, at the user's ask, once the wave turned out to be **93% of
+# the app's CPU** -- 6.27% of eight cores against 0.47% with it stopped. The
+# original row was about the cost of going *up* ("buying the other 9 fps costs
+# about four times the CPU"), and the same curve is what makes coming down worth
+# it: 6.27% to 3.14%, for a fastest ribbon that moves ~4 px between frames
+# rather than ~2. Checked on a filmstrip before it stood, not reasoned about.
+#
+# 12 was measured too and is not better than 15 -- both land on the same coarse
+# tick -- so there is nothing below this until the timer type changes.
+WAVE_FPS = 15
+# Across: coarse, and the axis a ribbon has resolution to spare on -- its edges
+# run almost horizontally, so only the *vertical* sampling decides how crisp it
+# looks. Batch 5 measured 4 as indistinguishable from full res; Batch 22 took it
+# to 8 (6.27% -> 4.10%) and looked at the result rather than trusting the
+# reasoning, because Batch 5 also found that scaling *both* axes looked soft.
+WAVE_SCALE_X = 8
 WAVE_SCALE_Y = 1  # down: full, and the only thing crispness depends on
 WAVE_AMPLITUDE = 0.085  # of the stage height
 WAVE_BAND = 0.42  # falloff distance from the row, of the stage height

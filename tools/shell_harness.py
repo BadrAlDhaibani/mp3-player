@@ -1214,6 +1214,22 @@ def main() -> int:
     # system-wide timer resolution for the sake of 9 more fps nobody can see.
     check("the wave's timer is deliberately coarse", wave._timer.timerType() == Qt.CoarseTimer)
 
+    # The wave is ~93% of the app's CPU, so it stops when the window loses
+    # focus. Driven as the events themselves, because the offscreen platform
+    # never delivers them for real -- which is also the point of the design:
+    # it fails *open*, so a platform that stays silent goes on animating.
+    top = window.window()
+    app.sendEvent(top, QEvent(QEvent.WindowDeactivate))
+    check("the wave stops when the window loses focus", not wave._timer.isActive())
+    app.sendEvent(top, QEvent(QEvent.WindowActivate))
+    check("...and picks up again when it comes back", wave._timer.isActive())
+    # A hidden wave must stay stopped whatever the focus does, or a category
+    # that is not on screen starts painting because somebody alt-tabbed.
+    wave.hide()
+    app.sendEvent(top, QEvent(QEvent.WindowActivate))
+    check("focus does not restart a hidden wave", not wave._timer.isActive())
+    wave.show()
+
     print("\n-- tags and art")
     # A folder built here rather than borrowed: the point is the *contrast*
     # between a tagged file and a bare one, and the real library is 80% bare.

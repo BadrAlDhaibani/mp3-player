@@ -24,6 +24,7 @@ import os
 import struct
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -42,6 +43,7 @@ from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter  # no
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from mp3player import app as app_mod  # noqa: E402
+from mp3player.core import fetch  # noqa: E402
 from mp3player.core import log as log_mod  # noqa: E402
 from mp3player.core import settings as settings_mod  # noqa: E402
 from mp3player.core.audio import engine as engine_mod  # noqa: E402
@@ -64,6 +66,7 @@ from mp3player.ui.controller import (  # noqa: E402
     PlayerController,
 )
 from mp3player.ui.main_window import (  # noqa: E402
+    CAT_GET,
     CAT_MUSIC,
     CAT_NOW,
     CAT_SETTINGS,
@@ -72,6 +75,7 @@ from mp3player.ui.main_window import (  # noqa: E402
     SET_THEME,
     MainWindow,
 )
+from mp3player.ui.widgets.item_column import GET_LABEL  # noqa: E402
 from mp3player.ui.widgets.now_playing import NowPlaying  # noqa: E402
 from mp3player.ui.widgets.transport import (  # noqa: E402
     REPEAT_ALL_GLYPH,
@@ -204,6 +208,27 @@ class _Stalled:
 def _refuse() -> None:
     """What `reopen` does while the device really is still unplugged."""
     raise AudioDeviceError("no usable audio output device (harness)")
+
+
+def wait_for(app, predicate, seconds: float = 20.0) -> bool:
+    """Spin the event loop until `predicate` holds, or give up and say so.
+
+    The one place this harness genuinely has to wait. Everything else that
+    takes time here is driven -- the animations settle, the sound throttle has
+    an injectable clock -- because a test that sleeps depends on the scheduler.
+    A real child process is not driveable: it starts when the OS says so and
+    exits when it is done, and `QProcess` reports both through the event loop.
+
+    So: bounded, and it returns the answer rather than asserting it, which is
+    what lets the timeout show up as the check that was actually waiting
+    instead of as a hang with no name on it.
+    """
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        app.processEvents()
+    return predicate()
 
 
 class Clock:
@@ -343,9 +368,14 @@ def main() -> int:
         " / ".join(item.label for item in column._items),
     )
     press(window, Qt.Key_Right)
-    check("clamps at the last category", bar.index == CAT_SETTINGS)
+    check("right -> Get Music", bar.index == CAT_GET)
+    check("get music opens on a header with nothing typed", column.search == "")
+    press(window, Qt.Key_Right)
+    check("clamps at the last category", bar.index == CAT_GET)
     press(window, Qt.Key_Backspace)
-    check("backspace steps left", bar.index == CAT_MUSIC)
+    check("backspace steps left", bar.index == CAT_SETTINGS)
+    press(window, Qt.Key_Backspace)
+    check("...and again", bar.index == CAT_MUSIC)
     check("music column mirrors the library", column.count == len(controller.tracks))
 
     print("\n-- item nav")
@@ -1150,7 +1180,34 @@ def main() -> int:
 
     bar.set_index(CAT_NOW)
     app.processEvents()
-    check("the page still has a usable track", page.track_rect() is not None)
+    # This used to be `page.track_rect() is not None`, and that was a *text
+    # width* assertion living in the one place this project's conventions say
+    # cannot make one: `track_rect` subtracts the measured widths of DAYCORE and
+    # NIGHTCORE, and offscreen those measure 78 and 101 against the real
+    # platform's 48 and 60. It passed for eleven batches on the margin rather
+    # than on the arithmetic -- offscreen it permits `ITEM_X` up to 333, and it
+    # went red the moment a fourth category pushed past that while the real
+    # platform still had room to spare.
+    #
+    # So it asks the font-independent half instead: is there room for the
+    # slider's *furniture* plus its minimum track, once the two end labels are
+    # allowed the width they take **on the real platform**, which is measured
+    # rather than assumed and written down here because nothing offscreen can
+    # re-derive it. Whether the slider actually appears is a real-platform
+    # question and is checked by looking -- `render.py --what now --size
+    # 720x480`.
+    REAL_END_LABELS = 108  # DAYCORE 48 + NIGHTCORE 60, measured at SLIDER_END_LABEL
+    needed = (
+        REAL_END_LABELS
+        + 2 * theme.SLIDER_LABEL_GAP
+        + theme.SLIDER_VALUE_W
+        + theme.SLIDER_TRACK_MIN
+    )
+    check(
+        "the speed slider still fits at the minimum window",
+        page._text_width() >= needed,
+        f"has {page._text_width()}, needs {needed}",
+    )
     check("paints at the minimum size", not window.grab().isNull())
 
     # The art is sized by the gutter rather than by leftover vertical room, so
@@ -2057,6 +2114,210 @@ def main() -> int:
         f"{theme.SEARCH_TOP + theme.SEARCH_TEXT + 8} vs {theme.SEARCH_BAND}",
     )
 
+    print("\n-- getting music: the fourth category")
+    # The tool is faked; nothing downstream of it is. `find_tools` is replaced
+    # so this points at a script instead of the real yt-dlp, and from there the
+    # argv, the QProcess, the line buffering, the two parsers, the signals, the
+    # library refresh and the sounds are all the shipping code. That is the
+    # "faking a verdict beats faking the world" seam one module further out:
+    # the thing being stubbed is the boundary, not the code under test.
+    #
+    # A temp folder, always. This harness runs against the *real* saved library
+    # and a fake download writing into it would leave a junk file in somebody's
+    # music. `remember=False` on both switches, so nothing is persisted -- the
+    # restore at the end of the section matters because `shutdown()` flushes
+    # `controller._folder`.
+    get_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    get_folder = Path(get_dir.name)
+    fake_py = get_folder / "fake_ytdlp.py"
+    fake_py.write_text(
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if '--dump-json' in args:\n"
+        "    for i in range(3):\n"
+        "        print(json.dumps({'id': 'vid%d' % i, 'title': 'Fake Song %d' % i,\n"
+        "                          'uploader': 'Fake Channel', 'duration': 100 + i}))\n"
+        "    print('[youtube:search] chatter that is not json')\n"
+        "else:\n"
+        "    out = args[args.index('--paths') + 1]\n"
+        "    name = os.path.join(out, 'Aardvark Fake Song.mp3')\n"
+        # A real ID3 header, because `scan_folder` sniffs magic bytes and would
+        # silently skip anything else -- which is the trap this whole feature
+        # has to clear: yt-dlp exiting 0 is not the same as a playable file.
+        "    tag = b'ID3\\x04\\x00\\x00\\x00\\x00\\x00\\x00\\x00'\n"
+        "    open(name, 'wb').write(tag + b'\\x00' * 64)\n"
+        "    print('XMBDL   10.0%')\n"
+        "    print('XMBDL   55.5%')\n"
+        # No trailing newline, on purpose: `after_move:filepath` is the last
+        # thing yt-dlp prints and it is exactly the line that can arrive with
+        # nothing behind it. `_on_dl_finished` flushes the tail for this case.
+        "    sys.stdout.write('XMBFILE ' + name)\n",
+        encoding="utf-8",
+    )
+    fake_cmd = get_folder / "yt-dlp.cmd"
+    fake_cmd.write_text(
+        f'@echo off\r\n"{sys.executable}" "{fake_py}" %*\r\n', encoding="utf-8"
+    )
+    fake_tools = fetch.Tools(ytdlp=fake_cmd, ffmpeg=fake_cmd)
+    real_find = fetch.find_tools
+    fetch.find_tools = lambda folder=None: fake_tools  # type: ignore[assignment]
+
+    # One real track, named so it sorts *after* what the fake download writes.
+    # That is the whole point of it: the new file lands at index 0 and pushes
+    # the playing track from 0 to 1, which is the index shift `refresh_library`
+    # exists to survive. Seeded from the real library so it genuinely decodes.
+    seed = get_folder / "zz seed.mp3"
+    seed.write_bytes(controller.tracks[0].path.read_bytes())
+    real_folder_again = controller.folder
+    controller.open_folder(get_folder, remember=False)
+    app.processEvents()
+    check("the temp library has one track", len(controller.tracks) == 1)
+
+    bar.set_index(CAT_GET)
+    app.processEvents()
+    bar.settle()
+    column.settle()
+    app.processEvents()
+    check("get music has a header from the moment you arrive", column.search == "")
+    check("...and it is captioned GET, not FIND", column._caption == GET_LABEL)
+    check("...with nothing typed and nothing found", window._results == [])
+
+    # Typing. The Music query must not move -- these are two different strings
+    # and conflating them is how `_music_row` starts answering the wrong
+    # question (see the note in `MainWindow.__init__`).
+    music_query_before = window._query
+    type_text(window, "fake")
+    app.processEvents()
+    check("typing fills the Get query", window._get_query == "fake")
+    check("...and leaves the Music search alone", window._query == music_query_before)
+    check("...and the header shows it", column.search == "fake")
+
+    # The three keys Batch 18 and Batch 3 spent, all of which are characters
+    # somebody searching is entitled to type. Read from `event.text()`.
+    shuffle_before, repeat_before = controller.shuffle, controller.repeat
+    playing_before = controller.engine.is_playing
+    type_text(window, "sr ")
+    app.processEvents()
+    check("S, R and Space are literal in here", window._get_query == "fake" + "sr ")
+    check("...shuffle did not toggle", controller.shuffle == shuffle_before)
+    check("...repeat did not cycle", controller.repeat == repeat_before)
+    check("...and play/pause did not fire", controller.engine.is_playing == playing_before)
+
+    # ...while the chords stay transport, verbatim from the theme row's
+    # reasoning: you may well be listening while you look for the next thing.
+    press(window, Qt.Key_Right, Qt.ControlModifier)
+    app.processEvents()
+    check("Ctrl+Right is still transport", window._get_query == "fakesr ")
+
+    press(window, Qt.Key_Backspace)
+    check("backspace deletes a character", window._get_query == "fakesr")
+    press(window, Qt.Key_Escape)
+    check("escape clears the query", window._get_query == "")
+    check("...and empties the results with it", window._results == [])
+    press(window, Qt.Key_Backspace)
+    check("backspace on an empty query steps left", bar.index == CAT_SETTINGS)
+
+    bar.set_index(CAT_GET)
+    app.processEvents()
+
+    # The search, for real, through a real process.
+    type_text(window, "fake")
+    window._get_timer.stop()
+    window._run_search()
+    check("a search is in flight", window._searching_online)
+    check(
+        "the results arrive and the chatter is dropped",
+        wait_for(app, lambda: len(window._results) == 3),
+        f"{len(window._results)} result(s)",
+    )
+    check("...and it is no longer searching", not window._searching_online)
+    check("the titles came through", window._results[1].title == "Fake Song 1")
+    check("...and the durations", window._results[1].duration_s == 101.0)
+    app.processEvents()
+    check("every row is the result it is showing", column.count == 3)
+    check(
+        "the row *is* the index -- there is no map to get wrong",
+        [item.label for item in column._items]
+        == [result.title for result in window._results],
+    )
+
+    # Downloading. The seeded track is playing, and must still be playing after.
+    controller.play_index(0)
+    app.processEvents()
+    playing_path = controller.current.path
+    check("something is playing before the download", controller.index == 0)
+
+    column.set_index(1)
+    clock.tick()
+    log.take()
+    column.activate()
+    check("the download started", window._downloading == "Fake Song 1")
+    check("...and confirmed once", log.take() == [sfx.CONFIRM])
+    check(
+        "a second one is refused while it runs",
+        not window.fetcher.download(fake_tools, window._results[0], get_folder),
+    )
+    check(
+        "the file lands and the library notices",
+        wait_for(app, lambda: len(controller.tracks) == 2),
+        f"{len(controller.tracks)} track(s)",
+    )
+    check("progress reached the window", window._progress > 0.0 or not window._downloading)
+    check("the download is over", not window._downloading)
+    check(
+        "the new file sorted *before* the one that was playing",
+        controller.tracks[0].title.startswith("Aardvark"),
+    )
+    # The two halves of `refresh_library`, and the reason it exists at all.
+    check(
+        "the playing track followed its path rather than its index",
+        controller.index == 1 and controller.current.path == playing_path,
+        f"index={controller.index}",
+    )
+    check("...and the music never stopped", controller.engine.is_playing)
+
+    # Refusals. Each one is a condition the user can fix, so each gets a
+    # sentence and none of them sounds `confirm`.
+    fetch.find_tools = lambda folder=None: fetch.Tools()  # type: ignore[assignment]
+    window._recheck_tools()
+    clock.tick()
+    log.take()
+    column.activate()
+    check("a download with no yt-dlp is refused", not window._downloading)
+    check("...loudly", log.take() == [sfx.ERROR])
+    check(
+        "...and says which tool, short enough for the bar",
+        "yt-dlp" in window._get_advice() and len(window._get_advice()) <= 48,
+        f"{len(window._get_advice())} chars: {window._get_advice()}",
+    )
+    check(
+        "the empty column says so too",
+        window._get_empty_text() == "yt-dlp not installed",
+        window._get_empty_text(),
+    )
+
+    fetch.find_tools = real_find
+    window._recheck_tools()
+    window._results = []
+    window._get_query = ""
+    controller.open_folder(real_folder_again, remember=False)
+    # Back to Music before leaving, and not only for tidiness: the cache checks
+    # at the bottom of this file move one input on a *held* column and demand
+    # the picture change, and an empty column has no selection plate for a slide
+    # or a step-in to move. Left on Get Music with nothing found, two of them go
+    # red for a reason that has nothing to do with the cache.
+    bar.set_index(CAT_MUSIC)
+    app.processEvents()
+    bar.settle()
+    column.settle()
+    app.processEvents()
+    check(
+        "the real library is back for whatever runs after this",
+        controller.folder == real_folder_again and column.count == len(controller.tracks),
+        f"{column.count} row(s)",
+    )
+    get_dir.cleanup()
+
     print("\n-- re-enumerating devices fails loudly when it fails wrongly")
     # Never the real PortAudio: the stream is still open and `refresh_devices`
     # is documented as needing it closed. Both private calls are replaced, so
@@ -2499,6 +2760,11 @@ def main() -> int:
         ("the list sliding", lambda: setattr(column, "_display", column._display + 0.5)),
         ("stepping into a row", lambda: column.set_stepping(True)),
         ("a search opening", lambda: column.set_search("tet")),
+        # The caption is a second argument to the same setter and so is the
+        # easiest input in here to add and forget. Same query, different word in
+        # front of it: if `_caption` is not in the key, this is a stale FIND
+        # sitting over the Get Music results.
+        ("only the caption changing", lambda: column.set_search("tet", GET_LABEL)),
         ("the arrival fading in", lambda: setattr(column, "_appear", 0.4)),
     ):
         move()

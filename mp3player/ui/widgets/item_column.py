@@ -44,7 +44,13 @@ VALUE_PAD = 12  # right-hand readout inset, so it clears the plate's corner
 # printed straight over its own title. The label always keeps the majority.
 VALUE_MAX_SHARE = 0.45
 PLAYING_MARKER = "▶"
+# The header's caption. `FIND` is Music narrowing a list it already has; `GET`
+# is the fourth category, which is a different verb doing a different thing to a
+# different list, and one word for both would be the header lying about which.
+# Both are short enough for `theme.SEARCH_LABEL_W`, which is sized for the
+# longer of them.
 SEARCH_LABEL = "FIND"
+GET_LABEL = "GET"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +79,7 @@ class ItemColumn(QWidget):
         # which is a real and visible state -- one value carries both facts, the
         # same way `set_stepping` carries one.
         self._search: str | None = None
+        self._caption = SEARCH_LABEL
 
         self._display = 0.0
         self._appear = 1.0
@@ -198,16 +205,21 @@ class ItemColumn(QWidget):
     def search(self) -> str | None:
         return self._search
 
-    def set_search(self, query: str | None) -> None:
+    def set_search(self, query: str | None, caption: str = SEARCH_LABEL) -> None:
         """The query to show above the list, or `None` for no search at all.
 
         Same contract as `set_stepping`: a value in, a look out. This widget
-        does no filtering -- the window hands it a shorter list of items and
-        the string that produced it, and would be none the wiser if the two
-        had nothing to do with each other.
+        does no filtering or fetching -- the window hands it a list of items and
+        the string that produced it, and would be none the wiser if the two had
+        nothing to do with each other. Which is what lets one header serve both
+        a filter over the library and a search over the internet: the only thing
+        that differs up here is the word in front, and it is passed in rather
+        than inferred, because inferring it would mean this widget knowing what
+        its rows are.
         """
-        if query != self._search:
+        if query != self._search or caption != self._caption:
             self._search = query
+            self._caption = caption
             self.update()
 
     # -- geometry ----------------------------------------------------------
@@ -296,6 +308,7 @@ class ItemColumn(QWidget):
             self._empty_text,
             self._stepping,
             self._search,
+            self._caption,
             self.width(),
             self.height(),
             self.devicePixelRatio(),
@@ -427,7 +440,7 @@ class ItemColumn(QWidget):
         painter.drawText(
             QRectF(theme.ITEM_X, theme.SEARCH_TOP, theme.SEARCH_LABEL_W, height),
             Qt.AlignLeft | Qt.AlignVCenter,
-            SEARCH_LABEL,
+            self._caption,
         )
 
         x = theme.ITEM_X + theme.SEARCH_LABEL_W

@@ -246,9 +246,62 @@ class PlayerController(QObject):
         # Two spellings of "no music here" is how they drift apart.
 
     def rescan(self) -> None:
-        """Re-read the current folder -- files may have come or gone."""
+        """Re-read the current folder -- files may have come or gone.
+
+        Goes through `open_folder`, so it stops whatever is playing and clears
+        the engine. That is the right behaviour for the Settings row it belongs
+        to -- an explicit "start this folder again" -- and the wrong behaviour
+        for a file arriving on its own. See `refresh_library` below.
+        """
         if self._folder is not None:
             self.open_folder(self._folder, remember=False)
+
+    def refresh_library(self) -> None:
+        """Re-read the folder *without* disturbing what is playing.
+
+        Added in Batch 23 for the one caller that needs it: a finished download.
+        `rescan` cannot serve that, because it routes through `open_folder`,
+        which calls `engine.clear()` -- so getting a song while listening to a
+        song would stop the song. A feature whose entire purpose is "add to the
+        library while you use it" cannot be built on a call that empties it.
+
+        Two things have to be repaired rather than recomputed, and both are the
+        same fact: **`index` is a position in a list that just changed length.**
+        The library is sorted by name, so a new file can land *before* the
+        playing one and shift it -- which would leave `index` addressing a
+        different track while the audio carried on with the old one, and that is
+        the "playing the wrong song" failure this project has twice built maps
+        to avoid. So the playing track is re-found by **path**, which is the only
+        identity that survives a rescan, and the shuffle bag is re-dealt because
+        a permutation of the old library indexes past the end of the new one.
+
+        Re-dealing costs the rest of the current bag, which is a real if small
+        loss and is the honest trade: patching a permutation around an insertion
+        is more code than this whole method, to preserve an order nobody can see.
+        """
+        if self._folder is None:
+            return
+
+        playing = self.current.path if self.current else None
+        result = scan_folder(self._folder)
+        self.tracks = result.tracks
+
+        before = self.index
+        if playing is None:
+            self.index = -1
+        else:
+            self.index = next(
+                (i for i, track in enumerate(self.tracks) if track.path == playing), -1
+            )
+        self._reshuffle(lead=self.index if self.index >= 0 else None)
+
+        self.library_changed.emit(result)
+        # Only on an actual move. The common case is that the playing track is
+        # still where it was and nothing above here needs telling -- and a
+        # `track_changed` nobody needed would reset the Music cursor and re-read
+        # the cover for a track that never changed.
+        if self.index != before:
+            self.track_changed.emit(self.index)
 
     @property
     def folder(self) -> Path | None:

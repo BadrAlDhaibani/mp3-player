@@ -21,9 +21,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QFileDialog, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QVBoxLayout, QWidget
 
-from mp3player.core import library
+from mp3player.core import fetch, library
+from mp3player.core import log as log_mod
 from mp3player.core import settings as settings_mod
 from mp3player.core.library import ScanResult
 from mp3player.ui import marks, theme
@@ -35,14 +36,15 @@ from mp3player.ui.controller import (
     SEEK_STEP,
     PlayerController,
 )
+from mp3player.ui.fetcher import Fetcher
 from mp3player.ui.sounds import Sounds
 from mp3player.ui.widgets.crossbar import Category, Crossbar
-from mp3player.ui.widgets.item_column import Item, ItemColumn
+from mp3player.ui.widgets.item_column import GET_LABEL, Item, ItemColumn
 from mp3player.ui.widgets.now_playing import NowPlaying, NowPlayingPage
 from mp3player.ui.widgets.transport import TransportBar, clock
 from mp3player.ui.widgets.wave import WaveBackground
 
-CAT_NOW, CAT_MUSIC, CAT_SETTINGS = 0, 1, 2
+CAT_NOW, CAT_MUSIC, CAT_SETTINGS, CAT_GET = 0, 1, 2, 3
 
 # The Settings rows, by position. `ItemColumn` activates by index and has no
 # notion of an id, so anything outside this file that wants to talk about a
@@ -73,16 +75,27 @@ class SettingsRow:
     action: Callable[[], object]
 
 
-# The marks are painted, not glyphs -- see `ui/marks.py`. Adding a fourth
-# category still means moving `theme.ITEM_X`, not just appending here; that
-# constraint is about the bar's width and is unaffected by what fills it.
+# The marks are painted, not glyphs -- see `ui/marks.py`. A fifth category still
+# means moving `theme.ITEM_X`, not just appending here; that constraint is about
+# the bar's width and is unaffected by what fills it. Batch 23 moved it once, to
+# 400, and the arithmetic for the next one is written out beside the constant.
+#
+# Get Music is last on purpose. The three before it are things you do with music
+# you have, in the order you reach for them; getting more is the outlier, and
+# putting it at the far end also keeps every existing category index unchanged --
+# a settings file, a harness check or a habit that says "Settings is 2" still
+# means what it did.
 CATEGORIES = (
     Category(marks.draw_play, "Now Playing"),
     Category(marks.draw_note, "Music"),
     Category(marks.draw_settings, "Settings"),
+    Category(marks.draw_get, "Get Music"),
 )
 
 STATUS_MS = 6000  # how long a failure line stays up
+GET_DEBOUNCE_MS = 600  # typing stops -> a search goes out
+
+_log = log_mod.get("window")
 PAGE = 5  # items per PageUp/PageDown
 SPEED_STEP = 0.01  # one Up/Down press on the Now Playing page
 
@@ -317,8 +330,12 @@ class MainWindow(ChromeWindow):
         self.sounds = Sounds(controller)
 
         # Per-category cursors: stepping away from Music and back should land
-        # where you left, not at the top of a 200-track list.
-        self._selection = [0, 0, 0]
+        # where you left, not at the top of a 200-track list. Sized off
+        # `CATEGORIES` rather than written out, because a literal here is a list
+        # that has to agree with another list -- which is the bug class Batch 14
+        # and Batch 21 were both about, and it would land as an IndexError on
+        # whichever category somebody forgot to add.
+        self._selection = [0] * len(CATEGORIES)
         self._category = CAT_NOW  # mirrors `stage.bar.index`, see `_on_category`
         self._library = ScanResult()
         self._folder: Path | None = None
@@ -347,6 +364,31 @@ class MainWindow(ChromeWindow):
         # the one place that identity stops holding. Rebuilt by `_music_items`,
         # which is the method that already walks the library to make the rows.
         self._matches: list[int] = []
+        # -- Get Music --
+        #
+        # Deliberately *not* folded into `_searching` and `_query` above. Those
+        # three read `_searching` (`_music_row`, `_end_search`, `_refresh_sticky`)
+        # and every one of them means "Music is filtered" by it; widening that to
+        # "typing is happening somewhere" is how all three quietly start
+        # answering a question nobody asked them.
+        #
+        # There is no `_get_searching` to go with `_get_query`, because this
+        # category has no mode to be in or out of: its column is always the
+        # header and a list, so the category *is* the mode.
+        #
+        # A column row here is an index into `_results` and nothing else -- no
+        # map, no second list to keep in step. That is the one thing Music
+        # needed `_matches` for and the reason this one does not need anything.
+        self._get_query = ""
+        self._results: list[fetch.Result] = []
+        self._searching_online = False
+        self._downloading = ""  # the title in flight, "" when nothing is
+        self._progress = 0.0
+        # Looked up once at startup rather than per keystroke: `shutil.which`
+        # walks PATH, and a category that stats the disk every time you type a
+        # letter is the sort of thing Batch 22 went looking for. Re-checked when
+        # the category is entered, so installing yt-dlp does not need a restart.
+        self._tools = fetch.find_tools()
         # The first `library_changed` is the one that can decide this is a first
         # run. Every later one is the user changing folders, and landing them
         # back on Settings for that would be the app taking the wheel.
@@ -392,6 +434,22 @@ class MainWindow(ChromeWindow):
         self.transport.refresh_accent()
         self.setFocusPolicy(Qt.StrongFocus)
 
+        # Get Music. The fetcher owns the processes; this owns when to ask.
+        self.fetcher = Fetcher(self)
+        # Typing runs a search on a pause rather than on Enter, which is what
+        # keeps Enter meaning exactly one thing on this category -- *get this
+        # one*. Enter-to-search and Enter-to-download on the same key would be
+        # decided by whether the query had changed since the last search, i.e.
+        # by state the user cannot see.
+        #
+        # Long enough that typing a phrase is one request rather than a dozen,
+        # short enough not to feel stuck. The 800 ms settings debounce is the
+        # precedent; this is shorter because somebody is waiting for it.
+        self._get_timer = QTimer(self)
+        self._get_timer.setSingleShot(True)
+        self._get_timer.setInterval(GET_DEBOUNCE_MS)
+        self._get_timer.timeout.connect(self._run_search)
+
     def _connect(self) -> None:
         controller = self.controller
 
@@ -407,6 +465,18 @@ class MainWindow(ChromeWindow):
         controller.repeat_changed.connect(self._on_repeat)
         controller.volume_changed.connect(self.transport.set_volume)
         controller.failed.connect(self.stage.set_status)
+
+        self.fetcher.results.connect(self._on_results)
+        self.fetcher.progress.connect(self._on_progress)
+        self.fetcher.finished.connect(self._on_fetched)
+        self.fetcher.failed.connect(self._on_fetch_failed)
+        # Next to `controller.shutdown` in `app.py`, and for the same reason: a
+        # yt-dlp that survives the window goes on writing into the music folder
+        # after the app that asked for it is gone, and the next launch scans
+        # that folder and finds a part-written file.
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.fetcher.cancel)
         # The one sound wired to a controller signal rather than to an input:
         # a failure is the app answering back, and it is worth hearing whether
         # or not you were looking at the status line when it appeared.
@@ -451,7 +521,14 @@ class MainWindow(ChromeWindow):
         if result.error in (library.MISSING, library.UNREADABLE):
             self.sounds.error()
         self._refresh_sticky()
-        self._refresh_column(reset=True)
+        # A library refresh means the *Music* list changed, so Music's cursor
+        # goes back to the top. Any other column is showing something else --
+        # the Settings rows, or search results a finished download has no
+        # business scrolling -- and `restore` is what leaves those where the
+        # user put them. Before Get Music existed, `reset=True` was right for
+        # every category because every category was the library or a fixed list.
+        on_music = self._category == CAT_MUSIC
+        self._refresh_column(reset=on_music, restore=not on_music)
         if first and result.error == library.NO_FOLDER:
             self._begin_first_run()
 
@@ -480,6 +557,25 @@ class MainWindow(ChromeWindow):
         """
         if self._device_lost:
             self.stage.set_status(DEVICE_LOST_TEXT, sticky=True)
+        elif self._downloading:
+            # Above every other standing line and below the device, on the same
+            # "how much can the user do about it" ranking the two below use. It
+            # is deliberately not scoped to the Get Music category: a download
+            # goes on running while you go back to listening, and a progress
+            # readout that vanished when you stepped away would read as the
+            # download having stopped.
+            self.stage.set_status(
+                f"Getting {_short(self._downloading)}   {round(self._progress * 100)}%",
+                sticky=True,
+            )
+        elif self._category == CAT_GET:
+            advice = self._get_advice()
+            if advice:
+                self.stage.set_status(advice, sticky=True)
+            elif self._results:
+                self.stage.set_status(f"{len(self._results)} result(s)", sticky=True)
+            else:
+                self.stage.set_status("", sticky=True)
         elif self._searching and self._library.tracks:
             # Sticky rather than transient: a search is a *condition*, and a
             # count that expired after six seconds while the query was still on
@@ -677,7 +773,14 @@ class MainWindow(ChromeWindow):
         # index rather than against `bar.index`.
         self._selection[self._category] = self.stage.column.index
         self._category = index
+        if index == CAT_GET:
+            # Arriving is the moment to look again: somebody who read the "not
+            # installed" line, went and installed it, and came back should find
+            # the category working rather than having to relaunch. One `which`
+            # per category step is nothing.
+            self._recheck_tools()
         self._refresh_column(restore=True)
+        self._refresh_sticky()
         self.stage.enter()
 
     def _refresh_column(self, *, reset: bool = False, restore: bool = False) -> None:
@@ -694,16 +797,27 @@ class MainWindow(ChromeWindow):
         index = 0 if reset else self._selection[category]
 
         self.stage.show_page(category == CAT_NOW)
-        # Said here rather than only in the Music branch below, so a query can't
+        # Said here rather than only in the branches below, so a query can't
         # outlive the list it was narrowing: leaving Music closes the search,
         # but the header should not depend on that having happened first.
-        self.stage.column.set_search(self._query if self._searching else None)
+        #
+        # Get Music always has a header, including with nothing typed -- it is
+        # not a mode you can be outside of on that category, and a list of
+        # results with no query above them would leave the caret nowhere.
+        if category == CAT_GET:
+            self.stage.column.set_search(self._get_query, GET_LABEL)
+        else:
+            self.stage.column.set_search(self._query if self._searching else None)
 
         if category == CAT_NOW:
             self.stage.page.set_state(self._now_playing())
         elif category == CAT_MUSIC:
             self.stage.column.set_items(
                 self._music_items(), index=index, empty_text=self._music_empty_text()
+            )
+        elif category == CAT_GET:
+            self.stage.column.set_items(
+                self._get_items(), index=index, empty_text=self._get_empty_text()
             )
         else:
             self.stage.column.set_items(self._settings_items(), index=index)
@@ -853,6 +967,266 @@ class MainWindow(ChromeWindow):
             return "unreadable"
         return self._folder.name
 
+    # -- Get Music ---------------------------------------------------------
+
+    def _get_items(self) -> list[Item]:
+        """The search results, one row each. The row *is* the index.
+
+        No map and no second list, which is the whole difference from
+        `_music_items`: a result has no track index to translate into, so
+        `_results[row]` is the entire lookup and there is nothing that can fall
+        out of step with it.
+
+        The value is the **duration and nothing else**, which is a decision that
+        cost the uploader its place and was made from a render. `duration ·
+        uploader` was the first version and reads fine at 980; at the 720
+        minimum it claims the whole of `_paint_item`'s 45% cap and cuts the
+        title to `1. Extended Ni...`, which identifies nothing. Eliding the
+        value harder does not help -- a value only gives room back by being
+        *short*, and a channel name has no length.
+
+        So: the field that decides a pick, in four fixed-width characters. A
+        ten-hour loop and the song you wanted are otherwise the same row, and
+        the title is what tells them apart once they aren't.
+        """
+        return [
+            Item(
+                result.title,
+                value=clock(result.duration_s) if result.duration_s else "",
+            )
+            for result in self._results
+        ]
+
+    def _get_empty_text(self) -> str:
+        """Why the results list is empty. One place, like `empty_reason`.
+
+        Ranked by what the user can do about it, most fixable last: a tool that
+        is not installed beats a folder that is not set beats having typed
+        nothing yet, because the first two make the third pointless.
+
+        Short, because the empty column draws at the item size -- and now in
+        280 px at the 720 minimum rather than 368. The line that says where to
+        go is `_get_advice`, in the smaller type that has room for it.
+        """
+        missing = self._tools.missing
+        if missing == fetch.NO_YTDLP:
+            return "yt-dlp not installed"
+        if missing == fetch.NO_FFMPEG:
+            return "ffmpeg not installed"
+        if self._folder is None:
+            return "No folder yet"
+        if self._searching_online:
+            return "Searching…"
+        if not self._get_query:
+            return "Type to search"
+        return "Nothing found"
+
+    def _get_advice(self) -> str:
+        """The same reason with the fix attached, for the status line.
+
+        Same split as `empty_reason` / `empty_advice`, and short for the same
+        reason that one is. The first version named `fetch.tools_dir()` in full,
+        which is an absolute path and therefore unbounded: at 980 px it pushed
+        the front of its own sentence off the left edge and the status line read
+        `dlp not found`, having eaten the `yt-`. The status line is right-aligned
+        and elides nothing, so a line too long for it does not shrink -- it
+        loses its beginning, which is the half that says what is wrong.
+
+        Where to put the file is in the README and in the log line beside it.
+        A path is a thing to copy, and the status bar is not a place you can
+        copy from.
+        """
+        missing = self._tools.missing
+        if missing is not None:
+            name = "yt-dlp" if missing == fetch.NO_YTDLP else "ffmpeg"
+            return f"{name} not installed  --  put it on PATH"
+        if self._folder is None:
+            return f"Downloads need somewhere to go  --  {_SETTINGS_ROW}"
+        return ""
+
+    def _set_get_query(self, query: str) -> None:
+        """Retype the query and arm the search. The results do not move yet.
+
+        Unlike `_set_query` next door, this cannot compare the result set before
+        and after -- the answer is a network round trip away. What it *can*
+        compare is what is on screen, and the header is on screen: a keystroke
+        changes the query, the query is drawn, so the keystroke did something
+        and blips. That is the same rule as everywhere else in this file
+        (`a press that changes nothing makes no sound`) reaching a case where
+        the visible thing is the query itself rather than the list under it.
+        """
+        if query == self._get_query:
+            return
+        self._get_query = query
+        self._refresh_column()
+        if query.strip():
+            self._get_timer.start()  # restarts, so a phrase is one request
+        else:
+            # Deleting back to nothing is a request to stop, not to search for
+            # everything. The list empties with it, or a stale set of results
+            # sits under an empty header claiming to be its answer.
+            self._get_timer.stop()
+            self._results = []
+            self._searching_online = False
+            self._refresh_column(reset=True)
+        self._refresh_sticky()
+        self.sounds.move()
+
+    def _recheck_tools(self) -> None:
+        """Look for yt-dlp and ffmpeg again, and say where they should go.
+
+        The status line cannot carry the folder -- an absolute path is unbounded
+        and that line elides nothing (see `_get_advice`) -- so the path is
+        written *here*, where it can be read at leisure and copied. Throttled,
+        because this runs on every category step and every search.
+        """
+        self._tools = fetch.find_tools()
+        missing = self._tools.missing
+        if missing is not None and log_mod.due("fetch-tools", 60.0):
+            _log.info(
+                "%s not found; looked on PATH and in %s", missing, fetch.tools_dir()
+            )
+
+    def _run_search(self) -> None:
+        """The debounce fired. Ask, if there is anything to ask with."""
+        query = self._get_query.strip()
+        if not query:
+            return
+        # Re-checked here rather than trusted from startup, so installing yt-dlp
+        # and coming back does not need the app restarted. It is a `which` on a
+        # keystroke *pause*, not on a keystroke.
+        self._recheck_tools()
+        if self._tools.missing is not None:
+            self._searching_online = False
+            self._refresh_column()
+            self._refresh_sticky()
+            self.sounds.error()
+            return
+        self._searching_online = True
+        self._refresh_column()
+        self._refresh_sticky()
+        self.fetcher.search(self._tools, query)
+
+    def _on_results(self, results: object) -> None:
+        self._searching_online = False
+        self._results = list(results) if isinstance(results, list) else []
+        self._selection[CAT_GET] = 0
+        # Only rebuild the column if it is the one showing these. A search
+        # started on Get Music and answered after the user stepped to Music must
+        # not reset the Music cursor -- `_refresh_column` acts on whatever
+        # category is current, not on the one that asked.
+        if self._category == CAT_GET:
+            self._refresh_column(reset=True)
+        self._refresh_sticky()
+        if not self._results:
+            # Sound follows intent, and this still does: typing is the only
+            # thing that starts a search, so a blip here is the answer to a
+            # press. The network put a second between the two, which is not the
+            # same as the app making a noise nobody asked for.
+            self.sounds.error()
+
+    def _start_download(self, index: int) -> bool:
+        """Enter on a result. False if it did not start, and why is on the bar.
+
+        Every refusal is a *condition the user can fix*, which is why each one
+        gets a sentence rather than a shrug -- and why the caller only sounds
+        `confirm` when this returns True.
+        """
+        if not 0 <= index < len(self._results):
+            return False
+        if self._folder is None or self._tools.missing is not None:
+            self.stage.set_status(self._get_advice())
+            self.sounds.error()
+            return False
+        if self.fetcher.downloading:
+            self.stage.set_status(f"Already getting {_short(self._downloading)}")
+            self.sounds.error()
+            return False
+
+        result = self._results[index]
+        if not self.fetcher.download(self._tools, result, self._folder):
+            self.stage.set_status("Could not start the download")
+            self.sounds.error()
+            return False
+
+        self._downloading = result.title
+        self._progress = 0.0
+        self._refresh_sticky()
+        return True
+
+    def _on_progress(self, fraction: float) -> None:
+        # Whole percents only. yt-dlp reports far more often than that, and each
+        # one would rebuild a sentence and repaint the status line to say the
+        # same thing -- which is the sort of per-frame work Batch 22 went
+        # looking for rather than something to add.
+        if round(fraction * 100) == round(self._progress * 100):
+            return
+        self._progress = fraction
+        self._refresh_sticky()
+
+    def _on_fetched(self, path: object) -> None:
+        """A download finished. Put it in the library without stopping the music.
+
+        `refresh_library` and not `rescan`: the latter goes through
+        `open_folder`, which clears the engine -- so getting a song while
+        listening to one would stop the one you are listening to.
+        """
+        title, self._downloading = self._downloading, ""
+        self._progress = 0.0
+        self.controller.refresh_library()
+        # Sticky first, then the transient: a *new* sticky clears the transient
+        # by design (`set_status`), so saying "Added ..." first and then
+        # re-deriving the standing line could wipe it.
+        self._refresh_sticky()
+        name = Path(str(path)).stem if path else title
+        self.stage.set_status(f"Added {_short(name)}")
+        self.sounds.confirm()
+
+    def _on_fetch_failed(self, message: str) -> None:
+        self._downloading = ""
+        self._progress = 0.0
+        self._searching_online = False
+        if self._category == CAT_GET:
+            self._refresh_column()
+        self._refresh_sticky()
+        self.stage.set_status(message)
+        self.sounds.error()
+
+    def _get_key(self, key: int, modifiers, text: str) -> bool | None:
+        """Get Music's keyboard. `None` means "not mine -- carry on".
+
+        Falling through is most of the design, exactly as it is for the Music
+        search: the arrows, Home, End and Enter all want to do what they do
+        everywhere else, and Ctrl and Shift arrows stay transport because you
+        may well be listening while you look for the next thing.
+
+        There is no exit branch, because there is nothing to exit -- the header
+        belongs to the category, so leaving it is stepping off the category, and
+        that is Backspace and the crossbar doing what they always do.
+        """
+        if key == Qt.Key_Escape and self._get_query:
+            self._set_get_query("")
+            self.sounds.back()
+            return True
+        if key == Qt.Key_Backspace and self._get_query:
+            # Only while there is something to delete. On an empty query this
+            # falls through to the crossbar's "back", which steps to Settings --
+            # the same thing Backspace does from every other category.
+            self._set_get_query(self._get_query[:-1])
+            return True
+        # `text` and not `key`, which is what makes S, R and Space literal in
+        # here while they stay bound to shuffle, repeat and play/pause outside.
+        # `text` first, because "".isprintable() is True and an arrow key's text
+        # is "" -- without it every arrow would count as typing nothing.
+        if (
+            text
+            and text.isprintable()
+            and not modifiers & (Qt.ControlModifier | Qt.AltModifier)
+        ):
+            self._set_get_query(self._get_query + text)
+            return True
+        return None
+
     def _settings_rows(self) -> list[SettingsRow]:
         """The Settings list, in order. The only place that order is stated.
 
@@ -908,6 +1282,16 @@ class MainWindow(ChromeWindow):
     # -- activation --------------------------------------------------------
 
     def _activate(self, index: int) -> None:
+        # Get Music is the one category whose activation can be *refused* -- no
+        # folder, no yt-dlp, or a download already running -- so it sounds its
+        # own confirm rather than taking the unconditional one below. A refusal
+        # that blipped confirm and then error would be the app saying yes and
+        # then no to one press.
+        if self._category == CAT_GET:
+            if self._start_download(index):
+                self.sounds.confirm()
+            return
+
         # One confirm for every activation, keyboard or mouse: `activated` is
         # only emitted when there is something to open, so an Enter on an empty
         # list is silent rather than a blip about nothing.
@@ -1129,6 +1513,16 @@ class MainWindow(ChromeWindow):
             if handled is not None:
                 return handled
 
+        # Get Music takes the keyboard on the same terms and for the same
+        # reasons, and needs no flag of its own: its column is always a header
+        # over a list, so **the category is the mode**. The two are mutually
+        # exclusive -- a Music search cannot be open on a different category --
+        # so the order between them costs nothing to state.
+        if self._category == CAT_GET:
+            handled = self._get_key(key, modifiers, text)
+            if handled is not None:
+                return handled
+
         # A stepped-into row takes the horizontal arrows before the crossbar
         # sees them -- first, so the branch below can go on treating Left and
         # Right as category navigation without learning about the mode.
@@ -1215,6 +1609,19 @@ class MainWindow(ChromeWindow):
         else:
             return False
         return True
+
+
+def _short(text: str, limit: int = 42) -> str:
+    """A title cut to something the status line can hold.
+
+    A YouTube title is the least bounded string this app has ever drawn -- worse
+    than a tag, worse than a folder name, because it is written to be a headline.
+    The status line is the small font at the right edge and has no elision of its
+    own, so this is the "a field whose text comes from a file has no length"
+    convention applied one step further out.
+    """
+    text = text.strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _speed_fraction(speed: float) -> float:

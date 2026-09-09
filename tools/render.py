@@ -40,19 +40,26 @@ from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
+from mp3player.core import fetch
 from mp3player.core import settings as settings_mod
 from mp3player.core.audio.engine import AudioEngine
 from mp3player.ui import marks as marks_mod
 from mp3player.ui import theme
 from mp3player.ui.controller import REPEAT_MODES, PlayerController
 from mp3player.ui.main_window import (
+    CAT_GET,
     CAT_MUSIC,
     CAT_NOW,
     CAT_SETTINGS,
     MainWindow,
 )
 
-CATEGORIES = {"now": CAT_NOW, "music": CAT_MUSIC, "settings": CAT_SETTINGS}
+CATEGORIES = {
+    "now": CAT_NOW,
+    "music": CAT_MUSIC,
+    "settings": CAT_SETTINGS,
+    "get": CAT_GET,
+}
 DEFAULT_SPEEDS = (settings_mod.DAYCORE_SPEED, 1.0, settings_mod.NIGHTCORE_SPEED)
 
 
@@ -146,6 +153,10 @@ def marks_sheet(path: Path) -> None:
         ("Music  ·  painted", marks_mod.draw_note, ""),
         ("Settings  ·  was ⚙", None, "⚙"),
         ("Settings  ·  painted", marks_mod.draw_settings, ""),
+        # The fourth category has no glyph it replaced -- it never had one. It
+        # is on the sheet for the comparison that outlived the choice: its
+        # weight has to hold against the three above it.
+        ("Get Music  ·  painted", marks_mod.draw_get, ""),
     ]
 
     zoomed = MARK_CELL * MARK_ZOOM
@@ -259,6 +270,17 @@ def main() -> int:
              "match and at none.",
     )
     parser.add_argument(
+        "--get",
+        help="with `--what get`, put this in the query line. Nothing is "
+             "searched -- there is no network in here -- so the results come "
+             "from `--results` below and this is only the header.",
+    )
+    parser.add_argument(
+        "--results", type=int, default=0,
+        help="with `--what get`, how many stand-in results to list. The point "
+             "of the shot is the row layout in 280 px, not what the rows say.",
+    )
+    parser.add_argument(
         "--marks", action="store_true",
         help="the category marks at both real sizes, beside the glyphs they "
              "replaced. Opens no audio device and builds no window -- it is a "
@@ -332,6 +354,27 @@ def main() -> int:
         # Re-applied, because typing puts the cursor back on the top match --
         # and a shot with rows *above* the header is the one that says whether
         # the list is really clipped below it.
+        stage.column.set_index(max(0, min(args.select, stage.column.count - 1)))
+        stage.column.settle()
+        app.processEvents()
+
+    if args.what == "get":
+        # Stand-in results rather than a real search: this tool opens no socket,
+        # and the question a shot of this screen answers is whether a title and
+        # a right-aligned duration survive 280 px -- which is a layout question
+        # and does not care what the rows say. Titles run long on purpose, since
+        # a YouTube title is the least bounded string the app has ever drawn.
+        window._results = [
+            fetch.Result(
+                video_id=f"id{n}",
+                title=f"{n + 1}. Extended Nightcore Mix (Full Album, HQ Remaster)",
+                uploader="A Channel With A Fairly Long Name",
+                duration_s=225 + n * 47,
+            )
+            for n in range(max(0, args.results))
+        ]
+        window._get_query = args.get or ""
+        window._refresh_column(reset=True)
         stage.column.set_index(max(0, min(args.select, stage.column.count - 1)))
         stage.column.settle()
         app.processEvents()

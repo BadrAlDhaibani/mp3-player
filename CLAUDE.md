@@ -67,7 +67,9 @@ legal text, and where the two disagree the licence wins.
 > checks, and a row number that is no longer a track index) ·
 > Batch 22 (the cleanup pass — 293 tests, 416 harness checks, maximised CPU from
 > 7.2% to 5.3% focused and 0.7% unfocused, a track change that no longer holds
-> two songs, and one change made from a number and reverted on sight)
+> two songs, and one change made from a number and reverted on sight) ·
+> Batch 23 (Get Music — 336 tests, 458 harness checks, a fourth category, and a
+> real download that landed and played)
 >
 > **v1 is shipped, Batches 8 through 22 landed on top of it, and `1.2.0` is
 > built, tagged and released.** Every box in the roadmap is now ticked — the
@@ -84,11 +86,38 @@ legal text, and where the two disagree the licence wins.
 > is no next batch until the user names one — see *When the docket is empty*
 > under **The docket** for the standing candidates, none of which are agreed.
 >
-> **The `.exe` in `dist/` is now one batch behind the source in more than the
-> icon.** It is still `1.2.0` and still passes its own smoke test, but Batch 22's
-> paint caches and the decode reordering are not in it. That is the usual state
-> between releases and not a problem; it is noted because the gap is now
-> *behavioural* rather than cosmetic, which the Batch 17 icon note was not.
+> **The `.exe` in `dist/` is now two batches behind the source, and the source
+> is `1.3.0`.** The exe is still `1.2.0` and still passes its own smoke test,
+> but Batch 22's paint caches, the decode reordering and the whole of Batch 23
+> are not in it. That is the usual state between releases and not a problem; it
+> is noted because the gap is *behavioural* rather than cosmetic, which the
+> Batch 17 icon note was not. **Nothing has been tagged or released for 1.3.0**
+> — that is the user's call, as it has been since Batch 15.
+>
+> **There is a fourth category now: Get Music.** Type a song name, it searches
+> YouTube, Enter downloads it into the music folder as an MP3 and it appears in
+> Music without interrupting whatever is playing. Four things to carry forward.
+> **yt-dlp and ffmpeg are found, never bundled** — `PATH` first, then
+> `%APPDATA%/XMBPlayer/tools/`, re-checked on every category step, and absence
+> is a token (`NO_YTDLP`/`NO_FFMPEG`) that `ui` turns into words. **yt-dlp runs
+> as a subprocess and must keep doing so**: the audio callback is Python and a
+> worker thread is the same GIL, which is why this app still has no `threading`
+> import. **`ITEM_X` is squeezed from both sides** — the icons on its left and
+> the Now Playing slider on its right — and only one of those was written next
+> to it before this batch, which is how a documented move took the app's
+> signature control to 4 px of slack. And **a Get Music row is its own index**:
+> there is no `_matches`-style map here, because a search result addresses
+> nothing.
+>
+> **Two bugs worth knowing about because neither was findable where you would
+> look.** A harness check that had been green since Batch 4 was measuring *text
+> width offscreen* and had simply been passing on the margin — it permitted
+> `ITEM_X` up to 333 where the real ceiling is 404. And yt-dlp's `--print`
+> **silently deletes** characters the console codepage cannot hold, so a
+> downloaded file whose name contained a fullwidth `：` was reported at a path
+> that did not exist: a correct-looking path for a missing file, which sends you
+> hunting the download. `--encoding UTF-8` fixes it and `PYTHONIOENCODING` does
+> not. The *search* needs no such flag — `--dump-json` is pure ASCII on the wire.
 >
 > The original roadmap ran out at Batch 15. Everything since has come from the
 > user directly: audible pops (16), a nicer icon and no console window (17),
@@ -435,6 +464,8 @@ legal text, and where the two disagree the licence wins.
 > | # | What | Where it is written | State |
 > |---|---|---|---|
 > | — | *(nothing agreed and not started)* | — | **The docket is empty** |
+| — | A download queue | Batch 23 | Raised, not agreed. Get Music does one song at a time and refuses a second; a queue means queue state, per-item progress, cancelling, where it is shown, and what happens on quit mid-download. **Offer; don't start** |
+| — | The empty-column text is washed out over the wave | End of Batch 23 | Raised, not agreed, and **not Batch 23's** — a control render shows Music's own `Nothing matches` is exactly as faint, so it is every empty state and predates all of it. One colour, touched deliberately rather than inside a feature |
 > | — | ~~The GitHub account is flagged~~ | *The release*, below | **Closed 2026-09-08.** Support lifted it; everything below it went green |
 > | — | Three judgements only a human can make | *Open, and waiting on a human*, above | **Not yours to close.** Raise them; don't sit on them |
 > | — | The Now Playing cover placeholder is still a `♪` glyph | End of Batch 20 | Raised, not agreed. **Offer; don't start** |
@@ -548,7 +579,18 @@ legal text, and where the two disagree the licence wins.
 > monochrome shuffle mark dissolving into a scribble at the size a button
 > actually draws it, and Batch 21's search header clipping the list into a
 > sliver of descenders that reads as a paint bug where the identical cut at the
-> window's own edge reads as a list running off the top.
+> window's own edge reads as a list running off the top, and Batch 23's status
+> line losing the *front* of its own sentence — `dlp not found`, the `yt-` gone,
+> because that line is right-aligned and elides nothing and the cure it was
+> carrying named an absolute path.
+>
+> **Batch 23 also put a fourth item on the list of things only a picture finds,
+> and it is the cheapest one yet:** four candidate marks all rendered as bare
+> shafts with no arrowhead, from one helper mixing a pixel length into
+> fraction-of-the-side arithmetic. No assertion existed that could have been
+> wrong about it, because nothing had been asserted yet — the sheet was the
+> first thing built, which is exactly why it cost ten minutes instead of a
+> batch.
 >
 > **Batch 22 belongs on neither list either, and for a third reason.** Its
 > renders confirmed (nothing moved, which was the whole intent) and its
@@ -770,6 +812,15 @@ here and write down why.
 | **The arrival animation stays *inside* the cache, and it was checked rather than assumed** | `_appear` is `setOpacity` plus a translate, so applying it to the blit instead of the render looks like a way to make the fly-in free. **It is not the same picture.** Per-element opacity composites each glow ring, the plate and every label at `_appear` against what is beneath it; fading the finished layer composites them at full and scales the result — and the selection glow is six translucent rings stacked on a plate. Measured across 243 cases: identical everywhere except the arrival, which differed over ~2.5% of the inked bytes. Both fades are defensible; this one is the one that shipped. Keeping it costs a redraw for the 160 ms after a category step, which is not what the cache was built for. |
 | **The old track is dropped before the new one is decoded, and `decode.probe` is what makes that safe** | `load_path` decoded first, so both arrays were live at once and a skip briefly cost two full tracks. Measured on the two longest files in the real library: **peak 560 MB against 325 MB**, this library having a twelve-minute track that is 279 MB of `float32[n,2]`. Clearing first is only correct because `probe` has already established the file opens — a `DecodeError` must leave the current track playing and put a line on the status bar, which is what `PlayerController.play_index` does, and stopping the music to discover a file was unplayable would be a worse bug than the memory. `probe` is the magic-byte sniff, the MP4/AAC case, a `sf.SoundFile` open and the empty check: everything `load_audio` refuses except a read that fails part-way through a file libsndfile agreed to open. **The cost is audible and was accepted**: the outgoing track is now silent for the decode instead of playing under it. |
 | ~~The wave's buffer should be cropped to its band~~ → **measured, and dropped** | Everything outside `row ± WAVE_BAND` is multiplied by a mask alpha of exactly zero, so 16% of every ribbon fill, bloom and upscale is spent on pixels that cannot appear. It was built, and then it was measured: **3.36 ms against 3.32 at 980x640 — nothing — and 6.04 against 7.32 at fullscreen.** So it buys nothing at the size the app actually runs at. It also came out **not** byte-identical: max delta 1 on ~0.2% of bytes, because `_add_glow` blits into a sub-rect of the glow image and a fractional destination shifts the resampler's phase. Invisible, certainly — and "byte-identical" was the constraint agreed with the user for the app's signature element, so an invisible difference for a fullscreen-only 1.3 ms is the wrong trade. **Reverted. Don't rebuild it without a reason to care about fullscreen specifically.** |
+| **Getting music is a fourth category, not a mode inside Music** | Chosen with the user in Batch 23, against a mode keyed like the Batch 21 search and against a Settings row opening a dialog. The mode was much the smaller change and the dialog was smaller still; what decided it is that this is not a thing you do *to* the Music list, it is a different list from a different place, and the shell already has a word for that. It cost what `theme.py` said it would cost since Batch 4 — `ITEM_X` moved — and one thing it did not say: see the row below. **Get Music is last on the bar** so every existing category index is unchanged, which keeps a saved setting, a harness check and a habit all meaning what they meant. |
+| **`CATEGORY_SPACING` came down from 88 to 80, because `ITEM_X` is squeezed from both sides** | The standing comment on `ITEM_X` said a fourth category means moving it right, and that is true and is only half the constraint. Moving it right also narrows everything to its right, and the narrowest thing there is the **Now Playing speed slider** — which drops itself entirely rather than clipping once its track falls under `SLIDER_TRACK_MIN`. At 88 px spacing the four icons force `ITEM_X` to 400, and the slider then has **4 px** of slack at the 720 px minimum: the app's signature control, one font substitution from vanishing. At 80 the same 33 px of icon clearance lands `ITEM_X` on 376 and the slider gets 28 px. The icons are 44 px focused and 30 px unfocused, so 80 still parts them by more than their own width. **The lesson is that `ITEM_X` has two constraints and only one of them is written next to it** — it is now. |
+| **yt-dlp and ffmpeg are found, never bundled** | Chosen with the user. Bundling is ~100 MB against a 144 MB folder, needs an ffmpeg licence text in `licenses/` and a notices entry, and — the part that actually settles it — **a bundled yt-dlp goes stale**: it breaks whenever YouTube changes, which is often, so shipping one means shipping a feature with an expiry date. Found on `PATH` first, then `%APPDATA%/XMBPlayer/tools/`, which is the folder the app already owns (`config_dir()`), already creates, and already names when someone is asked to send a log in. Re-checked on every category step, so installing one and coming back does not need a restart. **ffmpeg is not optional and there is no way round it**: libsndfile decodes MP3 and nothing else, and what YouTube serves is m4a or opus. |
+| **yt-dlp runs as a subprocess under `QProcess`, never as an imported library** | Decided rather than asked, because the project's own measurements settle it. The audio callback is Python with a 10.7 ms deadline and competes for the GIL with every other line of Python in the process (Batch 16) — and a worker `QThread` is the *same GIL*, which is the version of this that looks safe and is not. A separate process is scheduled by the OS on its own core and costs the callback nothing. `QProcess` is event-loop driven, so `ui/fetcher.py` blocks nothing and sleeps nowhere, and **the app still has no `threading` import**. |
+| **A search runs on a pause in typing; Enter means download and only download** | The alternative is Enter-to-search *and* Enter-to-download on one key, disambiguated by whether the query has changed since the last search — i.e. by state the user cannot see. A 600 ms debounce (shorter than the 800 ms settings one, because somebody is waiting for this) makes typing a phrase one request and leaves Enter with a single meaning. A newer search **replaces** one in flight; a second download is **refused**. That asymmetry is about what the user still wants: a query you have typed past is a question you stopped asking, a file half fetched is one you are still waiting for. |
+| **`refresh_library()` is a second, non-destructive rescan, and the download is its only caller** | `rescan()` routes through `open_folder`, which calls `engine.clear()` — right for the Settings row it belongs to, and fatal for a file arriving on its own: getting a song while listening to a song would stop the song, in a feature whose entire purpose is adding to the library *while you use it*. Two things have to be repaired rather than recomputed and both are one fact — **`index` is a position in a list that just changed length.** The library is sorted by name, so a new file can land *before* the playing one and shift it, leaving `index` addressing a different track while the audio carries on with the old one: the "playing the wrong song" failure this project has twice built maps to avoid. So the playing track is re-found by **path**, the only identity that survives a rescan, and the shuffle bag is re-dealt because a permutation of the old library indexes past the end of the new one. Re-dealing costs the rest of the bag, which is the honest trade: patching a permutation around an insertion is more code than the whole method, to preserve an order nobody can see. |
+| **A Get Music row *is* an index into `_results` — there is no map** | Batch 21 needed `_matches` because a filtered Music column still had to address `controller.tracks`. This column addresses nothing else: a search result has no path, no track index, and cannot be played. So `_results[row]` is the entire lookup and there is no second list to fall out of step with the first — which is Batch 14's and Batch 21's defect avoided by not creating the conditions for it. `Result` is deliberately **not** a `Track` for the same reason: a `Track` is a file on disk and everything above the controller treats it as one. |
+| **`--encoding UTF-8` on the download, and not on the search** | Reads like superstition and is a bug fix. **yt-dlp's `--print` silently drops every character the console codepage cannot hold** — found on a real download whose title contained a colon, which Windows forbids in a filename, so yt-dlp sanitises it to a fullwidth `：` and then printed the path with that character *removed*: not replaced, removed. The file existed; the one the app was told about did not. `PYTHONIOENCODING=utf-8` in the child's environment does **not** fix it. The search needs no such flag and deliberately does not carry one: `--dump-json` emits with `ensure_ascii` on, so its output is **pure ASCII on the wire** and every non-ASCII title arrives as `\uXXXX` for `json.loads` to undo — verified against a search returning Japanese titles. The asymmetry is a test, so "make these consistent" is a change somebody has to argue with. |
+| **The Get Music row's readout is the duration alone** | `duration · uploader` was the first version and reads fine at 980. At the 720 minimum it claims the whole of `_paint_item`'s 45% cap and cuts the title to `1. Extended Ni...`, which identifies nothing — and eliding the value harder does not help, because a value only gives room back by being **short** and a channel name has no length. So: four fixed-width characters of the field that actually decides a pick, since a ten-hour loop and the song you wanted are otherwise the same row. Decided from a render, not from the argument. |
 | **The licence files ship twice: bundled *and* beside the exe** | `--add-data` puts them in `_internal/`, which under PyInstaller 6 is a folder with four hundred DLLs in it — the letter of "the licence travels with the binary" and none of the point. `copy_licences` also drops them at the top of `dist/XMB Player/`, where someone unzipping a release will actually see them. 36 KB against 150 MB is not a trade worth thinking about. |
 
 | **The output buffer is 45.7 ms, not PortAudio's 22** | **The audio callback is Python.** It must take the GIL every 10.7 ms, render a block and return, and `latency='high'` — sounddevice's default, which reads back as a comfortable-sounding 22 ms — left it entering with **2.0 ms** of headroom at the 1st percentile. Any other thread holding the GIL past that means the block is not rendered late, it is *never made*. Measured on a bare stream doing nothing but zero-filling, with one busy Python thread beside it: **83.9 callbacks a second against a nominal 93.75, i.e. 10% of the audio simply absent**, and PortAudio raised no flag for a single one of them. `SUGGESTED_LATENCY_S = 0.035` reads back as 45.7 ms (PortAudio adds the block) and takes the 1st-percentile headroom to ~17 ms. The ceiling was agreed with the user at ~45 ms, against the decisions-log figure of ~50 ms for where a blip stops feeling connected to the keypress. |
@@ -806,6 +857,11 @@ mp3player/
                          #   shuffle (a real bool), repeat (a bare name too)
     log.py               # the rotating log next to it; get(), due(),
                          #   record_exception() -- never raises, never prints
+    fetch.py             # Get Music, below the seam: the argv yt-dlp is handed
+                         #   and the lines it hands back. No Qt, no subprocess,
+                         #   no socket -- which is what makes it testable.
+                         #   find_tools() reports absence as NO_YTDLP/NO_FFMPEG,
+                         #   the same way library reports MISSING/UNREADABLE
     audio/
       decode.py          # load_audio(path) -> (float32[n,2], sr)
                          #   + probe(path): the same refusals, no samples --
@@ -825,9 +881,14 @@ mp3player/
     icon.py              # the app icon: a crescent sweep, Mono's ramp, no tile
                          #   app_icon() -> QIcon, for setWindowIcon; also the
                          #   source tools/make_icon.py builds the .ico from
-    marks.py             # the three category marks, painted: draw_play,
-                         #   draw_note, draw_settings (three faders). Each takes
-                         #   a painter and a box and inks with the pen it finds
+    marks.py             # the four category marks, painted: draw_play,
+                         #   draw_note, draw_settings (three faders), draw_get
+                         #   (an arrow into a tray). Each takes a painter and a
+                         #   box and inks with the pen it finds
+    fetcher.py           # Get Music, above the seam: two QProcess uses behind
+                         #   results/progress/finished/failed. A subprocess and
+                         #   not an import -- the audio callback is Python and a
+                         #   worker thread is the same GIL
     motion.py            # Tween: one easing helper, shared by the three animators
     sounds.py            # which event makes which noise, how loud, how often
     controller.py        # PlayerController(QObject): binds core <-> ui
@@ -839,6 +900,9 @@ mp3player/
                          #   + the Music search: `_matches` is column row ->
                          #   track index, and it is the only place that map is
                          #   stated. Identity while no query is open
+                         #   + Get Music: `_results` needs no such map, because
+                         #   a row there *is* its index and addresses nothing
+                         #   else. The category is the mode -- no flag for it
     widgets/
       crossbar.py        # category row + the rule it sits on. Category.draw is
                          #   a function now, not a glyph string -- see marks.py
@@ -1264,6 +1328,46 @@ don't invent a second way to do a thing we've already solved.
   Batch 16 was built around. The paint work buys CPU and battery, which is a
   real thing to want; it did not buy audio, because Batch 16 had already left
   none to buy.
+- **A constant squeezed from both sides needs both constraints written next to
+  it.** `theme.ITEM_X` carried a warning about the icons on its left for
+  nineteen batches and said nothing about the Now Playing slider on its right —
+  so the obvious move when a fourth category arrived (push `ITEM_X` right by one
+  `CATEGORY_SPACING`, preserving the documented 33 px clearance exactly) took
+  the app's signature control down to 4 px of slack at the minimum window.
+  Neither constraint is wrong; the comment was half a comment. Before moving a
+  layout number, ask what is on the *other* side of it, and write down what you
+  find whether or not it bit you.
+- **A subprocess's stdout has an encoding, and the failure is silent deletion
+  rather than mojibake.** yt-dlp's `--print` drops every character the console
+  codepage cannot hold — a path containing a fullwidth `：` came back with it
+  simply *gone*, so the file the app was told about did not exist while the file
+  on disk was perfect. Mojibake at least looks wrong. This looked like a correct
+  path for a missing file, which sends you hunting the download. Two things
+  follow: force the child's encoding rather than the parent's environment
+  (`PYTHONIOENCODING` did nothing here), and prefer a channel that is
+  **ASCII by construction** where one exists — `--dump-json` escapes to
+  `\uXXXX` and could not have this bug at all.
+- **A harness check that measures text is wrong wherever it happens to be
+  passing.** The convention above says the offscreen platform cannot judge
+  width; Batch 23 found an assertion that had been doing it since Batch 4.
+  `page.track_rect() is not None` subtracts two measured label widths, and
+  offscreen those read 78 and 101 against the real platform's 48 and 60 — so it
+  permitted `ITEM_X` up to 333 where the real answer is 404, and it went red on
+  a change that was fine. It had never been *right*; it had been passing,
+  because 312 is under both numbers. **A green width check offscreen is not
+  evidence, it is a coincidence with a margin.** Ask the font-independent half
+  in the harness and put the real number beside it, measured, because nothing
+  offscreen can re-derive it.
+- **Fake the tool, not the code that drives it.** `tools/shell_harness.py` runs
+  the whole download feature against a fake yt-dlp: a real child process, real
+  line buffering across real pipe chunks, both real parsers, the real signals,
+  the real library refresh and the real sounds — with no network and no
+  installed tool. The only thing stubbed is `find_tools`, which is the boundary.
+  Same principle as swapping `StreamWatch` rather than the audio stream, one
+  module further out, and it is what made a section this size assertable at all.
+  Note the one thing it cannot check, and which cost a real bug: **whether the
+  real tool's output looks like what you are parsing.** That needs the real
+  tool, once.
 - **Where a process writes its files is a cheaper identity check than any API
   that reports on it.** The taskbar icon and the `%APPDATA%` redirection are the
   same root cause, and three correct-looking API calls (`WM_GETICON`, the AUMID
@@ -3560,6 +3664,121 @@ the user's call.
 
 ---
 
+### Batch 23 — Get Music ✅
+
+Not on any roadmap. The user asked whether the app could search YouTube and
+download a song as an MP3.
+
+- [x] The mark: four candidates on the sheet, **arrow into tray** picked
+- [x] `CATEGORY_SPACING` 88 → 80, `ITEM_X` 312 → 376, a fourth `Category`
+- [x] `core/fetch.py` — the argv, both parsers, `find_tools`, and 43 tests
+- [x] `ui/fetcher.py` — two `QProcess` uses behind four signals
+- [x] The category's column, keyboard and download; `refresh_library()`
+- [x] Harness, renders, `README`, `THIRD_PARTY_NOTICES`, `1.3.0`
+
+**Three things were settled with the user before anything was written:** a
+fourth category rather than a mode inside Music, the two tools **found rather
+than bundled**, and one song at a time with no queue. All three are
+decisions-log rows.
+
+**The design stop came first and it was the cheap part.** Four candidate marks —
+an arrow into a tray, the same arrow on a bare line, a cloud, and a note with an
+arrow — drawn at 30 px and 44 px beside the three settled marks, shown, and one
+picked before a line of it was wired. That is Batch 20's pattern and it worked
+the same way: the sheet *is* the design step, so the class of bug the renders
+usually catch was the thing being decided. The losers were deleted the same hour.
+The first sheet had a bug of its own and it is the kind only a picture finds —
+**all four arrows rendered as bare shafts with no head**, because the helper
+wrote its head height as `0.185 * s` and subtracted it from a value that is a
+fraction of `s`. One unit slip, four marks wrong, and nothing but the drawing
+could have said so.
+
+**The geometry cost more than `theme.py` said it would, and the extra half is
+the batch's most reusable finding.** `ITEM_X`'s comment had promised since Batch
+4 that a fourth category means moving it right; that is true and it is one of
+two constraints. Moving it right also narrows everything to its right, and the
+narrowest thing there is the **Now Playing speed slider**, which *drops itself*
+rather than clipping once its track falls under `SLIDER_TRACK_MIN`. Four icons
+at 88 px force `ITEM_X` to 400, and the slider then has **4 px** of slack at the
+720 px minimum — the control the whole app exists for, one font substitution
+from vanishing. `CATEGORY_SPACING` came down to 80, which lands `ITEM_X` on 376
+with the *same* 33 px of icon clearance and gives the slider 28 px. Item text at
+the minimum went 368 → 292 px rather than 368 → 280.
+
+**And the check that caught it had been wrong since Batch 4.** `page.track_rect()
+is not None` subtracts two measured label widths, and the harness is offscreen,
+where DAYCORE and NIGHTCORE measure **78 and 101 against the real platform's 48
+and 60**. So it permitted `ITEM_X` up to 333 where the real ceiling is 404: it
+had never been right, it had been *passing*, because 312 is under both numbers.
+It asks the font-independent half now, with the real measurement written beside
+it, and whether the slider actually appears is checked by looking. A green width
+check offscreen is a coincidence with a margin — that is a convention now.
+
+**The renders found the other bug, for the eleventh batch running, and it was
+the status line eating its own beginning.** `_get_advice` named
+`fetch.tools_dir()` in full, which is an absolute path and therefore unbounded;
+the status line is right-aligned and elides nothing, so at 980 px it read
+**`dlp not found`**, having lost the `yt-`. The cure went short and the path went
+to the log, where it can be copied. Also from a render: the row's readout is the
+duration *alone*, because `duration · uploader` claimed the whole 45% cap at 720
+and cut the title to `1. Extended Ni...`.
+
+**The harness runs the whole feature against a fake yt-dlp**, which is what made
+a section this size assertable: a real child process, real line buffering across
+real pipe chunks, both parsers, the signals, the library refresh and the sounds,
+with no network and nothing installed. Only `find_tools` is stubbed, because it
+is the boundary — the same principle as swapping `StreamWatch` rather than the
+audio stream. The fake writes a real ID3 header (so `scan_folder` accepts it),
+prints its final path **with no trailing newline** (the case `_on_dl_finished`
+flushes for), and lands a file that sorts *before* the playing track, so the
+index shift `refresh_library` exists to survive is exercised rather than
+described.
+
+**`controller.py` was supposed to need no changes, and the reason it did is
+worth the row it got.** `rescan()` routes through `open_folder`, which calls
+`engine.clear()` — so auto-rescanning after a download would stop the music you
+were listening to, in a feature whose entire purpose is adding to the library
+while you use it. `refresh_library()` re-finds the playing track by **path**,
+because the library is sorted by name and a new file can land before it.
+
+**Then the real tool found the bug the fake never could.** With yt-dlp and
+ffmpeg installed, the search was perfect first time — 10 results, right titles,
+right durations — and the download reached 100% and reported a path **that did
+not exist**. `--print` silently drops every character the console codepage
+cannot hold: the title had a colon, Windows forbids that in a filename, yt-dlp
+sanitised it to a fullwidth `：`, and printed the path with that character
+*removed*. Not replaced — removed, so it looked like a correct path for a
+missing file. `PYTHONIOENCODING=utf-8` does nothing; `--encoding UTF-8` fixes
+it. The search needs no such flag and deliberately has none: `--dump-json` is
+**pure ASCII on the wire**, verified against a search returning Japanese titles.
+Both halves are tests, so "make these consistent" is a change somebody has to
+argue with.
+
+Verified: **336 tests green** (43 new, core-only as the convention requires --
+both parsers against junk, missing fields, a NaN duration, tool discovery with
+`PATH` emptied, and the two encoding flags). `tools/shell_harness.py`
+**458/458** on the first run with the known flake passing; 42 new, and the
+caption's cache check was **watched failing** — `_caption` removed from
+`_paint_key` turns exactly that one line red and nothing else. `ruff check .`
+and `mypy` clean. Rendered the marks sheet, Get Music at 720x480 and 980x640
+with results, with none and with the tools missing, Music and Now Playing at the
+minimum, and a control shot of Music's own empty state. Ran the real entrypoint
+through `pythonw.exe` with `%APPDATA%` redirected: started in 1.0 s, **exit 0**,
+settings written, four clean lines, 0 late audio blocks. And one real download of
+a Creative Commons track: 4,248,711 bytes, **passes `is_mp3`**, decodes to
+`float32[6241524, 2]` at 48 kHz, tags and 441 KB of cover art intact.
+
+Not done: the `.exe`. Nothing here changes what PyInstaller reads, and **the two
+tools are deliberately not part of a build** — see the decisions log.
+
+**Raised, not done.** The empty-column text is hard to read where it crosses the
+wave's bright band. That is not this batch's: a control render of Music's own
+`Nothing matches` is exactly as washed out, so it is every empty state in the
+app and predates all of this. Fixing it means touching the empty text's colour
+everywhere, which is a change to make deliberately rather than inside a feature.
+
+---
+
 ## Running it
 
 ```bash
@@ -3626,7 +3845,14 @@ venv/Scripts/python.exe tools/render.py out.png --find tetris
 venv/Scripts/python.exe tools/render.py out.png --find tetris --select 9
 venv/Scripts/python.exe tools/render.py out.png --find zzqqxx --size 720x480
 
-# the three category marks at both real sizes, beside the glyphs they replaced.
+# Get Music. No network in here: `--results` lists stand-in rows, because the
+# question a shot of this screen answers is whether a title and a right-aligned
+# duration survive 280-odd px. `--results 0` is the empty state, which on a
+# machine without yt-dlp is also the "not installed" one.
+venv/Scripts/python.exe tools/render.py out.png --what get --get "sandstorm" --results 6
+venv/Scripts/python.exe tools/render.py out.png --what get --results 0 --size 720x480
+
+# the four category marks at both real sizes, beside the glyphs they replaced.
 # Opens no audio device and builds no window -- it is a question about three
 # drawings. This is the sheet to look at after touching mp3player/ui/marks.py.
 venv/Scripts/python.exe tools/render.py out.png --marks

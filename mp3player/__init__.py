@@ -12,4 +12,4 @@ else: a release is this line changing, and every artifact follows from it.
 
 from __future__ import annotations
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

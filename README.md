@@ -47,6 +47,10 @@ worth naming one, it's the most interesting sentence on this page].
 - **Search the folder.** `/` on the Music list, then type: it narrows to the
   tracks whose title or artist contains what you typed. `Enter` plays one and
   closes, `Esc` goes back to the whole library.
+- **Get music.** A fourth category: type a song name, pick from the results, and
+  it downloads into your music folder as an MP3 and appears in the list without
+  interrupting whatever is playing. This one **needs two programs you install
+  yourself** — see below.
 
 ### Screens
 
@@ -85,11 +89,12 @@ not, [run it from source](#running-from-source) instead — it's the same app.
 
 | | |
 |---|---|
-| `←` `→` | move between Now Playing · Music · Settings |
+| `←` `→` | move between Now Playing · Music · Settings · Get Music |
 | `↑` `↓` | move down a list — or drive the speed slider on Now Playing |
 | `Enter` | play the selected track, or open the selected setting |
 | `Enter` on **Theme** | step into the row, then `←` `→` to browse, `Enter` or `Esc` to leave |
 | `/` or `Ctrl` + `F` | on **Music**, search: type to narrow, `Esc` to clear |
+| typing | on **Get Music**, search online: it looks after you stop, `Enter` downloads |
 | `Backspace` | back a category — or one character, while searching |
 | `Space` | play / pause |
 | `S` | shuffle on / off |
@@ -175,6 +180,36 @@ moment and the audio follows without a gap. That's the whole feature.
 The rest is keeping it quiet. Every gain change — play, pause, seek, track
 change, volume — ramps over about 10 ms instead of jumping, because a gain that
 jumps puts a vertical edge in the waveform, and that edge is an audible click.
+
+---
+
+## Get Music needs two programs, and doesn't ship them
+
+The fourth category shells out to **[yt-dlp](https://github.com/yt-dlp/yt-dlp)**
+to search and download, and to **[ffmpeg](https://ffmpeg.org/)** to turn what
+comes down into an MP3. Neither is bundled: between them they're about 100 MB,
+and a bundled yt-dlp goes stale — it needs updating whenever YouTube changes,
+which is often.
+
+Put both on your `PATH`, or drop the two `.exe` files in:
+
+```
+%APPDATA%\XMBPlayer\tools\
+```
+
+That's the same folder as `settings.json`. The app looks in both places every
+time you open the category, so you don't have to restart after installing them.
+Until it finds them, Get Music says which one is missing and does nothing else.
+
+ffmpeg is genuinely required rather than a nice-to-have: the audio YouTube
+serves is m4a or opus, and the decoder this player uses reads MP3 and nothing
+else, so an unconverted download would be a file it can't play.
+
+**A note on what this does.** Downloading from YouTube is against its Terms of
+Service, and whether any particular download is lawful depends on what you're
+downloading and where you are. This is a personal project and that's your call
+to make — the feature is a wrapper around a tool you install yourself, and it
+does nothing you couldn't do by typing the same command.
 
 ---
 

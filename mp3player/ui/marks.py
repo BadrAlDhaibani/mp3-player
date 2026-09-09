@@ -184,3 +184,103 @@ def draw_settings(painter: QPainter, box: QRectF) -> None:
         painter.drawEllipse(QPointF(cx + x * s, cy + y * s), knob_r, knob_r)
 
     painter.restore()
+
+
+# -- Get Music -------------------------------------------------------------
+#
+# Every length below is a **fraction of the box's side**, which is the one rule
+# this mark broke while it was being drawn: the first version wrote its head
+# height as `0.185 * s` and then subtracted it from `ARROW_TIP`, which is a
+# fraction. That put the shoulder eight box-widths above the canvas and rendered
+# every candidate on the sheet as a bare shaft with no head at all -- four marks
+# wrong for one unit slip, and invisible to anything but the picture.
+
+ARROW_TOP = -0.355  # top of the shaft
+ARROW_TIP = 0.145  # the point
+ARROW_HEAD_H = 0.185  # tip back up to the shoulders
+ARROW_HALF = 0.026  # shaft half-width; the head is ~6x this across
+ARROW_WING = 0.165  # shoulder half-width
+# The shaft is run *past* the shoulder rather than stopped on it. Two abutting
+# subpaths that merely share an edge leave an antialiasing seam down it, and an
+# overlap is also what gives the winding check below something to sample.
+ARROW_OVERLAP = 0.05
+
+
+def arrow_join(box: QRectF) -> QRectF:
+    """Where the shaft runs into the head, which is where odd-even would bite.
+
+    Exported for the same reason `note_stem` is: the fill-rule bug takes its bite
+    exactly at an overlap, so a check for it has to sample the overlap -- and a
+    harness that restated this rectangle by hand would go on passing after the
+    geometry moved.
+    """
+    cx, cy, s = _unit(box)
+    return QRectF(
+        cx - ARROW_HALF * s,
+        cy + (ARROW_TIP - ARROW_HEAD_H) * s,
+        2 * ARROW_HALF * s,
+        ARROW_OVERLAP * s,
+    )
+
+
+def draw_get(painter: QPainter, box: QRectF) -> None:
+    """An arrow falling into an open tray.
+
+    Chosen with the user from a sheet of four (`tools/render.py --marks`),
+    against the same arrow on a bare line, a cloud, and a note with an arrow
+    beside it. It won on the two things this project has picked every mark on:
+    it is unambiguous at **30 px**, being a solid head on a straight shaft with
+    no counter to close up; and its weight is the nearest of the four to
+    `draw_settings` next door, both being lines plus a lump. The tray is what
+    makes it "download" rather than merely "down" -- that was the whole of the
+    difference from candidate B. The cloud was denser than every other mark on
+    the bar and is a desktop idiom rather than an XMB one; the note lost for
+    rhyming with the category one step to its left, which is the thing a
+    navigation mark most needs not to do.
+    """
+    cx, cy, s = _unit(box)
+    ink = painter.pen().color()
+    painter.save()
+
+    shoulder = ARROW_TIP - ARROW_HEAD_H
+
+    shaft = QPainterPath()
+    shaft.addRect(
+        QRectF(
+            cx - ARROW_HALF * s,
+            cy + ARROW_TOP * s,
+            2 * ARROW_HALF * s,
+            (shoulder - ARROW_TOP + ARROW_OVERLAP) * s,
+        )
+    )
+
+    head = QPainterPath(QPointF(cx, cy + ARROW_TIP * s))
+    head.lineTo(QPointF(cx - ARROW_WING * s, cy + shoulder * s))
+    head.lineTo(QPointF(cx + ARROW_WING * s, cy + shoulder * s))
+    head.closeSubpath()
+
+    arrow = QPainterPath()
+    arrow.addPath(shaft)
+    arrow.addPath(head)
+    arrow.setFillRule(Qt.WindingFill)
+
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(ink)
+    painter.drawPath(arrow.simplified())
+
+    # The tray is stroked rather than filled, which is what keeps it lighter than
+    # the arrow it catches. Same pixel floor as the faders' tracks, and for the
+    # same reason: below about 30 px a 0.052 stroke lands under a pixel and
+    # antialiases into a grey smear.
+    pen = QPen(ink, max(1.5, 0.052 * s))
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    tray = QPainterPath(QPointF(cx - 0.335 * s, cy + 0.115 * s))
+    tray.lineTo(QPointF(cx - 0.335 * s, cy + 0.335 * s))
+    tray.lineTo(QPointF(cx + 0.335 * s, cy + 0.335 * s))
+    tray.lineTo(QPointF(cx + 0.335 * s, cy + 0.115 * s))
+    painter.drawPath(tray)
+
+    painter.restore()

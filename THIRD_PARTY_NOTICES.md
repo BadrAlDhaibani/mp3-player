@@ -97,6 +97,27 @@ package's `dist-info/licenses/`.
 `LICENSE` at the root of this project is the GPL-2.0 text verbatim, which is
 also mutagen's and PyInstaller's licence.
 
+## Two programs this build talks to but does not contain
+
+The **Get Music** category runs [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+(Unlicense) and [ffmpeg](https://ffmpeg.org/) (LGPL-2.1-or-later, or GPL if
+built with certain options) as **separate processes**, found on `PATH` or in
+`%APPDATA%\XMBPlayer\tools\`.
+
+Neither is bundled, neither is linked, and neither is redistributed here — so
+nothing in this table changes and no licence text of theirs is required in
+`licenses/`. They are programs the user installs and this app invokes, the same
+relationship the app has with the operating system. If you package a build that
+*does* ship them, that is a different distribution and it takes on their terms:
+ffmpeg in particular is LGPL only for some builds, and a GPL-3 build would be
+compatible with this project only because it is GPL-2.0-**or-later**.
+
+The reason the split is a subprocess rather than a Python import is
+architectural rather than legal, and it is in `CLAUDE.md`: the audio callback is
+Python and shares the GIL with everything in-process.
+
+---
+
 ## What is *not* third-party
 
 The UI sounds are synthesized in numpy at startup (`core/audio/sfx.py`) rather

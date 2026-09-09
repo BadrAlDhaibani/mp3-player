@@ -141,17 +141,41 @@ def font(
 CROSSBAR_Y_RATIO = 0.44
 
 FOCUS_X = 88  # where the active category icon centres
-CATEGORY_SPACING = 88
+# 88 through Batch 22, and 80 since the fourth category arrived. Not a taste
+# change: at 88 the four icons push `ITEM_X` to 400, which leaves the Now
+# Playing speed slider **4 px** of slack at the 720 px minimum window -- the
+# app's signature control, one font substitution away from being dropped
+# entirely. At 80 the same clearance arithmetic lands `ITEM_X` on 376 and the
+# slider gets 28 px. The icons are 44 px focused and 30 px unfocused, so 80
+# still separates them by more than their own width.
+CATEGORY_SPACING = 80
 CATEGORY_ICON = 44  # glyph pixel size, active
 CATEGORY_ICON_SMALL = 30  # glyph pixel size, everything else
 CATEGORY_LABEL_GAP = 32  # icon centre -> label baseline area
 
 # The bar and the column must never share horizontal space: the column's active
 # row sits *on* the crossbar row, so any overlap makes one of them unclickable.
-# With three categories the furthest-right icon is FOCUS_X + 2 * SPACING = 264,
-# which clears ITEM_X with room for the marker gutter. Adding a fourth category
-# means moving ITEM_X right, not just appending to the list.
-ITEM_X = 312  # left edge of the item column
+# This comment used to be a warning about the future -- "adding a fourth category
+# means moving ITEM_X right, not just appending to the list" -- and Batch 23
+# cashed it in. The arithmetic, so the next one is a lookup rather than a
+# rediscovery: the furthest-right icon centres at FOCUS_X + (n - 1) * SPACING and
+# is CATEGORY_ICON_SMALL wide, so its right edge is that plus 15.
+#
+#   3 categories @ 88: centre 264, edge 279, ITEM_X 312 -> 33 px of clearance
+#   4 categories @ 88: centre 352, edge 367, ITEM_X 400 -> 33 px, and too far
+#   4 categories @ 80: centre 328, edge 343, ITEM_X 376 -> 33 px, and it fits
+#
+# The clearance is 33 px in all three, which is the number being preserved.
+# What moved instead is `CATEGORY_SPACING` -- see the note on it, and note *why*
+# it had to: the constraint on `ITEM_X` is not only the icons on its left, it is
+# the Now Playing slider on its right, and at 400 that slider had 4 px of slack
+# at the minimum window. `ITEM_X` is squeezed from both sides and only one of
+# them is visible in this arithmetic.
+#
+# What it still costs is item text at the 720 px minimum: 368 px before, 292 px
+# now. A title with a right-aligned artist has to survive that -- see
+# `_paint_item`'s 45% cap, which is the thing holding it, and the renders.
+ITEM_X = 376  # left edge of the item column
 ITEM_SPACING = 44
 ITEM_TEXT = 17
 ITEM_TEXT_ACTIVE = 20
